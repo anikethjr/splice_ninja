@@ -18,7 +18,8 @@ class KnockdownData(Dataset):
         self.config = config
         self.split = split
         self.cache_dir = self.config["data_config"]["cache_dir"]
-        self.chromosomes_in_split = self.config["training_config"][
+        self.input_size = self.config["train_config"]["input_size"]
+        self.chromosomes_in_split = self.config["train_config"][
             f"{self.split}_chromosomes"
         ]
 
@@ -72,3 +73,5 @@ class KnockdownData(Dataset):
         coordinates = splicing_event["FullCO"].split(",")
 
         # construct full input sequence and a mask which indicates the positions of the event
+        # input sequence is the concatenation of the event + upstream and downstream sequences of the event 
+        # the mask is used to condition the model on the event, therefore model predicts P(inclusion | event) = PSI
