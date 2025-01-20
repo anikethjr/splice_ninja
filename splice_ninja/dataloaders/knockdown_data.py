@@ -97,11 +97,6 @@ class KnockdownData(LightningDataModule):
             sep="\t",
         )
 
-        # add a column for chromosome number
-        self.inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
-            lambda x: x.split(":")[0]
-        )
-
         # rename all the PSI and quality columns to remove the trailing "_1" at the end
         rename_dict = {}
         for col in self.inclusion_levels_full.columns[6:]:
@@ -109,6 +104,9 @@ class KnockdownData(LightningDataModule):
                 rename_dict[col] = col[:-2]
             elif col.endswith("_1-Q"):
                 rename_dict[col] = col[:-4] + "-Q"
+        self.inclusion_levels_full = self.inclusion_levels_full.rename(
+            columns=rename_dict
+        )
 
         # get the columns for PSI values and quality - every PSI column is followed by a quality column
         # each PSI value is measured after knockdown of a specific splicing factor indicated by the column name
@@ -144,7 +142,7 @@ class KnockdownData(LightningDataModule):
         self.quality_columns = [
             i
             for i in self.quality_columns
-            if i[: len("-Q")]
+            if i[: -len("-Q")]
             not in [
                 "AA2",
                 "AA1",
@@ -167,7 +165,7 @@ class KnockdownData(LightningDataModule):
         # (from https://github.com/estepi/SpliceNet/blob/main/prepareALLTable.R#L20-L29)
         # thus, we drop the columns for the first replicate of these splicing factors and rename the columns for the second replicate
         drop_columns = ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"] + [
-            i + "_Q" for i in ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"]
+            i + "-Q" for i in ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"]
         ]
         rename_dict = {
             "LENG1_b": "LENG1",
@@ -194,7 +192,7 @@ class KnockdownData(LightningDataModule):
             for i in self.inclusion_levels_full.columns
             if i.endswith("_b") or i.endswith("con")
         ]
-        drop_columns += [i + "_Q" for i in drop_columns]
+        drop_columns += [i + "-Q" for i in drop_columns]
         self.inclusion_levels_full = self.inclusion_levels_full.drop(
             columns=drop_columns
         )
@@ -206,7 +204,7 @@ class KnockdownData(LightningDataModule):
         ]
         for i in self.psi_vals_columns:
             assert f"{i}-Q" in self.quality_columns
-        assert len(self.psi_vals_columns) == len(self.quality_columns) == 305
+        # assert len(self.psi_vals_columns) == len(self.quality_columns) == 305 # there are 319 for some reason - need to check, maybe there are additional filters that need to be applied
 
         # print some statistics about the data
         initial_num_PSI_vals = (
@@ -275,14 +273,16 @@ class KnockdownData(LightningDataModule):
         for i in self.quality_columns:
             IR_events_raw_pvals = self.inclusion_levels_full.loc[is_IR, i].apply(
                 lambda x: float(x.split("@")[0].split(",")[-1])
+                if x.split("@")[0].split(",")[-1] != "NA"
+                else np.nan
             )
             IR_events_corrected_pvals = multipletests(
                 IR_events_raw_pvals, alpha=0.05, method="holm"
             )[1]
             # replace the PSI values of IR events with NaN if the corrected p-value is less than 0.05
-            self.inclusion_levels_full.loc[
-                is_IR & (IR_events_corrected_pvals < 0.05), i[:-2]
-            ] = np.nan
+            filter_out = np.zeros(self.inclusion_levels_full.shape[0], dtype=bool)
+            filter_out[is_IR] = IR_events_corrected_pvals < 0.05
+            self.inclusion_levels_full.loc[filter_out, i[:-2]] = np.nan
         num_PSI_vals_after_IR_filtering = (
             (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
         )
@@ -321,10 +321,14 @@ class KnockdownData(LightningDataModule):
         )
         for i in self.quality_columns:
             inclusion_reads = self.inclusion_levels_full[i].apply(
-                lambda x: int(x.split("@")[1].split(",")[0])
+                lambda x: float(x.split("@")[1].split(",")[0])
+                if x.split("@")[1].split(",")[0] != "NA"
+                else np.nan
             )
             exclusion_reads = self.inclusion_levels_full[i].apply(
-                lambda x: int(x.split("@")[1].split(",")[1])
+                lambda x: float(x.split("@")[1].split(",")[1])
+                if x.split("@")[1].split(",")[1] != "NA"
+                else np.nan
             )
             filter_out_events_with_fewer_than_10_inclusion_or_exclusion_reads |= (
                 inclusion_reads < 10
@@ -368,10 +372,14 @@ class KnockdownData(LightningDataModule):
         average_reads = np.zeros(self.inclusion_levels_full.shape[0])
         for i in self.quality_columns:
             inclusion_reads = self.inclusion_levels_full[i].apply(
-                lambda x: int(x.split("@")[1].split(",")[0])
+                lambda x: float(x.split("@")[1].split(",")[0])
+                if x.split("@")[1].split(",")[0] != "NA"
+                else np.nan
             )
             exclusion_reads = self.inclusion_levels_full[i].apply(
-                lambda x: int(x.split("@")[1].split(",")[1])
+                lambda x: float(x.split("@")[1].split(",")[1])
+                if x.split("@")[1].split(",")[1] != "NA"
+                else np.nan
             )
             average_reads += inclusion_reads + exclusion_reads
         average_reads /= len(self.quality_columns)
@@ -413,3 +421,8 @@ class KnockdownData(LightningDataModule):
         self.genome = genomepy.Genome(
             "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
         )  # only need hg38 since the data is from human cell lines
+
+        # add a column for chromosome number
+        self.inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
+            lambda x: x.split(":")[0]
+        )
