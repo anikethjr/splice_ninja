@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import pdb
 import json
+from statsmodels.stats.multitest import multipletests
 
 import genomepy
 
@@ -96,9 +97,315 @@ class KnockdownData(LightningDataModule):
             sep="\t",
         )
 
-        # keep only the events that are in the chromosomes in the split
+        # add a column for chromosome number
         self.inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
             lambda x: x.split(":")[0]
+        )
+
+        # rename all the PSI and quality columns to remove the trailing "_1" at the end
+        rename_dict = {}
+        for col in self.inclusion_levels_full.columns[6:]:
+            if col.endswith("_1"):
+                rename_dict[col] = col[:-2]
+            elif col.endswith("_1-Q"):
+                rename_dict[col] = col[:-4] + "-Q"
+
+        # get the columns for PSI values and quality - every PSI column is followed by a quality column
+        # each PSI value is measured after knockdown of a specific splicing factor indicated by the column name
+        self.psi_vals_columns = [
+            i for i in self.inclusion_levels_full.columns[6:] if not i.endswith("-Q")
+        ]
+        self.quality_columns = [
+            i for i in self.inclusion_levels_full.columns[6:] if i.endswith("-Q")
+        ]
+        assert len(self.psi_vals_columns) == len(self.quality_columns)
+
+        # discard columns corresponding to the following samples due to poor quality of the data
+        # AA2, AA1, CCDC12, C1orf55, C1orf55_b, CDC5L, HFM1, LENG1, RBM17, PPIL1, SRRM4, SRRT
+        self.psi_vals_columns = [
+            i
+            for i in self.psi_vals_columns
+            if i
+            not in [
+                "AA2",
+                "AA1",
+                "CCDC12",
+                "C1orf55",
+                "C1orf55_b",
+                "CDC5L",
+                "HFM1",
+                "LENG1",
+                "RBM17",
+                "PPIL1",
+                "SRRM4",
+                "SRRT",
+            ]
+        ]
+        self.quality_columns = [
+            i
+            for i in self.quality_columns
+            if i[: len("-Q")]
+            not in [
+                "AA2",
+                "AA1",
+                "CCDC12",
+                "C1orf55",
+                "C1orf55_b",
+                "CDC5L",
+                "HFM1",
+                "LENG1",
+                "RBM17",
+                "PPIL1",
+                "SRRM4",
+                "SRRT",
+            ]
+        ]
+        assert len(self.psi_vals_columns) == len(self.quality_columns)
+
+        # authors of original work use data from second replicate for the following splicing factors:
+        # LENG1 (called LENG1_b), RBM17 (called RBM17con), HFM1 (called HFM1_b), CCDC12 (called CCDC12_b), CDC5L (called CDC5L_b)
+        # (from https://github.com/estepi/SpliceNet/blob/main/prepareALLTable.R#L20-L29)
+        # thus, we drop the columns for the first replicate of these splicing factors and rename the columns for the second replicate
+        drop_columns = ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"] + [
+            i + "_Q" for i in ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"]
+        ]
+        rename_dict = {
+            "LENG1_b": "LENG1",
+            "RBM17con": "RBM17",
+            "HFM1_b": "HFM1",
+            "CCDC12_b": "CCDC12",
+            "CDC5L_b": "CDC5L",
+            "LENG1_b-Q": "LENG1-Q",
+            "RBM17con-Q": "RBM17-Q",
+            "HFM1_b-Q": "HFM1-Q",
+            "CCDC12_b-Q": "CCDC12-Q",
+            "CDC5L_b-Q": "CDC5L-Q",
+        }
+        self.inclusion_levels_full = self.inclusion_levels_full.drop(
+            columns=drop_columns
+        )
+        self.inclusion_levels_full = self.inclusion_levels_full.rename(
+            columns=rename_dict
+        )
+
+        # we also drop all other replicate columns (endswith "_b" or "con") since we only use the data from the first replicate
+        drop_columns = [
+            i
+            for i in self.inclusion_levels_full.columns
+            if i.endswith("_b") or i.endswith("con")
+        ]
+        drop_columns += [i + "_Q" for i in drop_columns]
+        self.inclusion_levels_full = self.inclusion_levels_full.drop(
+            columns=drop_columns
+        )
+        self.psi_vals_columns = [
+            i for i in self.inclusion_levels_full.columns[6:] if not i.endswith("-Q")
+        ]
+        self.quality_columns = [
+            i for i in self.inclusion_levels_full.columns[6:] if i.endswith("-Q")
+        ]
+        for i in self.psi_vals_columns:
+            assert f"{i}-Q" in self.quality_columns
+        assert len(self.psi_vals_columns) == len(self.quality_columns) == 305
+
+        # print some statistics about the data
+        initial_num_PSI_vals = (
+            (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
+        )
+        print(f"Initial number of PSI values: {initial_num_PSI_vals}")
+        number_of_PSI_vals_of_each_type = {}
+        for event_type in self.inclusion_levels_full["COMPLEX"].unique():
+            number_of_PSI_vals_of_each_type[event_type] = (
+                (
+                    ~np.isnan(
+                        self.inclusion_levels_full.loc[
+                            self.inclusion_levels_full["COMPLEX"] == event_type,
+                            self.psi_vals_columns,
+                        ]
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        print(f"Number of PSI values of each type: {number_of_PSI_vals_of_each_type}")
+
+        # filter out PSI values which did not pass the quality control
+        # first value of the first comma-separated list of values in the quality column is the quality control flag
+        # (from https://github.com/estepi/SpliceNet/blob/main/replaceNAI.R#L23-L31)
+        for i in self.quality_columns:
+            self.inclusion_levels_full.loc[
+                self.inclusion_levels_full[i].apply(lambda x: "OK" in x.split(",")[0]),
+                i[:-2],
+            ] = np.nan
+        num_PSI_vals_after_quality_control_filtering = (
+            (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
+        )
+        percent_events_filtered = (
+            100
+            * (initial_num_PSI_vals - num_PSI_vals_after_quality_control_filtering)
+            / initial_num_PSI_vals
+        )
+        print(
+            f"Number of PSI values after filtering events which did not pass the quality control: {num_PSI_vals_after_quality_control_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+        )
+        num_PSI_vals_of_each_type_after_quality_control_filtering = {}
+        for event_type in self.inclusion_levels_full["COMPLEX"].unique():
+            num_PSI_vals_of_each_type_after_quality_control_filtering[event_type] = (
+                (
+                    ~np.isnan(
+                        self.inclusion_levels_full.loc[
+                            self.inclusion_levels_full["COMPLEX"] == event_type,
+                            self.psi_vals_columns,
+                        ]
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        print(
+            f"Number of PSI values of each type after filtering events which did not pass the quality control: {num_PSI_vals_of_each_type_after_quality_control_filtering}"
+        )
+
+        # filter out intron retention (IR) PSI values where the corrected p-value of a binomial test of balance between reads mapping to the upstream and downstream exon-intron junctions is less than 0.05,
+        # indicating a significant imbalance in the reads mapping to the two junctions and therefore a false positive IR event
+        # the raw p-value is stored in the quality column for each PSI value - last number before the @ symbol in the string (@ separates two comma-separated lists of values)
+        # correction is performed using the Holm method by pooling p-values across all events observed in the same sample
+        # (from https://github.com/estepi/SpliceNet/blob/main/replaceNAI.R#L71-L78)
+        is_IR = self.inclusion_levels_full["COMPLEX"] == "IR"
+        for i in self.quality_columns:
+            IR_events_raw_pvals = self.inclusion_levels_full.loc[is_IR, i].apply(
+                lambda x: float(x.split("@")[0].split(",")[-1])
+            )
+            IR_events_corrected_pvals = multipletests(
+                IR_events_raw_pvals, alpha=0.05, method="holm"
+            )[1]
+            # replace the PSI values of IR events with NaN if the corrected p-value is less than 0.05
+            self.inclusion_levels_full.loc[
+                is_IR & (IR_events_corrected_pvals < 0.05), i[:-2]
+            ] = np.nan
+        num_PSI_vals_after_IR_filtering = (
+            (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
+        )
+        percent_events_filtered = (
+            100
+            * (initial_num_PSI_vals - num_PSI_vals_after_IR_filtering)
+            / initial_num_PSI_vals
+        )
+        print(
+            f"Number of PSI values after filtering IR events: {num_PSI_vals_after_IR_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+        )
+        num_PSI_vals_of_each_type_after_IR_filtering = {}
+        for event_type in self.inclusion_levels_full["COMPLEX"].unique():
+            num_PSI_vals_of_each_type_after_IR_filtering[event_type] = (
+                (
+                    ~np.isnan(
+                        self.inclusion_levels_full.loc[
+                            self.inclusion_levels_full["COMPLEX"] == event_type,
+                            self.psi_vals_columns,
+                        ]
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        print(
+            f"Number of PSI values of each type after filtering IR events: {num_PSI_vals_of_each_type_after_IR_filtering}"
+        )
+
+        # filter out events which have fewer than 10 inclusion or exclusion reads in every sample
+        # inclusion reads are located in the first value of the second comma-separated list of values in the quality column (@ separates two comma-separated lists of values)
+        # exclusion reads are located in the second value of the second comma-separated list of values in the quality column
+        # (mentioned as a filter in the supplementary information of the original paper)
+        filter_out_events_with_fewer_than_10_inclusion_or_exclusion_reads = np.zeros(
+            self.inclusion_levels_full.shape[0], dtype=bool
+        )
+        for i in self.quality_columns:
+            inclusion_reads = self.inclusion_levels_full[i].apply(
+                lambda x: int(x.split("@")[1].split(",")[0])
+            )
+            exclusion_reads = self.inclusion_levels_full[i].apply(
+                lambda x: int(x.split("@")[1].split(",")[1])
+            )
+            filter_out_events_with_fewer_than_10_inclusion_or_exclusion_reads |= (
+                inclusion_reads < 10
+            ) | (exclusion_reads < 10)
+        self.inclusion_levels_full = self.inclusion_levels_full.loc[
+            ~filter_out_events_with_fewer_than_10_inclusion_or_exclusion_reads
+        ].reset_index(drop=True)
+        num_PSI_vals_after_inclusion_or_exclusion_reads_filtering = (
+            (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
+        )
+        percent_events_filtered = (
+            100
+            * (
+                initial_num_PSI_vals
+                - num_PSI_vals_after_inclusion_or_exclusion_reads_filtering
+            )
+            / initial_num_PSI_vals
+        )
+        print(
+            f"Number of PSI values after filtering events with fewer than 10 inclusion or exclusion reads in every event: {num_PSI_vals_after_inclusion_or_exclusion_reads_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+        )
+        num_PSI_vals_of_each_type_after_inclusion_or_exclusion_reads_filtering = {}
+        for event_type in self.inclusion_levels_full["COMPLEX"].unique():
+            num_PSI_vals_of_each_type_after_inclusion_or_exclusion_reads_filtering[
+                event_type
+            ] = (
+                (
+                    ~np.isnan(
+                        self.inclusion_levels_full.loc[
+                            self.inclusion_levels_full["COMPLEX"] == event_type,
+                            self.psi_vals_columns,
+                        ]
+                    )
+                )
+                .sum()
+                .sum()
+            )
+
+        # filter out events with fewer than 100 average reads across all samples
+        # (mentioned as a filter in the supplementary information of the original paper)
+        average_reads = np.zeros(self.inclusion_levels_full.shape[0])
+        for i in self.quality_columns:
+            inclusion_reads = self.inclusion_levels_full[i].apply(
+                lambda x: int(x.split("@")[1].split(",")[0])
+            )
+            exclusion_reads = self.inclusion_levels_full[i].apply(
+                lambda x: int(x.split("@")[1].split(",")[1])
+            )
+            average_reads += inclusion_reads + exclusion_reads
+        average_reads /= len(self.quality_columns)
+        filter_out_events_with_fewer_than_100_average_reads = average_reads < 100
+        self.inclusion_levels_full = self.inclusion_levels_full.loc[
+            ~filter_out_events_with_fewer_than_100_average_reads
+        ].reset_index(drop=True)
+        num_PSI_vals_after_average_reads_filtering = (
+            (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
+        )
+        percent_events_filtered = (
+            100
+            * (initial_num_PSI_vals - num_PSI_vals_after_average_reads_filtering)
+            / initial_num_PSI_vals
+        )
+        print(
+            f"Number of PSI values after filtering events with fewer than 100 average reads across all samples: {num_PSI_vals_after_average_reads_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+        )
+        num_PSI_vals_of_each_type_after_average_reads_filtering = {}
+        for event_type in self.inclusion_levels_full["COMPLEX"].unique():
+            num_PSI_vals_of_each_type_after_average_reads_filtering[event_type] = (
+                (
+                    ~np.isnan(
+                        self.inclusion_levels_full.loc[
+                            self.inclusion_levels_full["COMPLEX"] == event_type,
+                            self.psi_vals_columns,
+                        ]
+                    )
+                )
+                .sum()
+                .sum()
+            )
+        print(
+            f"Number of PSI values of each type after filtering events with fewer than 100 average reads across all samples: {num_PSI_vals_of_each_type_after_average_reads_filtering}"
         )
 
         # load the genome

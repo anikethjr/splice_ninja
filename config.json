@@ -1,7 +1,7 @@
 {
     "data_config": {
-        "data_dir": "/clusterfs/nilah/aniketh/SpliceNinja/input_data/",
-        "cache_dir": "/clusterfs/nilah/aniketh/SpliceNinja/cache/"
+        "data_dir": "/clusterfs/nilah/aniketh/splice_ninja/input_data/",
+        "cache_dir": "/clusterfs/nilah/aniketh/splice_ninja/cache/"
     },
     "train_config": {
         "input_size": 10000,
