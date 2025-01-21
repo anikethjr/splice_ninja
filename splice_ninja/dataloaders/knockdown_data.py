@@ -226,6 +226,16 @@ class KnockdownData(LightningDataModule):
                 .sum()
             )
         print(f"Number of PSI values of each type: {number_of_PSI_vals_of_each_type}")
+        # remove events with NaN PSI values in all samples
+        filter_out_events_with_all_PSI_values_NaN = np.all(
+            self.inclusion_levels_full[self.psi_vals_columns].isna(), axis=1
+        )
+        self.inclusion_levels_full = self.inclusion_levels_full.loc[
+            ~filter_out_events_with_all_PSI_values_NaN
+        ].reset_index(drop=True)
+        print(
+            f"Number of events of each type after dropping events with no valid measurements: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
+        )
 
         # filter out PSI values which did not pass the quality control
         # first value of the first comma-separated list of values in the quality column is the quality control flag
@@ -262,6 +272,16 @@ class KnockdownData(LightningDataModule):
             )
         print(
             f"Number of PSI values of each type after filtering events which did not pass the quality control: {num_PSI_vals_of_each_type_after_quality_control_filtering}"
+        )
+        # remove events with NaN PSI values in all samples
+        filter_out_events_with_all_PSI_values_NaN = np.all(
+            self.inclusion_levels_full[self.psi_vals_columns].isna(), axis=1
+        )
+        self.inclusion_levels_full = self.inclusion_levels_full.loc[
+            ~filter_out_events_with_all_PSI_values_NaN
+        ].reset_index(drop=True)
+        print(
+            f"Number of events of each type after dropping events with no valid measurements: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
         )
 
         # filter out intron retention (IR) PSI values where the corrected p-value of a binomial test of balance between reads mapping to the upstream and downstream exon-intron junctions is less than 0.05,
@@ -311,6 +331,16 @@ class KnockdownData(LightningDataModule):
         print(
             f"Number of PSI values of each type after filtering IR events: {num_PSI_vals_of_each_type_after_IR_filtering}"
         )
+        # remove events with NaN PSI values in all samples
+        filter_out_events_with_all_PSI_values_NaN = np.all(
+            self.inclusion_levels_full[self.psi_vals_columns].isna(), axis=1
+        )
+        self.inclusion_levels_full = self.inclusion_levels_full.loc[
+            ~filter_out_events_with_all_PSI_values_NaN
+        ].reset_index(drop=True)
+        print(
+            f"Number of events of each type after dropping events with no valid measurements: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
+        )
 
         # filter out events with fewer than 100 average reads across all samples
         # (mentioned as a filter in the supplementary information of the original paper)
@@ -319,12 +349,12 @@ class KnockdownData(LightningDataModule):
             inclusion_reads = self.inclusion_levels_full[i].apply(
                 lambda x: float(x.split("@")[1].split(",")[0])
                 if x.split("@")[1].split(",")[0] != "NA"
-                else np.nan
+                else 0
             )
             exclusion_reads = self.inclusion_levels_full[i].apply(
                 lambda x: float(x.split("@")[1].split(",")[1])
                 if x.split("@")[1].split(",")[1] != "NA"
-                else np.nan
+                else 0
             )
             average_reads += inclusion_reads + exclusion_reads
         average_reads /= len(self.quality_columns)
@@ -363,7 +393,7 @@ class KnockdownData(LightningDataModule):
 
         # print number of events of each type
         print(
-            f"Number of events of each type: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
+            f"Final number of events of each type: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
         )
 
         # load the genome
