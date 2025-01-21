@@ -342,55 +342,6 @@ class KnockdownData(LightningDataModule):
             f"Number of events of each type after dropping events with no valid measurements: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
         )
 
-        # filter out events with fewer than 100 average reads across all samples
-        # (mentioned as a filter in the supplementary information of the original paper)
-        average_reads = np.zeros(self.inclusion_levels_full.shape[0])
-        for i in self.quality_columns:
-            inclusion_reads = self.inclusion_levels_full[i].apply(
-                lambda x: float(x.split("@")[1].split(",")[0])
-                if x.split("@")[1].split(",")[0] != "NA"
-                else 0
-            )
-            exclusion_reads = self.inclusion_levels_full[i].apply(
-                lambda x: float(x.split("@")[1].split(",")[1])
-                if x.split("@")[1].split(",")[1] != "NA"
-                else 0
-            )
-            average_reads += inclusion_reads + exclusion_reads
-        average_reads /= len(self.quality_columns)
-        filter_out_events_with_fewer_than_100_average_reads = average_reads < 100
-        self.inclusion_levels_full = self.inclusion_levels_full.loc[
-            ~filter_out_events_with_fewer_than_100_average_reads
-        ].reset_index(drop=True)
-        num_PSI_vals_after_average_reads_filtering = (
-            (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns])).sum().sum()
-        )
-        percent_events_filtered = (
-            100
-            * (initial_num_PSI_vals - num_PSI_vals_after_average_reads_filtering)
-            / initial_num_PSI_vals
-        )
-        print(
-            f"Number of PSI values after filtering events with fewer than 100 average reads across all samples: {num_PSI_vals_after_average_reads_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
-        )
-        num_PSI_vals_of_each_type_after_average_reads_filtering = {}
-        for event_type in self.inclusion_levels_full["COMPLEX"].unique():
-            num_PSI_vals_of_each_type_after_average_reads_filtering[event_type] = (
-                (
-                    ~np.isnan(
-                        self.inclusion_levels_full.loc[
-                            self.inclusion_levels_full["COMPLEX"] == event_type,
-                            self.psi_vals_columns,
-                        ]
-                    )
-                )
-                .sum()
-                .sum()
-            )
-        print(
-            f"Number of PSI values of each type after filtering events with fewer than 100 average reads across all samples: {num_PSI_vals_of_each_type_after_average_reads_filtering}"
-        )
-
         # print number of events of each type
         print(
             f"Final number of events of each type: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
