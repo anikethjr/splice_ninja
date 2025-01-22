@@ -71,8 +71,13 @@ class KnockdownDataset(Dataset):
 
 # DataModule for the knockdown data
 class KnockdownData(LightningDataModule):
-    def __init__(self, config):
-        self.config = config
+    def __init__(self, config: dict | str):
+        super().__init__()
+        if isinstance(config, str):
+            with open(config, "r") as f:
+                self.config = json.load(f)
+        else:
+            self.config = config
         self.input_size = self.config["train_config"]["input_size"]
         self.train_chromosomes = self.config["data_config"]["train_chromosomes"]
         self.test_chromosomes = self.config["data_config"]["test_chromosomes"]
