@@ -218,9 +218,7 @@ class KnockdownData(LightningDataModule):
                 i for i in self.psi_vals_columns if i in self.gene_counts.columns
             ]
             self.quality_columns = [
-                i
-                for i in self.quality_columns
-                if i[: -len("-Q")] in self.gene_counts.columns
+                i + "-Q" for i in self.quality_columns if i in self.gene_counts.columns
             ]
             assert len(self.psi_vals_columns) == len(self.quality_columns)
             drop_columns = [
