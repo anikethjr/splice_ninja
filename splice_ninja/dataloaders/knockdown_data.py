@@ -78,14 +78,6 @@ class KnockdownData(LightningDataModule):
         self.test_chromosomes = self.config["data_config"]["test_chromosomes"]
         self.val_chromosomes = self.config["data_config"]["val_chromosomes"]
 
-        # load gene counts
-        self.gene_counts = pd.read_csv(
-            os.path.join(self.config["data_config"]["data_dir"], "geneCounts.tab"),
-            sep="\t",
-            index_col=0,
-        )
-        self.gene_counts = self.gene_counts.rename({"X": "gene_id"}, axis=1)
-
         # cache directory
         self.cache_dir = self.config["data_config"]["cache_dir"]
         if not os.path.exists(self.cache_dir):
@@ -94,7 +86,53 @@ class KnockdownData(LightningDataModule):
         # load/create the filtered splicing data
         if not os.path.exists(
             os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
+        ) or not os.path.exists(
+            os.path.join(self.cache_dir, "gene_counts_filtered.csv")
         ):
+            print("Filtering data")
+
+            # load gene counts
+            self.gene_counts = pd.read_csv(
+                os.path.join(self.config["data_config"]["data_dir"], "geneCounts.tab"),
+                sep="\t",
+                index_col=0,
+            )
+            self.gene_counts = self.gene_counts.rename({"X": "gene_id"}, axis=1)
+
+            # average counts from biological replicates - these are samples with suffixes "_r1" and "_r2"
+            self.gene_counts_samples = self.gene_counts.columns[2:]
+            rename_dict = {}
+            for col in self.gene_counts_samples:
+                if col.endswith("_r1"):
+                    self.gene_counts[col] = (
+                        self.gene_counts[col] + self.gene_counts[col[:-3] + "_r2"]
+                    ) / 2
+                    rename_dict[col] = col[:-3]
+                if col.endswith(
+                    ".1"
+                ):  # these correspond to replicates with the "_b" or "con" suffix in the splicing data
+                    if col[:-2] in [
+                        "C1orf55",
+                        "CCDC12",
+                        "CDC5L",
+                        "CWC22",
+                        "HFM1",
+                        "LENG1",
+                        "SRPK2",
+                        "XAB2",
+                    ]:
+                        rename_dict[col] = col[:-2] + "_b"
+                    elif col[:-2] in ["IK", "PRPF8", "RBM17", "SF3B1", "SMU1"]:
+                        rename_dict[col] = col[:-2] + "con"
+                    else:
+                        raise ValueError(
+                            f"Could not determine replicate suffix for {col}"
+                        )
+            self.gene_counts = self.gene_counts.drop(
+                columns=[i for i in self.gene_counts.columns if i.endswith("_r2")]
+            )
+            self.gene_counts = self.gene_counts.rename(columns=rename_dict)
+
             # load psi values
             # data was provided in the VastTools output format, more details on the data format are here - https://github.com/vastgroup/vast-tools?tab=readme-ov-file#combine-output-format
             self.inclusion_levels_full = pd.read_csv(
@@ -170,6 +208,35 @@ class KnockdownData(LightningDataModule):
             ]
             assert len(self.psi_vals_columns) == len(self.quality_columns)
 
+            # remove samples for which there is no gene count data
+            self.psi_vals_columns = [
+                i for i in self.psi_vals_columns if i in self.gene_counts.columns
+            ]
+            self.quality_columns = [
+                i
+                for i in self.quality_columns
+                if i[: -len("-Q")] in self.gene_counts.columns
+            ]
+            assert len(self.psi_vals_columns) == len(self.quality_columns)
+            drop_columns = [
+                i
+                for i in self.inclusion_levels_full.columns[6:]
+                if i not in self.psi_vals_columns
+            ] + [
+                i
+                for i in self.inclusion_levels_full.columns[6:]
+                if i.endswith("-Q") and i[: -len("-Q")] not in self.quality_columns
+            ]
+            self.inclusion_levels_full = self.inclusion_levels_full.drop(
+                drop_columns, axis=1
+            )
+
+            # now drop gene count columns for which there is no PSI data
+            drop_columns = [
+                i for i in self.gene_counts.columns if i not in self.psi_vals_columns
+            ]
+            self.gene_counts = self.gene_counts.drop(columns=drop_columns)
+
             # authors of original work use data from second replicate for the following splicing factors:
             # LENG1 (called LENG1_b), RBM17 (called RBM17con), HFM1 (called HFM1_b), CCDC12 (called CCDC12_b), CDC5L (called CDC5L_b)
             # (from https://github.com/estepi/SpliceNet/blob/main/prepareALLTable.R#L20-L29)
@@ -177,6 +244,41 @@ class KnockdownData(LightningDataModule):
             drop_columns = ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"] + [
                 i + "-Q" for i in ["LENG1", "RBM17", "HFM1", "CCDC12", "CDC5L"]
             ]
+            # also drop columns with poor quality data
+            drop_columns = (
+                drop_columns
+                + [
+                    "AA2",
+                    "AA1",
+                    "CCDC12",
+                    "C1orf55",
+                    "C1orf55_b",
+                    "CDC5L",
+                    "HFM1",
+                    "LENG1",
+                    "RBM17",
+                    "PPIL1",
+                    "SRRM4",
+                    "SRRT",
+                ]
+                + [
+                    i + "-Q"
+                    for i in [
+                        "AA2",
+                        "AA1",
+                        "CCDC12",
+                        "C1orf55",
+                        "C1orf55_b",
+                        "CDC5L",
+                        "HFM1",
+                        "LENG1",
+                        "RBM17",
+                        "PPIL1",
+                        "SRRM4",
+                        "SRRT",
+                    ]
+                ]
+            )
             rename_dict = {
                 "LENG1_b": "LENG1",
                 "RBM17con": "RBM17",
@@ -195,6 +297,11 @@ class KnockdownData(LightningDataModule):
             self.inclusion_levels_full = self.inclusion_levels_full.rename(
                 columns=rename_dict
             )
+            # perform the same renaming for the gene counts
+            self.gene_counts = self.gene_counts.drop(
+                columns=[i for i in drop_columns if i in self.gene_counts.columns]
+            )
+            self.gene_counts = self.gene_counts.rename(columns=rename_dict)
 
             # we also drop all other replicate columns (endswith "_b" or "con") since we only use the data from the first replicate
             drop_columns = [
@@ -216,9 +323,21 @@ class KnockdownData(LightningDataModule):
             ]
             for i in self.psi_vals_columns:
                 assert f"{i}-Q" in self.quality_columns
-            # assert len(self.psi_vals_columns) == len(self.quality_columns) == 305 # there are 319 for some reason - need to check, maybe there are additional filters that need to be applied
+            # assert len(self.psi_vals_columns) == len(self.quality_columns) == 305, # there are 312 for some reason, need to check
+
+            # drop replicate columns from gene counts
+            drop_columns = [
+                i
+                for i in self.gene_counts.columns
+                if i.endswith("_b") or i.endswith("con")
+            ]
+            self.gene_counts = self.gene_counts.drop(columns=drop_columns)
+            assert set(self.gene_counts.columns[2:]) == set(
+                self.psi_vals_columns
+            )  # check that the columns match
 
             # print some statistics about the data
+            print(f"Number of samples: {len(self.psi_vals_columns)}")
             initial_num_PSI_vals = (
                 (~np.isnan(self.inclusion_levels_full[self.psi_vals_columns]))
                 .sum()
@@ -376,6 +495,12 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv"),
                 index=False,
             )
+
+            # cache the gene counts
+            self.gene_counts.to_csv(
+                os.path.join(self.cache_dir, "gene_counts_filtered.csv"), index=False
+            )
+
             print("Filtered data cached")
 
         else:
@@ -383,6 +508,10 @@ class KnockdownData(LightningDataModule):
             self.inclusion_levels_full = pd.read_csv(
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
             )
+            self.gene_counts = pd.read_csv(
+                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+            )
+
             self.psi_vals_columns = [
                 i
                 for i in self.inclusion_levels_full.columns[6:]
