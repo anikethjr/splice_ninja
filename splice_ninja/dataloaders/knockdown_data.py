@@ -297,10 +297,10 @@ class KnockdownData(LightningDataModule):
                 "CDC5L_b-Q": "CDC5L-Q",
             }
             self.inclusion_levels_full = self.inclusion_levels_full.drop(
-                columns=drop_columns
+                columns=drop_columns, errors="ignore"
             )
             self.inclusion_levels_full = self.inclusion_levels_full.rename(
-                columns=rename_dict
+                columns=rename_dict, errors="ignore"
             )
             # perform the same renaming for the gene counts
             self.gene_counts = self.gene_counts.drop(
