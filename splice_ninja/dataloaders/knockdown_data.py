@@ -79,9 +79,9 @@ class KnockdownData(LightningDataModule):
         else:
             self.config = config
         self.input_size = self.config["train_config"]["input_size"]
-        self.train_chromosomes = self.config["data_config"]["train_chromosomes"]
-        self.test_chromosomes = self.config["data_config"]["test_chromosomes"]
-        self.val_chromosomes = self.config["data_config"]["val_chromosomes"]
+        self.train_chromosomes = self.config["train_config"]["train_chromosomes"]
+        self.test_chromosomes = self.config["train_config"]["test_chromosomes"]
+        self.val_chromosomes = self.config["train_config"]["val_chromosomes"]
 
         # cache directory
         self.cache_dir = self.config["data_config"]["cache_dir"]
