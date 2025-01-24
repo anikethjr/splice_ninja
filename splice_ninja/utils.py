@@ -46,6 +46,8 @@ def get_ensembl_gene_id_hgnc_with_alias(gene_name):
                     for doc2 in data2["response"]["docs"]:
                         ensembl_id = doc2["ensembl_gene_id"]
                         all_ensembl_ids.append(ensembl_id)
+                else:
+                    print("Error in fetching Ensembl ID for HGNC ID:", hgnc_id)
 
             if len(all_ensembl_ids) == 1:
                 return all_ensembl_ids[0]
