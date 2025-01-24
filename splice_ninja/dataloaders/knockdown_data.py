@@ -850,6 +850,11 @@ class KnockdownData(LightningDataModule):
                 i for i in self.inclusion_levels_full.columns[6:] if i.endswith("-Q")
             ]
 
+            # print number of events of each type
+            print(
+                f"Final number of events of each type: {self.inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
         # load the genome
         os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
         genomepy.install_genome(
