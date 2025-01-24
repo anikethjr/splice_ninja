@@ -571,7 +571,7 @@ class KnockdownData(LightningDataModule):
             rename_dict = {}
             for i in self.psi_vals_columns:
                 max_count = 0
-                best_ensembl_id = None
+                best_ensembl_id = self.gene_name_to_ensembl_id[i][0]
                 for ensembl_id in self.gene_name_to_ensembl_id[i]:
                     if ensembl_id in self.gene_counts.columns:
                         exp_count = (
@@ -582,8 +582,6 @@ class KnockdownData(LightningDataModule):
                         if exp_count > max_count:
                             max_count = exp_count
                             best_ensembl_id = ensembl_id
-                if best_ensembl_id is None:
-                    raise Exception(f"Could not find the gene count data for {i}")
 
                 rename_dict[i] = best_ensembl_id
                 rename_dict[i + "-Q"] = best_ensembl_id + "-Q"
