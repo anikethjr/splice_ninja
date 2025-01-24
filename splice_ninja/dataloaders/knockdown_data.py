@@ -636,6 +636,15 @@ class KnockdownData(LightningDataModule):
             assert set(self.gene_counts.columns[2:]) == set(
                 self.psi_vals_columns
             )  # check that the columns match
+            assert len(self.psi_vals_columns) == len(
+                set(self.psi_vals_columns)
+            ), "Duplicate columns found in PSI values data"
+            assert len(self.quality_columns) == len(
+                set(self.quality_columns)
+            ), "Duplicate columns found in quality data"
+            assert len(set(self.gene_counts.columns[2:])) == (
+                self.gene_counts.shape[1] - 2
+            ), "Duplicate columns found in gene count data"
             for i in self.psi_vals_columns:
                 assert (
                     f"{i}-Q" in self.quality_columns
