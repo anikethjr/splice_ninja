@@ -184,7 +184,7 @@ class KnockdownData(LightningDataModule):
             # start building a dictionary to map gene names to Ensembl gene IDs
             drop_columns = []
             for sf in tqdm(self.gene_counts.columns[2:]):
-                if sf not in gene_name_to_ensembl_id:
+                if sf not in self.gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
                             sf[:-2] if sf.endswith("_b") else sf[:-3]
@@ -195,14 +195,14 @@ class KnockdownData(LightningDataModule):
                         )  # return can be str | list[str], list is for multiple IDs
                     if ensembl_id is not None:
                         if isinstance(ensembl_id, list):
-                            gene_name_to_ensembl_id[sf] = ensembl_id
+                            self.gene_name_to_ensembl_id[sf] = ensembl_id
                         else:
-                            gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        for ensembl_id in gene_name_to_ensembl_id[sf]:
-                            if ensembl_id in ensembl_id_to_gene_name:
-                                ensembl_id_to_gene_name[ensembl_id].append(sf)
+                            self.gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        for ensembl_id in self.gene_name_to_ensembl_id[sf]:
+                            if ensembl_id in self.ensembl_id_to_gene_name:
+                                self.ensembl_id_to_gene_name[ensembl_id].append(sf)
                             else:
-                                ensembl_id_to_gene_name[ensembl_id] = [sf]
+                                self.ensembl_id_to_gene_name[ensembl_id] = [sf]
                     else:
                         drop_columns.append(sf)
             # if any of the columns to be dropped have a row with the same name in the gene count data, we use the gene ID present in the gene count data and add it to the mapping and don't drop the column
@@ -211,12 +211,14 @@ class KnockdownData(LightningDataModule):
                     ensembl_id = self.gene_counts.loc[
                         self.gene_counts["alias"] == sf, "gene_id"
                     ].iloc[0]
-                    gene_name_to_ensembl_id[sf] = [ensembl_id]
-                    if ensembl_id in ensembl_id_to_gene_name:
-                        ensembl_id_to_gene_name[ensembl_id].append(sf)
+                    self.gene_name_to_ensembl_id[sf] = [ensembl_id]
+                    if ensembl_id in self.ensembl_id_to_gene_name:
+                        self.ensembl_id_to_gene_name[ensembl_id].append(sf)
                     else:
-                        ensembl_id_to_gene_name[ensembl_id] = [sf]
-            drop_columns = [i for i in drop_columns if i not in gene_name_to_ensembl_id]
+                        self.ensembl_id_to_gene_name[ensembl_id] = [sf]
+            drop_columns = [
+                i for i in drop_columns if i not in self.gene_name_to_ensembl_id
+            ]
 
             # drop columns for which we could not find the Ensembl gene ID
             self.gene_counts = self.gene_counts.drop(columns=drop_columns)
@@ -229,7 +231,7 @@ class KnockdownData(LightningDataModule):
             drop_columns = []
             for sf in self.gene_counts.columns[2:]:
                 check = False
-                for ensembl_id in gene_name_to_ensembl_id[sf]:
+                for ensembl_id in self.gene_name_to_ensembl_id[sf]:
                     if (self.gene_counts["gene_id"] == ensembl_id).sum() > 0:
                         check = True
                         break
@@ -252,11 +254,11 @@ class KnockdownData(LightningDataModule):
                         ensembl_id = self.gene_counts.loc[
                             self.gene_counts["alias"] == alias, "gene_id"
                         ].iloc[0]
-                        gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(sf)
+                        self.gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        if ensembl_id in self.ensembl_id_to_gene_name:
+                            self.ensembl_id_to_gene_name[ensembl_id].append(sf)
                         else:
-                            ensembl_id_to_gene_name[ensembl_id] = [sf]
+                            self.ensembl_id_to_gene_name[ensembl_id] = [sf]
             self.gene_counts = self.gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
@@ -306,7 +308,7 @@ class KnockdownData(LightningDataModule):
             # get ensembl gene IDs for the splicing factors being knocked down in the splicing data
             drop_columns = []
             for sf in tqdm(self.psi_vals_columns):
-                if sf not in gene_name_to_ensembl_id:
+                if sf not in self.gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
                             sf[:-2] if sf.endswith("_b") else sf[:-3]
@@ -315,14 +317,14 @@ class KnockdownData(LightningDataModule):
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
                     if ensembl_id is not None:
                         if isinstance(ensembl_id, list):
-                            gene_name_to_ensembl_id[sf] = ensembl_id
+                            self.gene_name_to_ensembl_id[sf] = ensembl_id
                         else:
-                            gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        for ensembl_id in gene_name_to_ensembl_id[sf]:
-                            if ensembl_id in ensembl_id_to_gene_name:
-                                ensembl_id_to_gene_name[ensembl_id].append(sf)
+                            self.gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        for ensembl_id in self.gene_name_to_ensembl_id[sf]:
+                            if ensembl_id in self.ensembl_id_to_gene_name:
+                                self.ensembl_id_to_gene_name[ensembl_id].append(sf)
                             else:
-                                ensembl_id_to_gene_name[ensembl_id] = [sf]
+                                self.ensembl_id_to_gene_name[ensembl_id] = [sf]
                     else:
                         drop_columns.append(sf)
                         drop_columns.append(sf + "-Q")
@@ -351,13 +353,13 @@ class KnockdownData(LightningDataModule):
             with open(
                 os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w+"
             ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
+                json.dump(self.gene_name_to_ensembl_id, f)
 
             # cache the Ensembl gene ID to gene name mapping
             with open(
                 os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w+"
             ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
+                json.dump(self.ensembl_id_to_gene_name, f)
 
             # discard columns corresponding to the following samples due to poor quality of the data
             # AA2, AA1, CCDC12, C1orf55, C1orf55_b, CDC5L, HFM1, LENG1, RBM17, PPIL1, SRRM4, SRRT
@@ -534,7 +536,7 @@ class KnockdownData(LightningDataModule):
             for i in self.gene_counts.columns[2:]:
                 max_count = 0
                 best_ensembl_id = None
-                for ensembl_id in gene_name_to_ensembl_id[i]:
+                for ensembl_id in self.gene_name_to_ensembl_id[i]:
                     if (self.gene_counts["gene_id"] == ensembl_id).sum() > 0:
                         exp_count = (
                             self.gene_counts[self.gene_counts["gene_id"] == ensembl_id]
@@ -557,7 +559,7 @@ class KnockdownData(LightningDataModule):
             for i in self.psi_vals_columns:
                 max_count = 0
                 best_ensembl_id = None
-                for ensembl_id in gene_name_to_ensembl_id[i]:
+                for ensembl_id in self.gene_name_to_ensembl_id[i]:
                     if ensembl_id in self.gene_counts.columns:
                         exp_count = (
                             self.gene_counts[self.gene_counts["gene_id"] == ensembl_id]
@@ -813,11 +815,11 @@ class KnockdownData(LightningDataModule):
             with open(
                 os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "r"
             ) as f:
-                gene_name_to_ensembl_id = json.load(f)
+                self.gene_name_to_ensembl_id = json.load(f)
             with open(
                 os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "r"
             ) as f:
-                ensembl_id_to_gene_name = json.load(f)
+                self.ensembl_id_to_gene_name = json.load(f)
 
             self.psi_vals_columns = [
                 i
