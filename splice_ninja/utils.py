@@ -31,24 +31,31 @@ def get_ensembl_gene_id_hgnc_with_alias(gene_name):
             all_symbols = []
             all_hgnc_ids = []
             all_ensembl_ids = []
+            all_scores = []
             for doc in data["response"]["docs"]:
                 symbol = doc.get("symbol")
                 hgnc_id = doc.get("hgnc_id")
+                score = doc.get("score")
                 all_symbols.append(symbol)
                 all_hgnc_ids.append(hgnc_id)
+                all_scores.append(score)
 
-                url = f"https://rest.genenames.org/fetch/hgnc_id/{hgnc_id}"
-                headers = {"Accept": "application/json"}
-                response2 = requests.get(url, headers=headers)
+            # get the ensemble gene id for the match with the highest score
+            max_score_index = all_scores.index(max(all_scores))
+            hgnc_id = all_hgnc_ids[max_score_index]
 
-                if response2.status_code == 200:
-                    data2 = response2.json()
-                    for doc2 in data2["response"]["docs"]:
-                        if "ensembl_gene_id" in doc2:
-                            ensembl_id = doc2["ensembl_gene_id"]
-                            all_ensembl_ids.append(ensembl_id)
-                else:
-                    print("Error in fetching Ensembl ID for HGNC ID:", hgnc_id)
+            url = f"https://rest.genenames.org/fetch/hgnc_id/{hgnc_id}"
+            headers = {"Accept": "application/json"}
+            response2 = requests.get(url, headers=headers)
+
+            if response2.status_code == 200:
+                data2 = response2.json()
+                for doc2 in data2["response"]["docs"]:
+                    if "ensembl_gene_id" in doc2:
+                        ensembl_id = doc2["ensembl_gene_id"]
+                        all_ensembl_ids.append(ensembl_id)
+            else:
+                print("Error in fetching Ensembl ID for HGNC ID:", hgnc_id)
 
             if len(all_ensembl_ids) == 1:
                 return all_ensembl_ids[0]
