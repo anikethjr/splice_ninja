@@ -416,7 +416,20 @@ class KnockdownData(LightningDataModule):
             # drop these columns from the gene counts as well, if they exist + some specific rules to account for data weirdness
             drop_columns = []
             rename_dict = {}
-            for col in drop_columns:
+            for col in [
+                "AA2",
+                "AA1",
+                "CCDC12",
+                "C1orf55",
+                "C1orf55_b",
+                "CDC5L",
+                "HFM1",
+                "LENG1",
+                "RBM17",
+                "PPIL1",
+                "SRRM4",
+                "SRRT",
+            ]:
                 if col in self.gene_counts.columns:
                     if col == "LENG1":
                         if "LENG1_b" in self.gene_counts.columns:
