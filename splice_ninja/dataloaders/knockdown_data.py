@@ -211,11 +211,14 @@ class KnockdownData(LightningDataModule):
                     if (self.gene_counts["alias"] == alias).sum() == 0:
                         drop_columns.append(sf)
                     else:
-                        raise Exception(
-                            "Weird case where the gene ID is not found but the alias is found for {}".format(
+                        print(
+                            "Weird case where the gene ID is not found but the alias is found for {}, using gene ID present in the gene count data".format(
                                 sf
                             )
                         )
+                        ensembl_id = self.gene_counts.loc[
+                            self.gene_counts["alias"] == alias, "gene_id"
+                        ].iloc[0]
             self.gene_counts = self.gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
@@ -474,7 +477,7 @@ class KnockdownData(LightningDataModule):
             )
 
             # now rename all the columns to use Ensembl gene IDs instead of gene names since the two files don't always use the same gene names
-            # if a gene has multiple Ensembl IDs, we use the one for which the gene id is found in the gene count data
+            # if a gene has multiple Ensembl IDs, we use the one for which the gene id is found in the gene count data and has the cumulative highest expression
             rename_dict = {}
             for i in self.gene_counts.columns[2:]:
                 max_count = 0
