@@ -220,6 +220,10 @@ class KnockdownData(LightningDataModule):
                             self.gene_counts["alias"] == alias, "gene_id"
                         ].iloc[0]
                         gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        if ensembl_id in ensembl_id_to_gene_name:
+                            ensembl_id_to_gene_name[ensembl_id].append(sf)
+                        else:
+                            ensembl_id_to_gene_name[ensembl_id] = [sf]
             self.gene_counts = self.gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
