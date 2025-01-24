@@ -852,6 +852,9 @@ class KnockdownData(LightningDataModule):
 
         # load the genome
         os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
+        genomepy.install_genome(
+            "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
+        )
         self.genome = genomepy.Genome(
             "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
         )  # only need hg38 since the data is from human cell lines
