@@ -109,6 +109,26 @@ class KnockdownData(LightningDataModule):
         ):
             print("Filtering data")
 
+            if os.path.exists(
+                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json")
+            ):
+                with open(
+                    os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "r"
+                ) as f:
+                    self.gene_name_to_ensembl_id = json.load(f)
+            else:
+                self.gene_name_to_ensembl_id = {}
+
+            if os.path.exists(
+                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json")
+            ):
+                with open(
+                    os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "r"
+                ) as f:
+                    self.ensembl_id_to_gene_name = json.load(f)
+            else:
+                self.ensembl_id_to_gene_name = {}
+
             # load gene counts
             self.gene_counts = pd.read_csv(
                 os.path.join(self.config["data_config"]["data_dir"], "geneCounts.tab"),
@@ -162,8 +182,6 @@ class KnockdownData(LightningDataModule):
             )
 
             # start building a dictionary to map gene names to Ensembl gene IDs
-            gene_name_to_ensembl_id = {}
-            ensembl_id_to_gene_name = {}
             drop_columns = []
             for sf in tqdm(self.gene_counts.columns[2:]):
                 if sf not in gene_name_to_ensembl_id:
@@ -324,6 +342,18 @@ class KnockdownData(LightningDataModule):
             print(
                 "Every PSI value is followed by a quality column in the data after removing samples for which the Ensembl ID could not be found"
             )
+
+            # cache the gene name to Ensembl gene ID mapping
+            with open(
+                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w+"
+            ) as f:
+                json.dump(gene_name_to_ensembl_id, f)
+
+            # cache the Ensembl gene ID to gene name mapping
+            with open(
+                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w+"
+            ) as f:
+                json.dump(ensembl_id_to_gene_name, f)
 
             # discard columns corresponding to the following samples due to poor quality of the data
             # AA2, AA1, CCDC12, C1orf55, C1orf55_b, CDC5L, HFM1, LENG1, RBM17, PPIL1, SRRM4, SRRT
@@ -765,18 +795,6 @@ class KnockdownData(LightningDataModule):
             self.gene_counts.to_csv(
                 os.path.join(self.cache_dir, "gene_counts_filtered.csv"), index=False
             )
-
-            # cache the gene name to Ensembl gene ID mapping
-            with open(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w+"
-            ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
-
-            # cache the Ensembl gene ID to gene name mapping
-            with open(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w+"
-            ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
 
             print("Filtered data cached")
 
