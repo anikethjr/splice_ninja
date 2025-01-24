@@ -186,6 +186,18 @@ class KnockdownData(LightningDataModule):
                                 ensembl_id_to_gene_name[ensembl_id] = [sf]
                     else:
                         drop_columns.append(sf)
+            # if any of the columns to be dropped have a row with the same name in the gene count data, we use the gene ID present in the gene count data and add it to the mapping and don't drop the column
+            for sf in drop_columns:
+                if (self.gene_counts["alias"] == sf).sum() > 0:
+                    ensembl_id = self.gene_counts.loc[
+                        self.gene_counts["alias"] == sf, "gene_id"
+                    ].iloc[0]
+                    gene_name_to_ensembl_id[sf] = [ensembl_id]
+                    if ensembl_id in ensembl_id_to_gene_name:
+                        ensembl_id_to_gene_name[ensembl_id].append(sf)
+                    else:
+                        ensembl_id_to_gene_name[ensembl_id] = [sf]
+            drop_columns = [i for i in drop_columns if i not in gene_name_to_ensembl_id]
 
             # drop columns for which we could not find the Ensembl gene ID
             self.gene_counts = self.gene_counts.drop(columns=drop_columns)
