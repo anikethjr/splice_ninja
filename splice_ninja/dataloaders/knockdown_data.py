@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import pdb
 import json
+from tqdm import tqdm
 from statsmodels.stats.multitest import multipletests
 
 import genomepy
@@ -164,7 +165,7 @@ class KnockdownData(LightningDataModule):
             gene_name_to_ensembl_id = {}
             ensembl_id_to_gene_name = {}
             drop_columns = []
-            for sf in self.gene_counts.columns[2:]:
+            for sf in tqdm(self.gene_counts.columns[2:]):
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
@@ -284,7 +285,7 @@ class KnockdownData(LightningDataModule):
 
             # get ensembl gene IDs for the splicing factors being knocked down in the splicing data
             drop_columns = []
-            for sf in self.psi_vals_columns:
+            for sf in tqdm(self.psi_vals_columns):
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf[:-2])

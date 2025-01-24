@@ -39,13 +39,18 @@ def get_ensembl_gene_id_hgnc_with_alias(gene_name):
 
                 url = f"https://rest.genenames.org/fetch/hgnc_id/{hgnc_id}"
                 headers = {"Accept": "application/json"}
-                data2 = requests.get(url, headers=headers).json()
+                response2 = requests.get(url, headers=headers)
 
-                for doc2 in data2["response"]["docs"]:
-                    ensembl_id = doc2["ensembl_gene_id"]
-                    all_ensembl_ids.append(ensembl_id)
+                if response2.status_code == 200:
+                    data2 = response2.json()
+                    for doc2 in data2["response"]["docs"]:
+                        ensembl_id = doc2["ensembl_gene_id"]
+                        all_ensembl_ids.append(ensembl_id)
 
             if len(all_ensembl_ids) == 1:
                 return all_ensembl_ids[0]
-            return all_ensembl_ids
+            elif len(all_ensembl_ids) > 1:
+                return all_ensembl_ids
+            else:
+                return None
     return None
