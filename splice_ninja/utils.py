@@ -1,4 +1,5 @@
 from biothings_client import get_client
+import requests
 
 
 def get_ensembl_gene_id_biothings(gene_name):
@@ -17,3 +18,34 @@ def get_ensembl_gene_id_biothings(gene_name):
                     return hit["ensembl"]["gene"]
 
     return None  # Return None if not found
+
+
+def get_ensembl_gene_id_hgnc_with_alias(gene_name):
+    url = f"https://rest.genenames.org/search/{gene_name}"
+    headers = {"Accept": "application/json"}
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        data = response.json()
+        if data["response"]["numFound"] > 0:
+            all_symbols = []
+            all_hgnc_ids = []
+            all_ensembl_ids = []
+            for doc in data["response"]["docs"]:
+                symbol = doc.get("symbol")
+                hgnc_id = doc.get("hgnc_id")
+                all_symbols.append(symbol)
+                all_hgnc_ids.append(hgnc_id)
+
+                url = f"https://rest.genenames.org/fetch/hgnc_id/{hgnc_id}"
+                headers = {"Accept": "application/json"}
+                data2 = requests.get(url, headers=headers).json()
+
+                for doc2 in data2["response"]["docs"]:
+                    ensembl_id = doc2["ensembl_gene_id"]
+                    all_ensembl_ids.append(ensembl_id)
+
+            if len(all_ensembl_ids) == 1:
+                return all_ensembl_ids[0]
+            return all_ensembl_ids
+    return None

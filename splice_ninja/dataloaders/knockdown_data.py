@@ -15,7 +15,7 @@ from torch.utils.data import Dataset, DataLoader
 import lightning as L
 from lightning.pytorch import LightningDataModule
 
-from splice_ninja.utils import get_ensembl_gene_id_biothings
+from splice_ninja.utils import get_ensembl_gene_id_hgnc_with_alias
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -167,11 +167,11 @@ class KnockdownData(LightningDataModule):
             for sf in self.gene_counts.columns[2:]:
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_biothings(
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
                             sf[:-2]
                         )  # return can be str | list[str], list is for multiple IDs
                     else:
-                        ensembl_id = get_ensembl_gene_id_biothings(
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
                             sf
                         )  # return can be str | list[str], list is for multiple IDs
                     if ensembl_id is not None:
@@ -287,9 +287,9 @@ class KnockdownData(LightningDataModule):
             for sf in self.psi_vals_columns:
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_biothings(sf[:-2])
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf[:-2])
                     else:
-                        ensembl_id = get_ensembl_gene_id_biothings(sf)
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
                     if ensembl_id is not None:
                         if isinstance(ensembl_id, list):
                             gene_name_to_ensembl_id[sf] = ensembl_id
