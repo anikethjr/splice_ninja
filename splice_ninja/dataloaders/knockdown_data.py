@@ -357,7 +357,7 @@ class KnockdownData(LightningDataModule):
                 ]
             ]
             self.inclusion_levels_full = self.inclusion_levels_full.drop(
-                columns=drop_columns
+                columns=drop_columns, errors="ignore"
             )
             print(
                 "Discarded columns with poor quality data, number of samples: {}".format(
