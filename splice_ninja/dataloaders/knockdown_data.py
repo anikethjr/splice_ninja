@@ -502,7 +502,7 @@ class KnockdownData(LightningDataModule):
                 for ensembl_id in gene_name_to_ensembl_id[i]:
                     if (self.gene_counts["gene_id"] == ensembl_id).sum() > 0:
                         exp_count = (
-                            (self.gene_counts["gene_id"] == ensembl_id)
+                            self.gene_counts[self.gene_counts["gene_id"] == ensembl_id]
                             .iloc[0][self.gene_counts.columns[2:]]
                             .sum()
                         )
@@ -525,7 +525,7 @@ class KnockdownData(LightningDataModule):
                 for ensembl_id in gene_name_to_ensembl_id[i]:
                     if ensembl_id in self.gene_counts.columns:
                         exp_count = (
-                            (self.gene_counts["gene_id"] == ensembl_id)
+                            self.gene_counts[self.gene_counts["gene_id"] == ensembl_id]
                             .iloc[0][self.gene_counts.columns[2:]]
                             .sum()
                         )
