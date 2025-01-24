@@ -12,7 +12,7 @@ def get_ensembl_gene_id_biothings(gene_name):
             # Check if the Ensembl ID is available
             if "ensembl" in hit:
                 if isinstance(hit["ensembl"], list):
-                    return hit["ensembl"][0]["gene"]  # Handle multiple IDs
+                    return [i["gene"] for i in hit["ensembl"]]  # Handle multiple IDs
                 else:
                     return hit["ensembl"]["gene"]
 

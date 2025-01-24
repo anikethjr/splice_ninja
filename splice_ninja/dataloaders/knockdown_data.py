@@ -167,15 +167,23 @@ class KnockdownData(LightningDataModule):
             for sf in self.gene_counts.columns[2:]:
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_biothings(sf[:-2])
+                        ensembl_id = get_ensembl_gene_id_biothings(
+                            sf[:-2]
+                        )  # return can be str | list[str], list is for multiple IDs
                     else:
-                        ensembl_id = get_ensembl_gene_id_biothings(sf)
+                        ensembl_id = get_ensembl_gene_id_biothings(
+                            sf
+                        )  # return can be str | list[str], list is for multiple IDs
                     if ensembl_id is not None:
-                        gene_name_to_ensembl_id[sf] = ensembl_id
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(sf)
+                        if isinstance(ensembl_id, list):
+                            gene_name_to_ensembl_id[sf] = ensembl_id
                         else:
-                            ensembl_id_to_gene_name[ensembl_id] = [sf]
+                            gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        for ensembl_id in gene_name_to_ensembl_id[sf]:
+                            if ensembl_id in ensembl_id_to_gene_name:
+                                ensembl_id_to_gene_name[ensembl_id].append(sf)
+                            else:
+                                ensembl_id_to_gene_name[ensembl_id] = [sf]
                     else:
                         drop_columns.append(sf)
 
@@ -189,9 +197,12 @@ class KnockdownData(LightningDataModule):
             # also drop columns for which there is no corresponding gene count data in the rows
             drop_columns = []
             for sf in self.gene_counts.columns[2:]:
-                if (
-                    self.gene_counts["gene_id"] == gene_name_to_ensembl_id[sf]
-                ).sum() == 0:
+                check = False
+                for ensembl_id in gene_name_to_ensembl_id[sf]:
+                    if (self.gene_counts["gene_id"] == ensembl_id).sum() > 0:
+                        check = True
+                        break
+                if not check:
                     alias = (
                         sf
                         if not sf.endswith("_b") and not sf.endswith("con")
@@ -260,11 +271,15 @@ class KnockdownData(LightningDataModule):
                     else:
                         ensembl_id = get_ensembl_gene_id_biothings(sf)
                     if ensembl_id is not None:
-                        gene_name_to_ensembl_id[sf] = ensembl_id
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(sf)
+                        if isinstance(ensembl_id, list):
+                            gene_name_to_ensembl_id[sf] = ensembl_id
                         else:
-                            ensembl_id_to_gene_name[ensembl_id] = [sf]
+                            gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        for ensembl_id in gene_name_to_ensembl_id[sf]:
+                            if ensembl_id in ensembl_id_to_gene_name:
+                                ensembl_id_to_gene_name[ensembl_id].append(sf)
+                            else:
+                                ensembl_id_to_gene_name[ensembl_id] = [sf]
                     else:
                         drop_columns.append(sf)
                         drop_columns.append(sf + "-Q")
@@ -459,15 +474,49 @@ class KnockdownData(LightningDataModule):
             )
 
             # now rename all the columns to use Ensembl gene IDs instead of gene names since the two files don't always use the same gene names
-            rename_dict = {
-                i: gene_name_to_ensembl_id[i] for i in self.gene_counts.columns[2:]
-            }
+            # if a gene has multiple Ensembl IDs, we use the one for which the gene id is found in the gene count data
+            rename_dict = {}
+            for i in self.gene_counts.columns[2:]:
+                max_count = 0
+                best_ensembl_id = None
+                for ensembl_id in gene_name_to_ensembl_id[i]:
+                    if (self.gene_counts["gene_id"] == ensembl_id).sum() > 0:
+                        exp_count = (
+                            (self.gene_counts["gene_id"] == ensembl_id)
+                            .iloc[0][self.gene_counts.columns[2:]]
+                            .sum()
+                        )
+                        if exp_count > max_count:
+                            max_count = exp_count
+                            best_ensembl_id = ensembl_id
+                if best_ensembl_id is None:
+                    raise Exception(f"Could not find the gene count data for {i}")
+
+                rename_dict[i] = best_ensembl_id
             self.gene_counts = self.gene_counts.rename(columns=rename_dict)
 
-            rename_dict = {i: gene_name_to_ensembl_id[i] for i in self.psi_vals_columns}
-            rename_dict.update(
-                {i: gene_name_to_ensembl_id[i] + "-Q" for i in self.psi_vals_columns}
-            )
+            # now rename the columns in the PSI values data
+            # we also rename the quality columns
+            # if a gene has multiple Ensembl IDs, we use the one which was used for the gene count data
+            rename_dict = {}
+            for i in self.psi_vals_columns:
+                max_count = 0
+                best_ensembl_id = None
+                for ensembl_id in gene_name_to_ensembl_id[i]:
+                    if ensembl_id in self.gene_counts.columns:
+                        exp_count = (
+                            (self.gene_counts["gene_id"] == ensembl_id)
+                            .iloc[0][self.gene_counts.columns[2:]]
+                            .sum()
+                        )
+                        if exp_count > max_count:
+                            max_count = exp_count
+                            best_ensembl_id = ensembl_id
+                if best_ensembl_id is None:
+                    raise Exception(f"Could not find the gene count data for {i}")
+
+                rename_dict[i] = best_ensembl_id
+                rename_dict[i + "-Q"] = best_ensembl_id + "-Q"
             self.inclusion_levels_full = self.inclusion_levels_full.rename(
                 columns=rename_dict
             )
