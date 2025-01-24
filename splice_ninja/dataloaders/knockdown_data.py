@@ -187,7 +187,7 @@ class KnockdownData(LightningDataModule):
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf[:-2]
+                            sf[:-2] if sf.endswith("_b") else sf[:-3]
                         )  # return can be str | list[str], list is for multiple IDs
                     else:
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
@@ -238,6 +238,8 @@ class KnockdownData(LightningDataModule):
                         sf
                         if not sf.endswith("_b") and not sf.endswith("con")
                         else sf[:-2]
+                        if sf.endswith("_b")
+                        else sf[:-3]
                     )
                     if (self.gene_counts["alias"] == alias).sum() == 0:
                         drop_columns.append(sf)
@@ -306,7 +308,9 @@ class KnockdownData(LightningDataModule):
             for sf in tqdm(self.psi_vals_columns):
                 if sf not in gene_name_to_ensembl_id:
                     if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf[:-2])
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
+                            sf[:-2] if sf.endswith("_b") else sf[:-3]
+                        )
                     else:
                         ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
                     if ensembl_id is not None:
