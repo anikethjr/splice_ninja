@@ -894,8 +894,19 @@ class KnockdownData(LightningDataModule):
             f"Number of events in train: {self.train_inclusion_levels_full.shape[0]} (proportion: {self.train_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
         )
         print(
+            f"Number of events of each type in train: {self.train_inclusion_levels_full['COMPLEX'].value_counts()}"
+        )
+
+        print(
             f"Number of events in val: {self.val_inclusion_levels_full.shape[0]} (proportion: {self.val_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
         )
         print(
+            f"Number of events of each type in val: {self.val_inclusion_levels_full['COMPLEX'].value_counts()}"
+        )
+
+        print(
             f"Number of events in test: {self.test_inclusion_levels_full.shape[0]} (proportion: {self.test_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
+        )
+        print(
+            f"Number of events of each type in test: {self.test_inclusion_levels_full['COMPLEX'].value_counts()}"
         )
