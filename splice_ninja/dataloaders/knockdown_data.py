@@ -83,6 +83,12 @@ class KnockdownData(LightningDataModule):
         else:
             self.config = config
         self.input_size = self.config["train_config"]["input_size"]
+
+        # default config chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
+        # train proportion = 70.61341911926058%
+        # val proportion = 9.178465157513145%
+        # test proportion = 20.20811572322628%
+        # split was computed using the utils.chromosome_split function
         self.train_chromosomes = self.config["train_config"]["train_chromosomes"]
         self.test_chromosomes = self.config["train_config"]["test_chromosomes"]
         self.val_chromosomes = self.config["train_config"]["val_chromosomes"]
@@ -867,4 +873,29 @@ class KnockdownData(LightningDataModule):
         # add a column for chromosome number
         self.inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
             lambda x: x.split(":")[0]
+        )
+
+        self.train_inclusion_levels_full = self.inclusion_levels_full[
+            self.inclusion_levels_full["CHR"].isin(self.train_chromosomes)
+        ]
+        self.val_inclusion_levels_full = self.inclusion_levels_full[
+            self.inclusion_levels_full["CHR"].isin(self.val_chromosomes)
+        ]
+        self.test_inclusion_levels_full = self.inclusion_levels_full[
+            self.inclusion_levels_full["CHR"].isin(self.test_chromosomes)
+        ]
+
+        print(
+            "Total number of events in full data: {}".format(
+                self.inclusion_levels_full.shape[0]
+            )
+        )
+        print(
+            f"Number of events in train: {self.train_inclusion_levels_full.shape[0]} (proportion: {self.train_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
+        )
+        print(
+            f"Number of events in val: {self.val_inclusion_levels_full.shape[0]} (proportion: {self.val_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
+        )
+        print(
+            f"Number of events in test: {self.test_inclusion_levels_full.shape[0]} (proportion: {self.test_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
         )

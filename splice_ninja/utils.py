@@ -1,5 +1,7 @@
+import numpy as np
 from biothings_client import get_client
 import requests
+from itertools import combinations
 
 
 def get_ensembl_gene_id_biothings(gene_name):
@@ -65,3 +67,38 @@ def get_ensembl_gene_id_hgnc_with_alias(gene_name):
                 print("No Ensembl ID found for gene:", gene_name)
                 return None
     return None
+
+
+def chromosome_split(chromosome_data, split_ratio=(0.7, 0.1, 0.2)):
+    # Sort chromosomes by number of points (descending order for better greedy choices)
+    sorted_chromosomes = sorted(chromosome_data.items(), key=lambda x: -x[1])
+    total_points = sum(chromosome_data.values())
+    target_train, target_val, target_test = [r * total_points for r in split_ratio]
+
+    # Initialize sets and current totals
+    train_set, val_set, test_set = set(), set(), set()
+    train_total, val_total, test_total = 0, 0, 0
+
+    # Greedy assignment
+    for chrom, points in sorted_chromosomes:
+        # Calculate current deltas from the target
+        train_delta = (train_total + points) - target_train
+        val_delta = (val_total + points) - target_val
+        test_delta = (test_total + points) - target_test
+
+        # Assign to the split that minimizes the difference from target
+        if train_delta <= val_delta and train_delta <= test_delta:
+            train_set.add(chrom)
+            train_total += points
+        elif val_delta <= test_delta:
+            val_set.add(chrom)
+            val_total += points
+        else:
+            test_set.add(chrom)
+            test_total += points
+
+    print(f"Train proportion = {train_total*100.0/total_points}")
+    print(f"Val proportion = {val_total*100.0/total_points}")
+    print(f"Test proportion = {test_total*100.0/total_points}")
+
+    return {"train": train_set, "val": val_set, "test": test_set}
