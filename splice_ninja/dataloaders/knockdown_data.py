@@ -862,7 +862,7 @@ class KnockdownData(LightningDataModule):
             self.config = config
 
         # seed for reproducibility
-        self.seed = self.config["seed"]
+        self.seed = self.config["train_config"]["seed"]
         L.seed_everything(self.seed)
 
         self.input_size = self.config["train_config"]["input_size"]
