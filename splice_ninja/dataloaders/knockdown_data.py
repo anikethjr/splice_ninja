@@ -770,6 +770,65 @@ class KnockdownData(LightningDataModule):
 
             print("Filtered data cached")
 
+        if not os.path.exists(os.path.join(self.cache_dir, "genomes", "hg38")):
+            print("Downloading the genome")
+            os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
+            genomepy.install_genome(
+                "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
+            )
+            print("Genome downloaded")
+
+        if not os.path.exists(
+            os.path.join(self.cache_dir, "flattened_inclusion_levels_full_filtered.csv")
+        ) or not os.path.exists(
+            os.path.join(self.cache_dir, "event_info_filtered.csv")
+        ):
+            # flatten the filtered data - make a row for each sample for each event and remove NaN values
+            # this makes it to create a dataset for training
+            # to avoid duplicating event information, we only keep the columns for the event and the PSI value
+            # another file is created with the event information like event type, coordinates, etc.
+
+            print("Flattening the filtered data")
+
+            inclusion_levels_full = pd.read_csv(
+                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
+            )
+            psi_vals_columns = [
+                i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
+            ]
+
+            # create schemas for the flattened data and the event information
+            flattened_inclusion_levels_full = {}
+            flattened_inclusion_levels_full["EVENT"] = []  # event ID
+            flattened_inclusion_levels_full[
+                "SAMPLE"
+            ] = []  # knocked down splicing factor i.e. sample name
+            flattened_inclusion_levels_full["PSI"] = []  # PSI value
+
+            event_info = {}
+            event_info["GENE"] = []  # gene name
+            event_info["GENE_ID"] = []  # Ensembl gene ID
+            event_info["CHR"] = []  # chromosome
+            event_info["STRAND"] = []  # strand
+            event_info["EVENT"] = []  # event ID
+            event_info["EVENT_TYPE"] = []  # general event type
+            event_info["COORD"] = []  # coordinates encompassing the event
+            event_info["LENGTH"] = []  # length of the event
+            event_info["FullCO"] = []  # full coordinates of the event
+            event_info["COMPLEX"] = []  # fine-grained event type
+            event_info[
+                "EVENT_EXTRACTION_COORD"
+            ] = (
+                []
+            )  # these are the coordinates for the alternative splicing event extracted from the VastDB output, and the inclusion levels are measured for this genome segment
+
+            # iterate over each row in the data and populate the flattened data and event information
+            for i, row in tqdm(
+                inclusion_levels_full.iterrows(), total=inclusion_levels_full.shape[0]
+            ):
+                # TODO
+                pass
+
     def setup(self, stage: str = None):
         print("Loading filtered data from cache")
         self.inclusion_levels_full = pd.read_csv(
@@ -800,10 +859,6 @@ class KnockdownData(LightningDataModule):
         )
 
         # load the genome
-        os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
-        genomepy.install_genome(
-            "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
-        )
         self.genome = genomepy.Genome(
             "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
         )  # only need hg38 since the data is from human cell lines
