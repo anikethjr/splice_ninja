@@ -806,7 +806,7 @@ class KnockdownData(LightningDataModule):
 
             # print number of events of each type
             print(
-                f"Final number of events of each type: {inclusion_levels_full['COMPLEX'].value_counts()}"
+                f"Final number of events of each type:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
             # cache the filtered data
@@ -830,238 +830,357 @@ class KnockdownData(LightningDataModule):
             )
             print("Genome downloaded")
 
-        # if (
-        #     not os.path.exists(
-        #         os.path.join(
-        #             self.cache_dir, "flattened_inclusion_levels_full_filtered.csv"
-        #         )
-        #     )
-        #     or not os.path.exists(
-        #         os.path.join(self.cache_dir, "event_info_filtered.csv")
-        #     )
-        #     or not os.path.exists(
-        #         os.path.join(self.cache_dir, "intron_around_splicing_events.csv")
-        #     )
-        # ):
-        #     # flatten the filtered data - make a row for each sample for each event and remove NaN values
-        #     # this makes it to create a dataset for training
-        #     # to avoid duplicating event information, we only keep the columns for the event and the PSI value
-        #     # another file is created with the event information like event type, coordinates, etc.
-        #     # we also create a file with the intron sequence around the splicing events - this can be used for dataset augmentation
+        if (
+            not os.path.exists(
+                os.path.join(
+                    self.cache_dir, "flattened_inclusion_levels_full_filtered.csv"
+                )
+            )
+            or not os.path.exists(
+                os.path.join(self.cache_dir, "event_info_filtered.csv")
+            )
+            or not os.path.exists(
+                os.path.join(self.cache_dir, "intron_around_splicing_events.csv")
+            )
+        ):
+            # flatten the filtered data - make a row for each sample for each event and remove NaN values
+            # this makes it to create a dataset for training
+            # to avoid duplicating event information, we only keep the columns for the event and the PSI value
+            # another file is created with the event information like event type, coordinates, etc.
+            # we also create a file with the intron sequence around the splicing events - this can be used for dataset augmentation
 
-        #     print("Flattening the filtered data")
+            print("Flattening the filtered data")
 
-        #     gene_counts = pd.read_csv(
-        #         os.path.join(self.cache_dir, "gene_counts_filtered.csv")
-        #     )
-        #     inclusion_levels_full = pd.read_csv(
-        #         os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
-        #     )
-        #     gene_name_to_ensembl_id = json.load(
-        #         open(
-        #             os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"),
-        #             "r",
-        #         )
-        #     )
-        #     ensembl_id_to_gene_name = json.load(
-        #         open(
-        #             os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"),
-        #             "r",
-        #         )
-        #     )
+            gene_counts = pd.read_csv(
+                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+            )
+            inclusion_levels_full = pd.read_csv(
+                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
+            )
+            gene_name_to_ensembl_id = json.load(
+                open(
+                    os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"),
+                    "r",
+                )
+            )
+            ensembl_id_to_gene_name = json.load(
+                open(
+                    os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"),
+                    "r",
+                )
+            )
 
-        #     psi_vals_columns = [
-        #         i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
-        #     ]
+            psi_vals_columns = [
+                i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
+            ]
 
-        #     # create schemas for the flattened data and the event information
-        #     flattened_inclusion_levels_full = {}
-        #     flattened_inclusion_levels_full["EVENT"] = []  # event ID
-        #     flattened_inclusion_levels_full[
-        #         "SAMPLE"
-        #     ] = []  # knocked down splicing factor i.e. sample name
-        #     flattened_inclusion_levels_full["PSI"] = []  # PSI value
+            # create schemas for the flattened data and the event information
+            flattened_inclusion_levels_full = {}
+            flattened_inclusion_levels_full["EVENT"] = []  # event ID
+            flattened_inclusion_levels_full[
+                "SAMPLE"
+            ] = []  # knocked down splicing factor i.e. sample name
+            flattened_inclusion_levels_full["PSI"] = []  # PSI value
 
-        #     event_info = {}
-        #     event_info["EVENT"] = []  # event ID
-        #     event_info["EVENT_TYPE"] = []  # general event type
-        #     event_info["GENE"] = []  # gene name
-        #     event_info["GENE_ID"] = []  # Ensembl gene ID
-        #     event_info[
-        #         "HAS_GENE_EXP_VALUES"
-        #     ] = (
-        #         []
-        #     )  # whether gene expression values are available for the gene in the gene count data
-        #     event_info["COORD"] = []  # coordinates encompassing the event
-        #     event_info["LENGTH"] = []  # length of the event
-        #     event_info["FullCO"] = []  # full coordinates of the event
-        #     event_info["COMPLEX"] = []  # fine-grained event type
-        #     event_info["CHR"] = []  # chromosome
-        #     event_info["STRAND"] = []  # strand
-        #     event_info[
-        #         "EVENT_EXTRACTION_COORD"
-        #     ] = (
-        #         []
-        #     )  # these are the coordinates for the alternative splicing event extracted from the VastDB output, and the inclusion levels are measured for this genome segment
+            event_info = {}
+            event_info["EVENT"] = []  # event ID
+            event_info["EVENT_TYPE"] = []  # general event type
+            event_info["GENE"] = []  # gene name
+            event_info["GENE_ID"] = []  # Ensembl gene ID
+            event_info[
+                "HAS_GENE_EXP_VALUES"
+            ] = (
+                []
+            )  # whether gene expression values are available for the gene in the gene count data
+            event_info["COORD"] = []  # coordinates encompassing the event
+            event_info["LENGTH"] = []  # length of the event
+            event_info["FullCO"] = []  # full coordinates of the event
+            event_info["COMPLEX"] = []  # fine-grained event type
+            event_info["CHR"] = []  # chromosome
+            event_info["STRAND"] = []  # strand
+            event_info[
+                "EVENT_EXTRACTION_COORD"
+            ] = (
+                []
+            )  # these are the coordinates for the alternative splicing event extracted from the VastDB output, and the inclusion levels are measured for this genome segment
 
-        #     introns_around_splicing_events = {}
-        #     introns_around_splicing_events[
-        #         "EVENT"
-        #     ] = []  # event ID corresponding to the splicing event
-        #     introns_around_splicing_events[
-        #         "LOCATION"
-        #     ] = []  # whether the intron is upstream or downstream of the splicing event
-        #     introns_around_splicing_events[
-        #         "COORD"
-        #     ] = []  # coordinates of the intron around the splicing event
-        #     introns_around_splicing_events["STRAND"] = []  # strand of the intron
+            introns_around_splicing_events = {}
+            introns_around_splicing_events[
+                "EVENT"
+            ] = []  # event ID corresponding to the splicing event
+            introns_around_splicing_events[
+                "LOCATION"
+            ] = []  # whether the intron is upstream or downstream of the splicing event
+            introns_around_splicing_events[
+                "COORD"
+            ] = []  # coordinates of the intron around the splicing event
+            introns_around_splicing_events["STRAND"] = []  # strand of the intron
 
-        #     # iterate over each row in the data and populate the flattened data and event information
-        #     for i, row in tqdm(
-        #         inclusion_levels_full.iterrows(), total=inclusion_levels_full.shape[0]
-        #     ):
-        #         for psi_col in psi_vals_columns:
-        #             if not np.isnan(row[psi_col]):
-        #                 flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
-        #                 flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
-        #                 flattened_inclusion_levels_full["PSI"].append(row[psi_col])
+            # iterate over each row in the data and populate the flattened data and event information
+            for i, row in tqdm(
+                inclusion_levels_full.iterrows(), total=inclusion_levels_full.shape[0]
+            ):
+                for psi_col in psi_vals_columns:
+                    if not np.isnan(row[psi_col]):
+                        flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
+                        flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
+                        flattened_inclusion_levels_full["PSI"].append(row[psi_col])
 
-        #         # VAST-DB event ID. Formed by:
-        #         # - Species identifier: Hsa (Human), Mmu (Mouse), or Gga (Chicken);
-        #         # - Type of alternative splicing event:
-        #         #    alternative exon skipping (EX),
-        #         #    retained intron (INT),
-        #         #    alternative splice site donor choice (ALTD), or alternative splice site acceptor choice (ALTA).
-        #         #       In the case of ALTD/ALTA, each splice site within the event is indicated (from exonic internal to external) over the
-        #         #       total number of alternative splice sites in the event (e.g. HsaALTA0000011-1/2).
-        #         # - Numerical identifier.
-        #         event_info["EVENT"].append(row["EVENT"])
-        #         event_type = None
-        #         if "EX" in row["EVENT"]:
-        #             event_type = "EX"
-        #         elif "INT" in row["EVENT"]:
-        #             event_type = "INT"
-        #         elif "ALTD" in row["EVENT"]:
-        #             event_type = "ALTD"
-        #         elif "ALTA" in row["EVENT"]:
-        #             event_type = "ALTA"
-        #         else:
-        #             raise Exception(
-        #                 f"Unknown event type for event with ID: {row['EVENT']}"
-        #             )
-        #         event_info["EVENT_TYPE"].append(event_type)
+                # VAST-DB event ID. Formed by:
+                # - Species identifier: Hsa (Human), Mmu (Mouse), or Gga (Chicken);
+                # - Type of alternative splicing event:
+                #    alternative exon skipping (EX),
+                #    retained intron (INT),
+                #    alternative splice site donor choice (ALTD), or alternative splice site acceptor choice (ALTA).
+                #       In the case of ALTD/ALTA, each splice site within the event is indicated (from exonic internal to external) over the
+                #       total number of alternative splice sites in the event (e.g. HsaALTA0000011-1/2).
+                # - Numerical identifier.
+                event_info["EVENT"].append(row["EVENT"])
+                event_type = None
+                if "EX" in row["EVENT"]:
+                    event_type = "EX"
+                elif "INT" in row["EVENT"]:
+                    event_type = "INT"
+                elif "ALTD" in row["EVENT"]:
+                    event_type = "ALTD"
+                elif "ALTA" in row["EVENT"]:
+                    event_type = "ALTA"
+                else:
+                    raise Exception(
+                        f"Unknown event type for event with ID: {row['EVENT']}"
+                    )
+                event_info["EVENT_TYPE"].append(event_type)
 
-        #         event_info["GENE"].append(row["GENE"])
-        #         if row["GENE"] in gene_name_to_ensembl_id:
-        #             event_info["GENE_ID"].append(
-        #                 gene_name_to_ensembl_id[row["GENE"]][0]
-        #             )
-        #         else:
-        #             ensembl_id = get_ensembl_gene_id_hgnc_with_alias(row["GENE"])
-        #             if ensembl_id is not None:
-        #                 gene_name_to_ensembl_id[row["GENE"]] = [ensembl_id]
-        #                 ensembl_id_to_gene_name[ensembl_id] = [row["GENE"]]
-        #                 event_info["GENE_ID"].append(ensembl_id)
-        #             else:
-        #                 print(
-        #                     "Could not find the Ensembl gene ID for {}".format(
-        #                         row["GENE"]
-        #                     )
-        #                 )
-        #                 event_info["GENE_ID"].append(None)
-        #         event_info["HAS_GENE_EXP_VALUES"].append(
-        #             row["GENE_ID"] is not None
-        #             and row["GENE_ID"] in gene_counts["gene_id"]
-        #         )
+                event_info["GENE"].append(row["GENE"])
+                if row["GENE"] in gene_name_to_ensembl_id:
+                    event_info["GENE_ID"].append(
+                        gene_name_to_ensembl_id[row["GENE"]][0]
+                    )
+                else:
+                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(row["GENE"])
+                    if ensembl_id is not None:
+                        gene_name_to_ensembl_id[row["GENE"]] = [ensembl_id]
+                        ensembl_id_to_gene_name[ensembl_id] = [row["GENE"]]
+                        event_info["GENE_ID"].append(ensembl_id)
+                    else:
+                        print(
+                            "Could not find the Ensembl gene ID for {}".format(
+                                row["GENE"]
+                            )
+                        )
+                        event_info["GENE_ID"].append(None)
+                event_info["HAS_GENE_EXP_VALUES"].append(
+                    row["GENE_ID"] is not None
+                    and row["GENE_ID"] in gene_counts["gene_id"]
+                )
 
-        #         event_info["COORD"].append(row["COORD"])
-        #         event_info["LENGTH"].append(row["LENGTH"])
-        #         event_info["FullCO"].append(row["FullCO"])
-        #         event_info["COMPLEX"].append(row["COMPLEX"])
+                event_info["COORD"].append(row["COORD"])
+                event_info["LENGTH"].append(row["LENGTH"])
+                event_info["FullCO"].append(row["FullCO"])
+                event_info["COMPLEX"].append(row["COMPLEX"])
 
-        #         # the FullCO format is as follows:
-        #         # - For EX: chromosome:C1donor,Aexon,C2acceptor. Where C1donor is the "reference" upstream exon's donor, C2acceptor the "reference" downstream exon's acceptor, and A the alternative exon.
-        #         # Strand is "+" if C1donor < C2acceptor. If multiple acceptor/donors exist in any of the exons, they are shown separated by "+".
-        #         # NOTE: The "reference" upstream and downstream C1/C2 coordinates are not necessarily the closest upstream and downstream C1/C2 exons, but the most external ones with sufficient support (to facilitate primer design, etc).                #
-        #         # - For ALTD: chromosome:Aexon,C2acceptor. Multiple donors of the event are separated by "+".
-        #         # - For ALTA: chromosome:C1donor,Aexon. Multiple acceptors of the event are separated by "+".
-        #         # - For INT: chromosome:C1exon=C2exon:strand.
-        #         event_info["CHR"].append(row["FullCO"].split(":")[0])
-        #         if event_type == "EX":
-        #             C1donor, Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
-        #             C1donor = [int(i) for i in C1donor.split("+")]
-        #             C2acceptor = [int(i) for i in C2acceptor.split("+")]
-        #             Aexon_5p_ends = [int(i) for i in Aexon.split("-")[0].split("+")]
-        #             Aexon_3p_ends = [int(i) for i in Aexon.split("-")[1].split("+")]
+                # the FullCO format is as follows:
+                # - For EX: chromosome:C1donor,Aexon,C2acceptor. Where C1donor is the "reference" upstream exon's donor, C2acceptor the "reference" downstream exon's acceptor, and A the alternative exon.
+                # Strand is "+" if C1donor < C2acceptor. If multiple acceptor/donors exist in any of the exons, they are shown separated by "+".
+                # NOTE: The "reference" upstream and downstream C1/C2 coordinates are not necessarily the closest upstream and downstream C1/C2 exons, but the most external ones with sufficient support (to facilitate primer design, etc).                #
+                # - For ALTD: chromosome:Aexon,C2acceptor. Multiple donors of the event are separated by "+".
+                # - For ALTA: chromosome:C1donor,Aexon. Multiple acceptors of the event are separated by "+".
+                # - For INT: chromosome:C1exon=C2exon:strand.
+                event_info["CHR"].append(row["FullCO"].split(":")[0])
+                if event_type == "EX":
+                    C1donor, Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
+                    C1donor = [int(i) for i in C1donor.split("+")]
+                    C2acceptor = [int(i) for i in C2acceptor.split("+")]
+                    Aexon_5p_ends = [int(i) for i in Aexon.split("-")[0].split("+")]
+                    Aexon_3p_ends = [int(i) for i in Aexon.split("-")[1].split("+")]
 
-        #             strand = None
-        #             if C1donor[0] < C2acceptor[0]:
-        #                 event_info["STRAND"].append(".")
-        #                 strand = "."
-        #             else:
-        #                 event_info["STRAND"].append("-")
-        #                 strand = "-"
+                    strand = None
+                    if C1donor[0] < C2acceptor[0]:
+                        event_info["STRAND"].append(".")
+                        strand = "."
+                    else:
+                        event_info["STRAND"].append("-")
+                        strand = "-"
 
-        #             extraction_start = min(Aexon_5p_ends)
-        #             extraction_end = max(Aexon_3p_ends)
-        #             assert (
-        #                 extraction_start < extraction_end
-        #             ), f"Invalid extraction coordinates: {extraction_start}-{extraction_end}"
-        #             assert (
-        #                 f"{row['CHR']}:{extraction_start}-{extraction_end}"
-        #                 == row["COORD"]
-        #             ), f"Coordinates mismatch: {row['CHR']}:{extraction_start}-{extraction_end} vs {row['COORD']}"
-        #             event_info["EVENT_EXTRACTION_COORD"].append(
-        #                 f"{row['CHR']}:{extraction_start}-{extraction_end}"
-        #             )
+                    extraction_start = min(Aexon_5p_ends)
+                    extraction_end = max(Aexon_3p_ends)
+                    assert (
+                        extraction_start < extraction_end
+                    ), f"Invalid extraction coordinates: {extraction_start}-{extraction_end}"
+                    assert (
+                        f"{row['CHR']}:{extraction_start}-{extraction_end}"
+                        == row["COORD"]
+                    ), f"Coordinates mismatch: {row['CHR']}:{extraction_start}-{extraction_end} vs {row['COORD']}"
+                    event_info["EVENT_EXTRACTION_COORD"].append(
+                        f"{row['CHR']}:{extraction_start}-{extraction_end}"
+                    )
 
-        #             # intron upstream of the alternative exon
-        #             # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
-        #             introns_around_splicing_events["EVENT"].append(row["EVENT"])
-        #             introns_around_splicing_events["LOCATION"].append("upstream")
-        #             if strand == ".":
-        #                 intron_start = max(C1donor)
-        #                 intron_end = min(Aexon_5p_ends)
-        #             else:
-        #                 intron_start = max(Aexon_3p_ends)
-        #                 intron_end = min(C2acceptor)
-        #             assert (
-        #                 intron_start < intron_end
-        #             ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
-        #             introns_around_splicing_events["COORD"].append(
-        #                 f"{row['CHR']}:{intron_start}-{intron_end}"
-        #             )
-        #             introns_around_splicing_events["STRAND"].append(strand)
+                    # intron upstream of the alternative exon
+                    # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
+                    introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["LOCATION"].append("upstream")
+                    if strand == ".":
+                        intron_start = max(C1donor)
+                        intron_end = min(Aexon_5p_ends)
+                    else:
+                        intron_start = max(Aexon_3p_ends)
+                        intron_end = min(C2acceptor)
+                    assert (
+                        intron_start < intron_end
+                    ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
+                    introns_around_splicing_events["COORD"].append(
+                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                    )
+                    introns_around_splicing_events["STRAND"].append(strand)
 
-        #             # intron downstream of the alternative exon
-        #             # again, choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
-        #             introns_around_splicing_events["EVENT"].append(row["EVENT"])
-        #             introns_around_splicing_events["LOCATION"].append("downstream")
-        #             if strand == ".":
-        #                 intron_start = max(Aexon_3p_ends)
-        #                 intron_end = min(C2acceptor)
-        #             else:
-        #                 intron_start = max(C1donor)
-        #                 intron_end = min(Aexon_5p_ends)
-        #             assert (
-        #                 intron_start < intron_end
-        #             ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
-        #             introns_around_splicing_events["COORD"].append(
-        #                 f"{row['CHR']}:{intron_start}-{intron_end}"
-        #             )
-        #             introns_around_splicing_events["STRAND"].append(strand)
+                    # intron downstream of the alternative exon
+                    # again, choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
+                    introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["LOCATION"].append("downstream")
+                    if strand == ".":
+                        intron_start = max(Aexon_3p_ends)
+                        intron_end = min(C2acceptor)
+                    else:
+                        intron_start = max(C1donor)
+                        intron_end = min(Aexon_5p_ends)
+                    assert (
+                        intron_start < intron_end
+                    ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
+                    introns_around_splicing_events["COORD"].append(
+                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                    )
+                    introns_around_splicing_events["STRAND"].append(strand)
 
-        #         elif event_type == "INT":
-        #             strand = row["FullCO"].split(":")[-1]
-        #             strand = "." if strand == "+" else "-"
-        #             event_info["STRAND"].append(strand)
-        #             event_info["EVENT_EXTRACTION_COORD"].append(
-        #                 row["COORD"]
-        #             )  # the coordinates of the intron are the same as the coordinates of the event
+                elif event_type == "INT":
+                    strand = row["FullCO"].split(":")[-1]
+                    strand = "." if strand == "+" else "-"
+                    event_info["STRAND"].append(strand)
+                    event_info["EVENT_EXTRACTION_COORD"].append(
+                        row["COORD"]
+                    )  # the coordinates of the intron are the same as the coordinates of the event
 
-        #         elif event_type == "ALTD":
-        #             # TODO
-        #             pass
+                elif event_type == "ALTD":
+                    Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
+                    C2acceptor = [int(i) for i in C2acceptor.split("+")]
+                    Aexon_start, Aexon_end = Aexon.split("-")
+                    Aexon_start = [int(i) for i in Aexon_start.split("+")]
+                    Aexon_end = [int(i) for i in Aexon_end.split("+")]
+
+                    this_Aexon_start, this_Aexon_end = (
+                        row["COORD"].split(":")[-1].split("-")
+                    )
+                    this_Aexon_start = int(this_Aexon_start)
+                    this_Aexon_end = int(this_Aexon_end)
+                    assert (
+                        this_Aexon_start < this_Aexon_end
+                    ), f"Invalid coordinates: {this_Aexon_start}-{this_Aexon_end}"
+                    event_info["EVENT_EXTRACTION_COORD"].append(
+                        f"{row['CHR']}:{this_Aexon_start}-{this_Aexon_end}"
+                    )
+
+                    strand = None
+                    if this_Aexon_start < C2acceptor[0]:
+                        event_info["STRAND"].append(".")
+                        strand = "."
+                    else:
+                        event_info["STRAND"].append("-")
+                        strand = "-"
+
+                    # intron downstream of the alternative exon
+                    # choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
+                    introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["LOCATION"].append("downstream")
+                    if strand == ".":
+                        intron_start = max(Aexon_end)
+                        intron_end = min(C2acceptor)
+                    else:
+                        intron_start = max(C2acceptor)
+                        intron_end = min(Aexon_start)
+                    assert (
+                        intron_start < intron_end
+                    ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
+                    introns_around_splicing_events["COORD"].append(
+                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                    )
+                    introns_around_splicing_events["STRAND"].append(strand)
+
+                elif event_type == "ALTA":
+                    C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
+                    C1donor = [int(i) for i in C1donor.split("+")]
+                    Aexon_start, Aexon_end = Aexon.split("-")
+                    Aexon_start = [int(i) for i in Aexon_start.split("+")]
+                    Aexon_end = [int(i) for i in Aexon_end.split("+")]
+
+                    this_Aexon_start, this_Aexon_end = (
+                        row["COORD"].split(":")[-1].split("-")
+                    )
+                    this_Aexon_start = int(this_Aexon_start)
+                    this_Aexon_end = int(this_Aexon_end)
+                    assert (
+                        this_Aexon_start < this_Aexon_end
+                    ), f"Invalid coordinates: {this_Aexon_start}-{this_Aexon_end}"
+                    event_info["EVENT_EXTRACTION_COORD"].append(
+                        f"{row['CHR']}:{this_Aexon_start}-{this_Aexon_end}"
+                    )
+
+                    strand = None
+                    if C1donor[0] < this_Aexon_start:
+                        event_info["STRAND"].append(".")
+                        strand = "."
+                    else:
+                        event_info["STRAND"].append("-")
+                        strand = "-"
+
+                    # intron upstream of the alternative exon
+                    # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
+                    introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["LOCATION"].append("upstream")
+                    if strand == ".":
+                        intron_start = max(C1donor)
+                        intron_end = min(Aexon_start)
+                    else:
+                        intron_start = max(Aexon_end)
+                        intron_end = min(C1donor)
+                    assert (
+                        intron_start < intron_end
+                    ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
+                    introns_around_splicing_events["COORD"].append(
+                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                    )
+                    introns_around_splicing_events["STRAND"].append(strand)
+
+            flattened_inclusion_levels_full = pd.DataFrame(
+                flattened_inclusion_levels_full
+            )
+            event_info = pd.DataFrame(event_info)
+            introns_around_splicing_events = pd.DataFrame(
+                introns_around_splicing_events
+            )
+
+            flattened_inclusion_levels_full.to_csv(
+                os.path.join(
+                    self.cache_dir, "flattened_inclusion_levels_full_filtered.csv"
+                ),
+                index=False,
+            )
+            event_info.to_csv(
+                os.path.join(self.cache_dir, "event_info_filtered.csv"), index=False
+            )
+            introns_around_splicing_events.to_csv(
+                os.path.join(self.cache_dir, "intron_around_splicing_events.csv"),
+                index=False,
+            )
+
+            with open(
+                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w"
+            ) as f:
+                json.dump(gene_name_to_ensembl_id, f)
+            with open(
+                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w"
+            ) as f:
+                json.dump(ensembl_id_to_gene_name, f)
+
+            print("Flattened data cached")
 
     def setup(self, stage: str = None):
         print("Loading filtered data from cache")
