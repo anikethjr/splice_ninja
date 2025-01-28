@@ -750,12 +750,11 @@ class KnockdownData(LightningDataModule):
             for i, row in inclusion_levels_full.iterrows():
                 if "ALTA" in row["EVENT"] or "ALTD" in row["EVENT"]:
                     coord = row["COORD"]  # format is chr:start-end
-                    if len(coord.split(":")[-1].split("-")) != 2:
+                    start, end = coord.strip().split(":")[-1].split("-")
+                    if start == "" or end == "":
                         filter_out_ALTA_ALTD_events_with_missing_coordinates[i] = True
-                        if len(coord.split(":")[-1].split("-")) != 1:
-                            raise Exception(
-                                "Weird case where COORD format is not followed", row
-                            )
+                    else:
+                        assert int(start) < int(end)
             inclusion_levels_full = inclusion_levels_full.loc[
                 ~filter_out_ALTA_ALTD_events_with_missing_coordinates
             ].reset_index(drop=True)
