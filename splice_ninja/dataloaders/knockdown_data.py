@@ -1125,8 +1125,8 @@ class KnockdownData(LightningDataModule):
                         event_info["STRAND"].append("-")
                         strand = "-"
 
-                    extraction_start = row["COORD"].split(":")[1].split("-")[0]
-                    extraction_end = row["COORD"].split(":")[1].split("-")[1]
+                    extraction_start = int(row["COORD"].split(":")[1].split("-")[0])
+                    extraction_end = int(row["COORD"].split(":")[1].split("-")[1])
                     assert (
                         extraction_start < extraction_end
                     ), f"Invalid extraction coordinates: {extraction_start}-{extraction_end}"
@@ -1151,13 +1151,19 @@ class KnockdownData(LightningDataModule):
                                     # add/remove 1 to make sure the coordinates are within the intron
                                     if strand == ".":
                                         intron_start = (
-                                            row["CO_C1"].split(":")[1].split("-")[1] + 1
+                                            int(
+                                                row["CO_C1"].split(":")[1].split("-")[1]
+                                            )
+                                            + 1
                                         )  # the end of the upstream exon
                                         intron_end = extraction_start - 1
                                     else:
                                         intron_start = extraction_end + 1
                                         intron_end = (
-                                            row["CO_C1"].split(":")[1].split("-")[0] - 1
+                                            int(
+                                                row["CO_C1"].split(":")[1].split("-")[0]
+                                            )
+                                            - 1
                                         )  # the end of the upstream exon
                                     if intron_start < intron_end:
                                         introns_around_splicing_events["EVENT"].append(
@@ -1184,11 +1190,17 @@ class KnockdownData(LightningDataModule):
                                     if strand == ".":
                                         intron_start = extraction_end + 1
                                         intron_end = (
-                                            row["CO_C2"].split(":")[1].split("-")[0] - 1
+                                            int(
+                                                row["CO_C2"].split(":")[1].split("-")[0]
+                                            )
+                                            - 1
                                         )  # the start of the downstream exon
                                     else:
                                         intron_start = (
-                                            row["CO_C2"].split(":")[1].split("-")[1] + 1
+                                            int(
+                                                row["CO_C2"].split(":")[1].split("-")[1]
+                                            )
+                                            + 1
                                         )  # the start of the downstream exon
                                         intron_end = extraction_start - 1
                                     if intron_start < intron_end:
@@ -1263,11 +1275,17 @@ class KnockdownData(LightningDataModule):
                                     if strand == ".":
                                         intron_start = max(Aexon_end) + 1
                                         intron_end = (
-                                            row["CO_C2"].split(":")[1].split("-")[0] - 1
+                                            int(
+                                                row["CO_C2"].split(":")[1].split("-")[0]
+                                            )
+                                            - 1
                                         )
                                     else:
                                         intron_start = (
-                                            row["CO_C2"].split(":")[1].split("-")[1] + 1
+                                            int(
+                                                row["CO_C2"].split(":")[1].split("-")[1]
+                                            )
+                                            + 1
                                         )
                                         intron_end = min(Aexon_start) - 1
                                     if intron_start < intron_end:
@@ -1333,13 +1351,19 @@ class KnockdownData(LightningDataModule):
                                     # add/remove 1 to make sure the coordinates are within the intron
                                     if strand == ".":
                                         intron_start = (
-                                            row["CO_C1"].split(":")[1].split("-")[1] + 1
+                                            int(
+                                                row["CO_C1"].split(":")[1].split("-")[1]
+                                            )
+                                            + 1
                                         )
                                         intron_end = min(Aexon_start) - 1
                                     else:
                                         intron_start = max(Aexon_end) + 1
                                         intron_end = (
-                                            row["CO_C1"].split(":")[1].split("-")[0] - 1
+                                            int(
+                                                row["CO_C1"].split(":")[1].split("-")[0]
+                                            )
+                                            - 1
                                         )
                                     if intron_start < intron_end:
                                         introns_around_splicing_events["EVENT"].append(
