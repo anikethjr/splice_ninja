@@ -5,6 +5,7 @@ import pandas as pd
 import os
 import pdb
 import json
+import urllib
 from tqdm import tqdm
 from statsmodels.stats.multitest import multipletests
 
@@ -851,23 +852,76 @@ class KnockdownData(LightningDataModule):
 
             print("Flattening the filtered data")
 
+            # download event information, gene information, and event ID to gene ID mapping from VastDB
+            os.makedirs(os.path.join(self.cache_dir, "VastDB", "hg38"), exist_ok=True)
+            if not os.path.exists(
+                os.path.join(self.cache_dir, "VastDB", "hg38", "EVENT_INFO-hg38.tab.gz")
+            ):
+                print("Downloading event information from VastDB")
+                url = "https://vastdb.crg.eu/downloads/hg38/EVENT_INFO-hg38.tab.gz"
+                urllib.request.urlretrieve(
+                    url,
+                    os.path.join(
+                        self.cache_dir, "VastDB", "hg38", "EVENT_INFO-hg38.tab.gz"
+                    ),
+                )
+                print("Event information downloaded")
+            if not os.path.exists(
+                os.path.join(self.cache_dir, "VastDB", "hg38", "GENE_INFO-hg38.tab.gz")
+            ):
+                print("Downloading gene information from VastDB")
+                url = "https://vastdb.crg.eu/downloads/hg38/GENE_INFO-hg38.tab.gz"
+                urllib.request.urlretrieve(
+                    url,
+                    os.path.join(
+                        self.cache_dir, "VastDB", "hg38", "GENE_INFO-hg38.tab.gz"
+                    ),
+                )
+                print("Gene information downloaded")
+            if not os.path.exists(
+                os.path.join(
+                    self.cache_dir, "VastDB", "hg38", "EVENTID_to_GENEID-hg38.tab.gz"
+                )
+            ):
+                print("Downloading event ID to gene ID mapping from VastDB")
+                url = (
+                    "https://vastdb.crg.eu/downloads/hg38/EVENTID_to_GENEID-hg38.tab.gz"
+                )
+                urllib.request.urlretrieve(
+                    url,
+                    os.path.join(
+                        self.cache_dir,
+                        "VastDB",
+                        "hg38",
+                        "EVENTID_to_GENEID-hg38.tab.gz",
+                    ),
+                )
+                print("Event ID to gene ID mapping downloaded")
+
+            # load VastDB data
+            event_info_from_vastdb = pd.read_csv(
+                os.path.join(
+                    self.cache_dir, "VastDB", "hg38", "EVENT_INFO-hg38.tab.gz"
+                ),
+                sep="\t",
+            )
+            gene_info_from_vastdb = pd.read_csv(
+                os.path.join(self.cache_dir, "VastDB", "hg38", "GENE_INFO-hg38.tab.gz"),
+                sep="\t",
+            )
+            event_id_to_gene_id_from_vastdb = pd.read_csv(
+                os.path.join(
+                    self.cache_dir, "VastDB", "hg38", "EVENTID_to_GENEID-hg38.tab.gz"
+                ),
+                sep="\t",
+            )
+
+            # load the filtered data
             gene_counts = pd.read_csv(
                 os.path.join(self.cache_dir, "gene_counts_filtered.csv")
             )
             inclusion_levels_full = pd.read_csv(
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
-            )
-            gene_name_to_ensembl_id = json.load(
-                open(
-                    os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"),
-                    "r",
-                )
-            )
-            ensembl_id_to_gene_name = json.load(
-                open(
-                    os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"),
-                    "r",
-                )
             )
 
             psi_vals_columns = [
@@ -879,56 +933,38 @@ class KnockdownData(LightningDataModule):
                 lambda x: x.split(":")[0]
             )
 
-            # first add all gene IDs present in the gene count data to the gene name to Ensembl gene ID mapping and Ensembl gene ID to gene name mapping
-            for i in tqdm(range(gene_counts.shape[0])):
-                gene_name = gene_counts.iloc[i]["alias"]
-                ensembl_id = gene_counts.iloc[i]["gene_id"]
-                if gene_name not in gene_name_to_ensembl_id:
-                    gene_name_to_ensembl_id[gene_name] = [ensembl_id]
-                else:
-                    gene_name_to_ensembl_id[gene_name].append(ensembl_id)
-                if ensembl_id not in ensembl_id_to_gene_name:
-                    ensembl_id_to_gene_name[ensembl_id] = [gene_name]
-                else:
-                    ensembl_id_to_gene_name[ensembl_id].append(gene_name)
-
-            # next, get all unique gene names in the splicing data and add them to the gene name to Ensembl gene ID mapping and Ensembl gene ID to gene name mapping
-            all_genes_with_splicing_data = set(inclusion_levels_full["GENE"].unique())
-            for gene_name in tqdm(all_genes_with_splicing_data):
-                if gene_name not in gene_name_to_ensembl_id:
-                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(gene_name)
-                    if ensembl_id is not None:
-                        gene_name_to_ensembl_id[gene_name] = [ensembl_id]
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(gene_name)
-                        else:
-                            ensembl_id_to_gene_name[ensembl_id] = [gene_name]
-                    else:
-                        print(
-                            "Could not find the Ensembl gene ID for {}".format(
-                                gene_name
-                            )
-                        )
-
-            print(
-                "Final number of gene names in the gene name to Ensembl gene ID mapping: {}".format(
-                    len(gene_name_to_ensembl_id)
-                )
+            # join inclusion levels data with event info to get reference exon coordinates
+            assert (
+                inclusion_levels_full["EVENT"]
+                .isin(event_info_from_vastdb["EVENT"])
+                .all()
+            ), "Not all events in the inclusion levels data are present in the event info data from VastDB"
+            inclusion_levels_full = inclusion_levels_full.merge(
+                event_info_from_vastdb[["EVENT", "COORD_o", "CO_C1", "CO_A", "CO_C2"]],
+                on="EVENT",
+                how="inner",
+                validate="one_to_one",
             )
-            print(
-                "Final number of Ensembl gene IDs in the Ensembl gene ID to gene name mapping: {}".format(
-                    len(ensembl_id_to_gene_name)
-                )
-            )
+            assert (
+                inclusion_levels_full["COORD"] == inclusion_levels_full["COORD_o"]
+            ).all(), "Coordinates do not match between inclusion levels data and event info data from VastDB"
+            inclusion_levels_full = inclusion_levels_full.drop(columns=["COORD_o"])
 
-            with open(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w"
-            ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
-            with open(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w"
-            ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
+            # join inclusion levels data with gene info to get gene ID
+            assert (
+                inclusion_levels_full["GENE"].isin(gene_info_from_vastdb["GENE"]).all()
+            ), "Not all genes in the inclusion levels data are present in the gene info data from VastDB"
+            inclusion_levels_full = inclusion_levels_full.merge(
+                gene_info_from_vastdb[["GeneID", "Gene_name"]],
+                left_on="GENE",
+                right_on="Gene_name",
+                how="inner",
+                validate="many_to_one",
+            )
+            inclusion_levels_full = inclusion_levels_full.drop(columns=["Gene_name"])
+            inclusion_levels_full = inclusion_levels_full.rename(
+                columns={"GeneID": "GENE_ID"}
+            )
 
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
@@ -1014,18 +1050,9 @@ class KnockdownData(LightningDataModule):
                 event_info["EVENT_TYPE"].append(event_type)
 
                 event_info["GENE"].append(row["GENE"])
-                if row["GENE"] in gene_name_to_ensembl_id:
-                    event_info["GENE_ID"].append(
-                        gene_name_to_ensembl_id[row["GENE"]][0]
-                    )
-                else:
-                    print(
-                        "Could not find the Ensembl gene ID for {}".format(row["GENE"])
-                    )
-                    event_info["GENE_ID"].append(None)
+                event_info["GENE_ID"].append(row["GENE_ID"])
                 event_info["HAS_GENE_EXP_VALUES"].append(
-                    event_info["GENE_ID"][-1] is not None
-                    and event_info["GENE_ID"][-1] in gene_counts["gene_id"]
+                    row["GENE_ID"] in gene_counts["gene_id"]
                 )
 
                 event_info["COORD"].append(row["COORD"])
@@ -1075,17 +1102,18 @@ class KnockdownData(LightningDataModule):
                             assert complexity_score in ["S", "C1", "C2", "C3"]
 
                             if complexity_score == "S":
-                                # intron upstream of the alternative exon
-                                # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
-                                if strand == ".":
-                                    intron_start = max(C1donor)
-                                    intron_end = min(Aexon_5p_ends)
-                                else:
-                                    intron_start = max(Aexon_3p_ends)
-                                    intron_end = min(C1donor)
+                                # reference intron upstream of the alternative exon
                                 # add/remove 1 to make sure the coordinates are within the intron
-                                intron_start = intron_start + 1
-                                intron_end = intron_end - 1
+                                if strand == ".":
+                                    intron_start = (
+                                        row["CO_C1"].split(":")[1].split("-")[1] + 1
+                                    )  # the end of the upstream exon
+                                    intron_end = extraction_start - 1
+                                else:
+                                    intron_start = extraction_end + 1
+                                    intron_end = (
+                                        row["CO_C1"].split(":")[1].split("-")[0] - 1
+                                    )  # the end of the upstream exon
                                 if intron_start < intron_end:
                                     introns_around_splicing_events["EVENT"].append(
                                         row["EVENT"]
@@ -1106,17 +1134,18 @@ class KnockdownData(LightningDataModule):
                                         strand
                                     )
 
-                                # intron downstream of the alternative exon
-                                # again, choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
-                                if strand == ".":
-                                    intron_start = max(Aexon_3p_ends)
-                                    intron_end = min(C2acceptor)
-                                else:
-                                    intron_start = max(C2acceptor)
-                                    intron_end = min(Aexon_5p_ends)
+                                # reference intron downstream of the alternative exon
                                 # add/remove 1 to make sure the coordinates are within the intron
-                                intron_start = intron_start + 1
-                                intron_end = intron_end - 1
+                                if strand == ".":
+                                    intron_start = extraction_end + 1
+                                    intron_end = (
+                                        row["CO_C2"].split(":")[1].split("-")[0] - 1
+                                    )  # the start of the downstream exon
+                                else:
+                                    intron_start = (
+                                        row["CO_C2"].split(":")[1].split("-")[1] + 1
+                                    )  # the start of the downstream exon
+                                    intron_end = extraction_start - 1
                                 if intron_start < intron_end:
                                     introns_around_splicing_events["EVENT"].append(
                                         row["EVENT"]
@@ -1181,17 +1210,18 @@ class KnockdownData(LightningDataModule):
                             assert complexity_score in ["S", "C1", "C2", "C3"]
 
                             if complexity_score == "S":
-                                # intron downstream of the alternative exon
-                                # choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
-                                if strand == ".":
-                                    intron_start = max(Aexon_end)
-                                    intron_end = min(C2acceptor)
-                                else:
-                                    intron_start = max(C2acceptor)
-                                    intron_end = min(Aexon_start)
+                                # reference intron downstream of the alternative exon
                                 # add/remove 1 to make sure the coordinates are within the intron
-                                intron_start = intron_start + 1
-                                intron_end = intron_end - 1
+                                if strand == ".":
+                                    intron_start = max(Aexon_end) + 1
+                                    intron_end = (
+                                        row["CO_C2"].split(":")[1].split("-")[0] - 1
+                                    )
+                                else:
+                                    intron_start = (
+                                        row["CO_C2"].split(":")[1].split("-")[1] + 1
+                                    )
+                                    intron_end = min(Aexon_start) - 1
                                 if intron_start < intron_end:
                                     introns_around_splicing_events["EVENT"].append(
                                         row["EVENT"]
@@ -1249,16 +1279,17 @@ class KnockdownData(LightningDataModule):
 
                             if complexity_score == "S":
                                 # intron upstream of the alternative exon
-                                # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
-                                if strand == ".":
-                                    intron_start = max(C1donor)
-                                    intron_end = min(Aexon_start)
-                                else:
-                                    intron_start = max(Aexon_end)
-                                    intron_end = min(C1donor)
                                 # add/remove 1 to make sure the coordinates are within the intron
-                                intron_start = intron_start + 1
-                                intron_end = intron_end - 1
+                                if strand == ".":
+                                    intron_start = (
+                                        row["CO_C1"].split(":")[1].split("-")[1] + 1
+                                    )
+                                    intron_end = min(Aexon_start) - 1
+                                else:
+                                    intron_start = max(Aexon_end) + 1
+                                    intron_end = (
+                                        row["CO_C1"].split(":")[1].split("-")[0] - 1
+                                    )
                                 if intron_start < intron_end:
                                     introns_around_splicing_events["EVENT"].append(
                                         row["EVENT"]
