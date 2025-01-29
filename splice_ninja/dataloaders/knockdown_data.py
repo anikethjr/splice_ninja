@@ -879,6 +879,57 @@ class KnockdownData(LightningDataModule):
                 lambda x: x.split(":")[0]
             )
 
+            # first add all gene IDs present in the gene count data to the gene name to Ensembl gene ID mapping and Ensembl gene ID to gene name mapping
+            for i in tqdm(range(gene_counts.shape[0])):
+                gene_name = gene_counts.iloc[i]["alias"]
+                ensembl_id = gene_counts.iloc[i]["gene_id"]
+                if gene_name not in gene_name_to_ensembl_id:
+                    gene_name_to_ensembl_id[gene_name] = [ensembl_id]
+                else:
+                    gene_name_to_ensembl_id[gene_name].append(ensembl_id)
+                if ensembl_id not in ensembl_id_to_gene_name:
+                    ensembl_id_to_gene_name[ensembl_id] = [gene_name]
+                else:
+                    ensembl_id_to_gene_name[ensembl_id].append(gene_name)
+
+            # next, get all unique gene names in the splicing data and add them to the gene name to Ensembl gene ID mapping and Ensembl gene ID to gene name mapping
+            all_genes_with_splicing_data = set(inclusion_levels_full["GENE"].unique())
+            for gene_name in tqdm(all_genes_with_splicing_data):
+                if gene_name not in gene_name_to_ensembl_id:
+                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(gene_name)
+                    if ensembl_id is not None:
+                        gene_name_to_ensembl_id[gene_name] = [ensembl_id]
+                        if ensembl_id in ensembl_id_to_gene_name:
+                            ensembl_id_to_gene_name[ensembl_id].append(gene_name)
+                        else:
+                            ensembl_id_to_gene_name[ensembl_id] = [gene_name]
+                    else:
+                        print(
+                            "Could not find the Ensembl gene ID for {}".format(
+                                gene_name
+                            )
+                        )
+
+            print(
+                "Final number of gene names in the gene name to Ensembl gene ID mapping: {}".format(
+                    len(gene_name_to_ensembl_id)
+                )
+            )
+            print(
+                "Final number of Ensembl gene IDs in the Ensembl gene ID to gene name mapping: {}".format(
+                    len(ensembl_id_to_gene_name)
+                )
+            )
+
+            with open(
+                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w"
+            ) as f:
+                json.dump(gene_name_to_ensembl_id, f)
+            with open(
+                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w"
+            ) as f:
+                json.dump(ensembl_id_to_gene_name, f)
+
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
             flattened_inclusion_levels_full["EVENT"] = []  # event ID
@@ -968,21 +1019,10 @@ class KnockdownData(LightningDataModule):
                         gene_name_to_ensembl_id[row["GENE"]][0]
                     )
                 else:
-                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(row["GENE"])
-                    if ensembl_id is not None:
-                        gene_name_to_ensembl_id[row["GENE"]] = [ensembl_id]
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(row["GENE"])
-                        else:
-                            ensembl_id_to_gene_name[ensembl_id] = [row["GENE"]]
-                        event_info["GENE_ID"].append(ensembl_id)
-                    else:
-                        print(
-                            "Could not find the Ensembl gene ID for {}".format(
-                                row["GENE"]
-                            )
-                        )
-                        event_info["GENE_ID"].append(None)
+                    print(
+                        "Could not find the Ensembl gene ID for {}".format(row["GENE"])
+                    )
+                    event_info["GENE_ID"].append(None)
                 event_info["HAS_GENE_EXP_VALUES"].append(
                     event_info["GENE_ID"][-1] is not None
                     and event_info["GENE_ID"][-1] in gene_counts["gene_id"]
@@ -1238,15 +1278,6 @@ class KnockdownData(LightningDataModule):
                                     introns_around_splicing_events["STRAND"].append(
                                         strand
                                     )
-
-            with open(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w"
-            ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
-            with open(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w"
-            ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
 
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
