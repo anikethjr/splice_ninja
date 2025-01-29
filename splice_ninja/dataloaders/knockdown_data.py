@@ -939,7 +939,7 @@ class KnockdownData(LightningDataModule):
                 left_on=["EVENT", "COORD"],
                 right_on=["EVENT", "COORD_o"],
                 how="left",
-            )
+            ).reset_index(drop=True)
             event_found_mask = inclusion_levels_full["COORD_o"].notnull()
             assert (
                 inclusion_levels_full[event_found_mask]["COORD"]
