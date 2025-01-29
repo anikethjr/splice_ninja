@@ -1034,16 +1034,6 @@ class KnockdownData(LightningDataModule):
                             if complexity_score == "S":
                                 # intron upstream of the alternative exon
                                 # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
-                                introns_around_splicing_events["EVENT"].append(
-                                    row["EVENT"]
-                                )
-                                introns_around_splicing_events["EVENT_TYPE"].append(
-                                    event_type
-                                )
-                                introns_around_splicing_events["SAMPLE"].append(psi_col)
-                                introns_around_splicing_events["LOCATION"].append(
-                                    "upstream"
-                                )
                                 if strand == ".":
                                     intron_start = max(C1donor)
                                     intron_end = min(Aexon_5p_ends)
@@ -1053,26 +1043,28 @@ class KnockdownData(LightningDataModule):
                                 # add/remove 1 to make sure the coordinates are within the intron
                                 intron_start = intron_start + 1
                                 intron_end = intron_end - 1
-                                assert (
-                                    intron_start < intron_end
-                                ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
-                                introns_around_splicing_events["COORD"].append(
-                                    f"{row['CHR']}:{intron_start}-{intron_end}"
-                                )
-                                introns_around_splicing_events["STRAND"].append(strand)
+                                if intron_start < intron_end:
+                                    introns_around_splicing_events["EVENT"].append(
+                                        row["EVENT"]
+                                    )
+                                    introns_around_splicing_events["EVENT_TYPE"].append(
+                                        event_type
+                                    )
+                                    introns_around_splicing_events["SAMPLE"].append(
+                                        psi_col
+                                    )
+                                    introns_around_splicing_events["LOCATION"].append(
+                                        "upstream"
+                                    )
+                                    introns_around_splicing_events["COORD"].append(
+                                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                                    )
+                                    introns_around_splicing_events["STRAND"].append(
+                                        strand
+                                    )
 
                                 # intron downstream of the alternative exon
                                 # again, choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
-                                introns_around_splicing_events["EVENT"].append(
-                                    row["EVENT"]
-                                )
-                                introns_around_splicing_events["EVENT_TYPE"].append(
-                                    event_type
-                                )
-                                introns_around_splicing_events["SAMPLE"].append(psi_col)
-                                introns_around_splicing_events["LOCATION"].append(
-                                    "downstream"
-                                )
                                 if strand == ".":
                                     intron_start = max(Aexon_3p_ends)
                                     intron_end = min(C2acceptor)
@@ -1082,13 +1074,25 @@ class KnockdownData(LightningDataModule):
                                 # add/remove 1 to make sure the coordinates are within the intron
                                 intron_start = intron_start + 1
                                 intron_end = intron_end - 1
-                                assert (
-                                    intron_start < intron_end
-                                ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
-                                introns_around_splicing_events["COORD"].append(
-                                    f"{row['CHR']}:{intron_start}-{intron_end}"
-                                )
-                                introns_around_splicing_events["STRAND"].append(strand)
+                                if intron_start < intron_end:
+                                    introns_around_splicing_events["EVENT"].append(
+                                        row["EVENT"]
+                                    )
+                                    introns_around_splicing_events["EVENT_TYPE"].append(
+                                        event_type
+                                    )
+                                    introns_around_splicing_events["SAMPLE"].append(
+                                        psi_col
+                                    )
+                                    introns_around_splicing_events["LOCATION"].append(
+                                        "downstream"
+                                    )
+                                    introns_around_splicing_events["COORD"].append(
+                                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                                    )
+                                    introns_around_splicing_events["STRAND"].append(
+                                        strand
+                                    )
 
                 elif event_type == "INT":
                     strand = row["FullCO"].split(":")[-1]
@@ -1136,16 +1140,6 @@ class KnockdownData(LightningDataModule):
                             if complexity_score == "S":
                                 # intron downstream of the alternative exon
                                 # choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
-                                introns_around_splicing_events["EVENT"].append(
-                                    row["EVENT"]
-                                )
-                                introns_around_splicing_events["EVENT_TYPE"].append(
-                                    event_type
-                                )
-                                introns_around_splicing_events["SAMPLE"].append(psi_col)
-                                introns_around_splicing_events["LOCATION"].append(
-                                    "downstream"
-                                )
                                 if strand == ".":
                                     intron_start = max(Aexon_end)
                                     intron_end = min(C2acceptor)
@@ -1155,13 +1149,25 @@ class KnockdownData(LightningDataModule):
                                 # add/remove 1 to make sure the coordinates are within the intron
                                 intron_start = intron_start + 1
                                 intron_end = intron_end - 1
-                                assert (
-                                    intron_start < intron_end
-                                ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
-                                introns_around_splicing_events["COORD"].append(
-                                    f"{row['CHR']}:{intron_start}-{intron_end}"
-                                )
-                                introns_around_splicing_events["STRAND"].append(strand)
+                                if intron_start < intron_end:
+                                    introns_around_splicing_events["EVENT"].append(
+                                        row["EVENT"]
+                                    )
+                                    introns_around_splicing_events["EVENT_TYPE"].append(
+                                        event_type
+                                    )
+                                    introns_around_splicing_events["SAMPLE"].append(
+                                        psi_col
+                                    )
+                                    introns_around_splicing_events["LOCATION"].append(
+                                        "downstream"
+                                    )
+                                    introns_around_splicing_events["COORD"].append(
+                                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                                    )
+                                    introns_around_splicing_events["STRAND"].append(
+                                        strand
+                                    )
 
                 elif event_type == "ALTA":
                     C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
@@ -1201,16 +1207,6 @@ class KnockdownData(LightningDataModule):
                             if complexity_score == "S":
                                 # intron upstream of the alternative exon
                                 # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
-                                introns_around_splicing_events["EVENT"].append(
-                                    row["EVENT"]
-                                )
-                                introns_around_splicing_events["EVENT_TYPE"].append(
-                                    event_type
-                                )
-                                introns_around_splicing_events["SAMPLE"].append(psi_col)
-                                introns_around_splicing_events["LOCATION"].append(
-                                    "upstream"
-                                )
                                 if strand == ".":
                                     intron_start = max(C1donor)
                                     intron_end = min(Aexon_start)
@@ -1220,13 +1216,25 @@ class KnockdownData(LightningDataModule):
                                 # add/remove 1 to make sure the coordinates are within the intron
                                 intron_start = intron_start + 1
                                 intron_end = intron_end - 1
-                                assert (
-                                    intron_start < intron_end
-                                ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
-                                introns_around_splicing_events["COORD"].append(
-                                    f"{row['CHR']}:{intron_start}-{intron_end}"
-                                )
-                                introns_around_splicing_events["STRAND"].append(strand)
+                                if intron_start < intron_end:
+                                    introns_around_splicing_events["EVENT"].append(
+                                        row["EVENT"]
+                                    )
+                                    introns_around_splicing_events["EVENT_TYPE"].append(
+                                        event_type
+                                    )
+                                    introns_around_splicing_events["SAMPLE"].append(
+                                        psi_col
+                                    )
+                                    introns_around_splicing_events["LOCATION"].append(
+                                        "upstream"
+                                    )
+                                    introns_around_splicing_events["COORD"].append(
+                                        f"{row['CHR']}:{intron_start}-{intron_end}"
+                                    )
+                                    introns_around_splicing_events["STRAND"].append(
+                                        strand
+                                    )
 
             print("Total number of PSI values:", len(flattened_inclusion_levels_full))
             print("Total number of events:", len(event_info))
