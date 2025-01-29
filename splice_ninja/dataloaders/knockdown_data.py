@@ -934,19 +934,42 @@ class KnockdownData(LightningDataModule):
             )
 
             # join inclusion levels data with event info to get reference exon coordinates
-            assert (
-                inclusion_levels_full["EVENT"]
-                .isin(event_info_from_vastdb["EVENT"])
-                .all()
-            ), "Not all events in the inclusion levels data are present in the event info data from VastDB"
             inclusion_levels_full = inclusion_levels_full.merge(
                 event_info_from_vastdb[["EVENT", "COORD_o", "CO_C1", "CO_A", "CO_C2"]],
                 on="EVENT",
-                how="inner",
-                validate="one_to_one",
+                how="left",
             )
+            event_found_mask = inclusion_levels_full["COORD_o"].notnull()
+            print(
+                "Number of events found in VastDB: {} ({}%)".format(
+                    event_found_mask.sum(), 100 * event_found_mask.mean()
+                )
+            )
+            print("Some event IDs not found in VastDB:")
+            print(
+                inclusion_levels_full.loc[~event_found_mask, "EVENT"].head()
+            )  # print some event IDs not found in VastDB
+            print("Per event type:")
+            for event_type in inclusion_levels_full["COMPLEX"].unique():
+                event_found_mask = inclusion_levels_full.loc[
+                    inclusion_levels_full["COMPLEX"] == event_type, "COORD_o"
+                ].notnull()
+                print(
+                    f"{event_type}: {event_found_mask.sum()} ({100 * event_found_mask.mean():.2f}%)"
+                )
+                print(
+                    "Some event IDs not found in VastDB for {}: {}".format(
+                        event_type,
+                        inclusion_levels_full.loc[
+                            (inclusion_levels_full["COMPLEX"] == event_type)
+                            & (~event_found_mask),
+                            "EVENT",
+                        ].head(),
+                    )
+                )
             assert (
-                inclusion_levels_full["COORD"] == inclusion_levels_full["COORD_o"]
+                inclusion_levels_full[event_found_mask]["COORD"]
+                == inclusion_levels_full[event_found_mask]["COORD_o"]
             ).all(), "Coordinates do not match between inclusion levels data and event info data from VastDB"
             inclusion_levels_full = inclusion_levels_full.drop(columns=["COORD_o"])
 
@@ -1092,79 +1115,82 @@ class KnockdownData(LightningDataModule):
                         f"{row['CHR']}:{extraction_start}-{extraction_end}"
                     )
 
-                    # add the introns around the splicing events
-                    for psi_col in psi_vals_columns:
-                        if not np.isnan(row[psi_col]):
-                            quality_col = psi_col + "-Q"
-                            complexity_score = (
-                                row[quality_col].split("@")[0].split(",")[-1]
-                            )
-                            assert complexity_score in ["S", "C1", "C2", "C3"]
+                    if not pd.isna(row["CO_C1"]) and not pd.isna(
+                        row["CO_C2"]
+                    ):  # only add the introns if the reference coordinates are available
+                        # add the introns around the splicing events
+                        for psi_col in psi_vals_columns:
+                            if not np.isnan(row[psi_col]):
+                                quality_col = psi_col + "-Q"
+                                complexity_score = (
+                                    row[quality_col].split("@")[0].split(",")[-1]
+                                )
+                                assert complexity_score in ["S", "C1", "C2", "C3"]
 
-                            if complexity_score == "S":
-                                # reference intron upstream of the alternative exon
-                                # add/remove 1 to make sure the coordinates are within the intron
-                                if strand == ".":
-                                    intron_start = (
-                                        row["CO_C1"].split(":")[1].split("-")[1] + 1
-                                    )  # the end of the upstream exon
-                                    intron_end = extraction_start - 1
-                                else:
-                                    intron_start = extraction_end + 1
-                                    intron_end = (
-                                        row["CO_C1"].split(":")[1].split("-")[0] - 1
-                                    )  # the end of the upstream exon
-                                if intron_start < intron_end:
-                                    introns_around_splicing_events["EVENT"].append(
-                                        row["EVENT"]
-                                    )
-                                    introns_around_splicing_events["EVENT_TYPE"].append(
-                                        event_type
-                                    )
-                                    introns_around_splicing_events["SAMPLE"].append(
-                                        psi_col
-                                    )
-                                    introns_around_splicing_events["LOCATION"].append(
-                                        "upstream"
-                                    )
-                                    introns_around_splicing_events["COORD"].append(
-                                        f"{row['CHR']}:{intron_start}-{intron_end}"
-                                    )
-                                    introns_around_splicing_events["STRAND"].append(
-                                        strand
-                                    )
+                                if complexity_score == "S":
+                                    # reference intron upstream of the alternative exon
+                                    # add/remove 1 to make sure the coordinates are within the intron
+                                    if strand == ".":
+                                        intron_start = (
+                                            row["CO_C1"].split(":")[1].split("-")[1] + 1
+                                        )  # the end of the upstream exon
+                                        intron_end = extraction_start - 1
+                                    else:
+                                        intron_start = extraction_end + 1
+                                        intron_end = (
+                                            row["CO_C1"].split(":")[1].split("-")[0] - 1
+                                        )  # the end of the upstream exon
+                                    if intron_start < intron_end:
+                                        introns_around_splicing_events["EVENT"].append(
+                                            row["EVENT"]
+                                        )
+                                        introns_around_splicing_events[
+                                            "EVENT_TYPE"
+                                        ].append(event_type)
+                                        introns_around_splicing_events["SAMPLE"].append(
+                                            psi_col
+                                        )
+                                        introns_around_splicing_events[
+                                            "LOCATION"
+                                        ].append("upstream")
+                                        introns_around_splicing_events["COORD"].append(
+                                            f"{row['CHR']}:{intron_start}-{intron_end}"
+                                        )
+                                        introns_around_splicing_events["STRAND"].append(
+                                            strand
+                                        )
 
-                                # reference intron downstream of the alternative exon
-                                # add/remove 1 to make sure the coordinates are within the intron
-                                if strand == ".":
-                                    intron_start = extraction_end + 1
-                                    intron_end = (
-                                        row["CO_C2"].split(":")[1].split("-")[0] - 1
-                                    )  # the start of the downstream exon
-                                else:
-                                    intron_start = (
-                                        row["CO_C2"].split(":")[1].split("-")[1] + 1
-                                    )  # the start of the downstream exon
-                                    intron_end = extraction_start - 1
-                                if intron_start < intron_end:
-                                    introns_around_splicing_events["EVENT"].append(
-                                        row["EVENT"]
-                                    )
-                                    introns_around_splicing_events["EVENT_TYPE"].append(
-                                        event_type
-                                    )
-                                    introns_around_splicing_events["SAMPLE"].append(
-                                        psi_col
-                                    )
-                                    introns_around_splicing_events["LOCATION"].append(
-                                        "downstream"
-                                    )
-                                    introns_around_splicing_events["COORD"].append(
-                                        f"{row['CHR']}:{intron_start}-{intron_end}"
-                                    )
-                                    introns_around_splicing_events["STRAND"].append(
-                                        strand
-                                    )
+                                    # reference intron downstream of the alternative exon
+                                    # add/remove 1 to make sure the coordinates are within the intron
+                                    if strand == ".":
+                                        intron_start = extraction_end + 1
+                                        intron_end = (
+                                            row["CO_C2"].split(":")[1].split("-")[0] - 1
+                                        )  # the start of the downstream exon
+                                    else:
+                                        intron_start = (
+                                            row["CO_C2"].split(":")[1].split("-")[1] + 1
+                                        )  # the start of the downstream exon
+                                        intron_end = extraction_start - 1
+                                    if intron_start < intron_end:
+                                        introns_around_splicing_events["EVENT"].append(
+                                            row["EVENT"]
+                                        )
+                                        introns_around_splicing_events[
+                                            "EVENT_TYPE"
+                                        ].append(event_type)
+                                        introns_around_splicing_events["SAMPLE"].append(
+                                            psi_col
+                                        )
+                                        introns_around_splicing_events[
+                                            "LOCATION"
+                                        ].append("downstream")
+                                        introns_around_splicing_events["COORD"].append(
+                                            f"{row['CHR']}:{intron_start}-{intron_end}"
+                                        )
+                                        introns_around_splicing_events["STRAND"].append(
+                                            strand
+                                        )
 
                 elif event_type == "INT":
                     strand = row["FullCO"].split(":")[-1]
@@ -1201,46 +1227,49 @@ class KnockdownData(LightningDataModule):
                         event_info["STRAND"].append("-")
                         strand = "-"
 
-                    for psi_col in psi_vals_columns:
-                        if not np.isnan(row[psi_col]):
-                            quality_col = psi_col + "-Q"
-                            complexity_score = (
-                                row[quality_col].split("@")[0].split(",")[-1]
-                            )
-                            assert complexity_score in ["S", "C1", "C2", "C3"]
+                    if not pd.isna(
+                        row["CO_C2"]
+                    ):  # only add the introns if the reference coordinates are available
+                        for psi_col in psi_vals_columns:
+                            if not np.isnan(row[psi_col]):
+                                quality_col = psi_col + "-Q"
+                                complexity_score = (
+                                    row[quality_col].split("@")[0].split(",")[-1]
+                                )
+                                assert complexity_score in ["S", "C1", "C2", "C3"]
 
-                            if complexity_score == "S":
-                                # reference intron downstream of the alternative exon
-                                # add/remove 1 to make sure the coordinates are within the intron
-                                if strand == ".":
-                                    intron_start = max(Aexon_end) + 1
-                                    intron_end = (
-                                        row["CO_C2"].split(":")[1].split("-")[0] - 1
-                                    )
-                                else:
-                                    intron_start = (
-                                        row["CO_C2"].split(":")[1].split("-")[1] + 1
-                                    )
-                                    intron_end = min(Aexon_start) - 1
-                                if intron_start < intron_end:
-                                    introns_around_splicing_events["EVENT"].append(
-                                        row["EVENT"]
-                                    )
-                                    introns_around_splicing_events["EVENT_TYPE"].append(
-                                        event_type
-                                    )
-                                    introns_around_splicing_events["SAMPLE"].append(
-                                        psi_col
-                                    )
-                                    introns_around_splicing_events["LOCATION"].append(
-                                        "downstream"
-                                    )
-                                    introns_around_splicing_events["COORD"].append(
-                                        f"{row['CHR']}:{intron_start}-{intron_end}"
-                                    )
-                                    introns_around_splicing_events["STRAND"].append(
-                                        strand
-                                    )
+                                if complexity_score == "S":
+                                    # reference intron downstream of the alternative exon
+                                    # add/remove 1 to make sure the coordinates are within the intron
+                                    if strand == ".":
+                                        intron_start = max(Aexon_end) + 1
+                                        intron_end = (
+                                            row["CO_C2"].split(":")[1].split("-")[0] - 1
+                                        )
+                                    else:
+                                        intron_start = (
+                                            row["CO_C2"].split(":")[1].split("-")[1] + 1
+                                        )
+                                        intron_end = min(Aexon_start) - 1
+                                    if intron_start < intron_end:
+                                        introns_around_splicing_events["EVENT"].append(
+                                            row["EVENT"]
+                                        )
+                                        introns_around_splicing_events[
+                                            "EVENT_TYPE"
+                                        ].append(event_type)
+                                        introns_around_splicing_events["SAMPLE"].append(
+                                            psi_col
+                                        )
+                                        introns_around_splicing_events[
+                                            "LOCATION"
+                                        ].append("downstream")
+                                        introns_around_splicing_events["COORD"].append(
+                                            f"{row['CHR']}:{intron_start}-{intron_end}"
+                                        )
+                                        introns_around_splicing_events["STRAND"].append(
+                                            strand
+                                        )
 
                 elif event_type == "ALTA":
                     C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
@@ -1269,46 +1298,49 @@ class KnockdownData(LightningDataModule):
                         event_info["STRAND"].append("-")
                         strand = "-"
 
-                    for psi_col in psi_vals_columns:
-                        if not np.isnan(row[psi_col]):
-                            quality_col = psi_col + "-Q"
-                            complexity_score = (
-                                row[quality_col].split("@")[0].split(",")[-1]
-                            )
-                            assert complexity_score in ["S", "C1", "C2", "C3"]
+                    if not pd.isna(
+                        row["CO_C1"]
+                    ):  # only add the introns if the reference coordinates are available
+                        for psi_col in psi_vals_columns:
+                            if not np.isnan(row[psi_col]):
+                                quality_col = psi_col + "-Q"
+                                complexity_score = (
+                                    row[quality_col].split("@")[0].split(",")[-1]
+                                )
+                                assert complexity_score in ["S", "C1", "C2", "C3"]
 
-                            if complexity_score == "S":
-                                # intron upstream of the alternative exon
-                                # add/remove 1 to make sure the coordinates are within the intron
-                                if strand == ".":
-                                    intron_start = (
-                                        row["CO_C1"].split(":")[1].split("-")[1] + 1
-                                    )
-                                    intron_end = min(Aexon_start) - 1
-                                else:
-                                    intron_start = max(Aexon_end) + 1
-                                    intron_end = (
-                                        row["CO_C1"].split(":")[1].split("-")[0] - 1
-                                    )
-                                if intron_start < intron_end:
-                                    introns_around_splicing_events["EVENT"].append(
-                                        row["EVENT"]
-                                    )
-                                    introns_around_splicing_events["EVENT_TYPE"].append(
-                                        event_type
-                                    )
-                                    introns_around_splicing_events["SAMPLE"].append(
-                                        psi_col
-                                    )
-                                    introns_around_splicing_events["LOCATION"].append(
-                                        "upstream"
-                                    )
-                                    introns_around_splicing_events["COORD"].append(
-                                        f"{row['CHR']}:{intron_start}-{intron_end}"
-                                    )
-                                    introns_around_splicing_events["STRAND"].append(
-                                        strand
-                                    )
+                                if complexity_score == "S":
+                                    # intron upstream of the alternative exon
+                                    # add/remove 1 to make sure the coordinates are within the intron
+                                    if strand == ".":
+                                        intron_start = (
+                                            row["CO_C1"].split(":")[1].split("-")[1] + 1
+                                        )
+                                        intron_end = min(Aexon_start) - 1
+                                    else:
+                                        intron_start = max(Aexon_end) + 1
+                                        intron_end = (
+                                            row["CO_C1"].split(":")[1].split("-")[0] - 1
+                                        )
+                                    if intron_start < intron_end:
+                                        introns_around_splicing_events["EVENT"].append(
+                                            row["EVENT"]
+                                        )
+                                        introns_around_splicing_events[
+                                            "EVENT_TYPE"
+                                        ].append(event_type)
+                                        introns_around_splicing_events["SAMPLE"].append(
+                                            psi_col
+                                        )
+                                        introns_around_splicing_events[
+                                            "LOCATION"
+                                        ].append("upstream")
+                                        introns_around_splicing_events["COORD"].append(
+                                            f"{row['CHR']}:{intron_start}-{intron_end}"
+                                        )
+                                        introns_around_splicing_events["STRAND"].append(
+                                            strand
+                                        )
 
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
