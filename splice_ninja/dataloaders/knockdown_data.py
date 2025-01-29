@@ -1144,7 +1144,7 @@ class KnockdownData(LightningDataModule):
                                 complexity_score = (
                                     row[quality_col].split("@")[0].split(",")[-1]
                                 )
-                                assert complexity_score in ["S", "C1", "C2", "C3"]
+                                assert complexity_score in ["S", "C1", "C2", "C3", "na"]
 
                                 if complexity_score == "S":
                                     # reference intron upstream of the alternative exon
@@ -1267,7 +1267,7 @@ class KnockdownData(LightningDataModule):
                                 complexity_score = (
                                     row[quality_col].split("@")[0].split(",")[-1]
                                 )
-                                assert complexity_score in ["S", "C1", "C2", "C3"]
+                                assert complexity_score in ["S", "C1", "C2", "C3", "na"]
 
                                 if complexity_score == "S":
                                     # reference intron downstream of the alternative exon
@@ -1344,7 +1344,7 @@ class KnockdownData(LightningDataModule):
                                 complexity_score = (
                                     row[quality_col].split("@")[0].split(",")[-1]
                                 )
-                                assert complexity_score in ["S", "C1", "C2", "C3"]
+                                assert complexity_score in ["S", "C1", "C2", "C3", "na"]
 
                                 if complexity_score == "S":
                                     # intron upstream of the alternative exon
