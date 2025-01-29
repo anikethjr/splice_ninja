@@ -1171,6 +1171,19 @@ class KnockdownData(LightningDataModule):
                     )
                     introns_around_splicing_events["STRAND"].append(strand)
 
+            print("Total number of PSI values:", len(flattened_inclusion_levels_full))
+            print("Total number of events:", len(event_info))
+            print("Total number of introns:", len(introns_around_splicing_events))
+
+            print("Number of PSI values of each event type:")
+            print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+            print("Number of events of each event type:")
+            print(event_info["EVENT_TYPE"].value_counts())
+
+            print("Number of introns of each event type:")
+            print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
+
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
             )
