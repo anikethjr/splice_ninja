@@ -1031,7 +1031,10 @@ class KnockdownData(LightningDataModule):
                         intron_end = min(Aexon_5p_ends)
                     else:
                         intron_start = max(Aexon_3p_ends)
-                        intron_end = min(C2acceptor)
+                        intron_end = min(C1donor)
+                    # add/remove 1 to make sure the coordinates are within the intron
+                    intron_start = intron_start + 1
+                    intron_end = intron_end - 1
                     assert (
                         intron_start < intron_end
                     ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
@@ -1049,8 +1052,11 @@ class KnockdownData(LightningDataModule):
                         intron_start = max(Aexon_3p_ends)
                         intron_end = min(C2acceptor)
                     else:
-                        intron_start = max(C1donor)
+                        intron_start = max(C2acceptor)
                         intron_end = min(Aexon_5p_ends)
+                    # add/remove 1 to make sure the coordinates are within the intron
+                    intron_start = intron_start + 1
+                    intron_end = intron_end - 1
                     assert (
                         intron_start < intron_end
                     ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
@@ -1105,6 +1111,9 @@ class KnockdownData(LightningDataModule):
                     else:
                         intron_start = max(C2acceptor)
                         intron_end = min(Aexon_start)
+                    # add/remove 1 to make sure the coordinates are within the intron
+                    intron_start = intron_start + 1
+                    intron_end = intron_end - 1
                     assert (
                         intron_start < intron_end
                     ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
@@ -1151,6 +1160,9 @@ class KnockdownData(LightningDataModule):
                     else:
                         intron_start = max(Aexon_end)
                         intron_end = min(C1donor)
+                    # add/remove 1 to make sure the coordinates are within the intron
+                    intron_start = intron_start + 1
+                    intron_end = intron_end - 1
                     assert (
                         intron_start < intron_end
                     ), f"Invalid intron coordinates: {intron_start}-{intron_end}"
