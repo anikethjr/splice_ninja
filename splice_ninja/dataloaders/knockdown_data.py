@@ -981,7 +981,9 @@ class KnockdownData(LightningDataModule):
 
             # join inclusion levels data with gene info to get gene ID
             assert (
-                inclusion_levels_full["GENE"].isin(gene_info_from_vastdb["GENE"]).all()
+                inclusion_levels_full["GENE"]
+                .isin(gene_info_from_vastdb["Gene_name"])
+                .all()
             ), "Not all genes in the inclusion levels data are present in the gene info data from VastDB"
             inclusion_levels_full = inclusion_levels_full.merge(
                 gene_info_from_vastdb[["GeneID", "Gene_name"]],
