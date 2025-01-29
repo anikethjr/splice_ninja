@@ -971,7 +971,10 @@ class KnockdownData(LightningDataModule):
                     ensembl_id = get_ensembl_gene_id_hgnc_with_alias(row["GENE"])
                     if ensembl_id is not None:
                         gene_name_to_ensembl_id[row["GENE"]] = [ensembl_id]
-                        ensembl_id_to_gene_name[ensembl_id] = [row["GENE"]]
+                        if ensembl_id in ensembl_id_to_gene_name:
+                            ensembl_id_to_gene_name[ensembl_id].append(row["GENE"])
+                        else:
+                            ensembl_id_to_gene_name[ensembl_id] = [row["GENE"]]
                         event_info["GENE_ID"].append(ensembl_id)
                     else:
                         print(
@@ -1236,6 +1239,23 @@ class KnockdownData(LightningDataModule):
                                         strand
                                     )
 
+            with open(
+                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w"
+            ) as f:
+                json.dump(gene_name_to_ensembl_id, f)
+            with open(
+                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w"
+            ) as f:
+                json.dump(ensembl_id_to_gene_name, f)
+
+            flattened_inclusion_levels_full = pd.DataFrame(
+                flattened_inclusion_levels_full
+            )
+            event_info = pd.DataFrame(event_info)
+            introns_around_splicing_events = pd.DataFrame(
+                introns_around_splicing_events
+            )
+
             print("Total number of PSI values:", len(flattened_inclusion_levels_full))
             print("Total number of events:", len(event_info))
             print("Total number of introns:", len(introns_around_splicing_events))
@@ -1248,14 +1268,6 @@ class KnockdownData(LightningDataModule):
 
             print("Number of introns of each event type:")
             print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
-
-            flattened_inclusion_levels_full = pd.DataFrame(
-                flattened_inclusion_levels_full
-            )
-            event_info = pd.DataFrame(event_info)
-            introns_around_splicing_events = pd.DataFrame(
-                introns_around_splicing_events
-            )
 
             flattened_inclusion_levels_full.to_csv(
                 os.path.join(
@@ -1270,15 +1282,6 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "intron_around_splicing_events.csv"),
                 index=False,
             )
-
-            with open(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w"
-            ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
-            with open(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w"
-            ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
 
             print("Flattened data cached")
 
