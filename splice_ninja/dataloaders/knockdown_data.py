@@ -940,9 +940,18 @@ class KnockdownData(LightningDataModule):
                 how="left",
             )
             event_found_mask = inclusion_levels_full["COORD_o"].notnull()
+            assert (
+                inclusion_levels_full[event_found_mask]["COORD"]
+                == inclusion_levels_full[event_found_mask]["COORD_o"]
+            ).all(), "Coordinates do not match between inclusion levels data and event info data from VastDB"
             print(
                 "Number of events found in VastDB: {} ({}%)".format(
                     event_found_mask.sum(), 100 * event_found_mask.mean()
+                )
+            )
+            print(
+                "Number of events not found in VastDB: {} ({}%)".format(
+                    (~event_found_mask).sum(), 100 * (~event_found_mask).mean()
                 )
             )
             print("Some event IDs not found in VastDB:")
@@ -955,7 +964,7 @@ class KnockdownData(LightningDataModule):
                     inclusion_levels_full["COMPLEX"] == event_type, "COORD_o"
                 ].notnull()
                 print(
-                    f"{event_type}: {event_found_mask.sum()} ({100 * event_found_mask.mean():.2f}%)"
+                    f"{event_type}: {event_found_mask.sum()} ({100 * event_found_mask.mean():.2f}%), not found: {(~event_found_mask).sum()} ({100 * (~event_found_mask).mean():.2f}%)"
                 )
                 print(
                     "Some event IDs not found in VastDB for {}: {}".format(
@@ -967,10 +976,6 @@ class KnockdownData(LightningDataModule):
                         ].head(),
                     )
                 )
-            assert (
-                inclusion_levels_full[event_found_mask]["COORD"]
-                == inclusion_levels_full[event_found_mask]["COORD_o"]
-            ).all(), "Coordinates do not match between inclusion levels data and event info data from VastDB"
             inclusion_levels_full = inclusion_levels_full.drop(columns=["COORD_o"])
 
             # join inclusion levels data with gene info to get gene ID
