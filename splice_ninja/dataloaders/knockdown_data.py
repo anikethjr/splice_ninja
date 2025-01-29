@@ -980,22 +980,32 @@ class KnockdownData(LightningDataModule):
             inclusion_levels_full = inclusion_levels_full.drop(columns=["COORD_o"])
 
             # join inclusion levels data with gene info to get gene ID
-            assert (
-                inclusion_levels_full["GENE"]
-                .isin(gene_info_from_vastdb["Gene_name"])
-                .all()
-            ), "Not all genes in the inclusion levels data are present in the gene info data from VastDB"
             inclusion_levels_full = inclusion_levels_full.merge(
                 gene_info_from_vastdb[["GeneID", "Gene_name"]],
                 left_on="GENE",
                 right_on="Gene_name",
-                how="inner",
-                validate="many_to_one",
+                how="left",
             )
             inclusion_levels_full = inclusion_levels_full.drop(columns=["Gene_name"])
             inclusion_levels_full = inclusion_levels_full.rename(
                 columns={"GeneID": "GENE_ID"}
             )
+
+            temp = inclusion_levels_full[["GENE", "GENE_ID"]].drop_duplicates()
+            print(
+                "Number of genes for which gene ID was found in VastDB: {} ({}%)".format(
+                    temp[temp["GENE_ID"].notnull()].shape[0],
+                    100 * temp[temp["GENE_ID"].notnull()].shape[0] / temp.shape[0],
+                )
+            )
+            print(
+                "Number of genes for which gene ID was not found in VastDB: {} ({}%)".format(
+                    temp[temp["GENE_ID"].isnull()].shape[0],
+                    100 * temp[temp["GENE_ID"].isnull()].shape[0] / temp.shape[0],
+                )
+            )
+            print("Some genes for which gene ID was not found in VastDB:")
+            print(temp[temp["GENE_ID"].isnull()].head())
 
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
@@ -1083,7 +1093,8 @@ class KnockdownData(LightningDataModule):
                 event_info["GENE"].append(row["GENE"])
                 event_info["GENE_ID"].append(row["GENE_ID"])
                 event_info["HAS_GENE_EXP_VALUES"].append(
-                    row["GENE_ID"] in gene_counts["gene_id"]
+                    (not pd.isna(row["GENE_ID"]))
+                    and row["GENE_ID"] in gene_counts["gene_id"]
                 )
 
                 event_info["COORD"].append(row["COORD"])
