@@ -936,7 +936,8 @@ class KnockdownData(LightningDataModule):
             # join inclusion levels data with event info to get reference exon coordinates
             inclusion_levels_full = inclusion_levels_full.merge(
                 event_info_from_vastdb[["EVENT", "COORD_o", "CO_C1", "CO_A", "CO_C2"]],
-                on="EVENT",
+                left_on=["EVENT", "COORD"],
+                right_on=["EVENT", "COORD_o"],
                 how="left",
             )
             event_found_mask = inclusion_levels_full["COORD_o"].notnull()
