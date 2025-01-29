@@ -908,6 +908,7 @@ class KnockdownData(LightningDataModule):
             introns_around_splicing_events[
                 "EVENT"
             ] = []  # event ID corresponding to the splicing event
+            introns_around_splicing_events["EVENT_TYPE"] = []  # general event type
             introns_around_splicing_events[
                 "LOCATION"
             ] = []  # whether the intron is upstream or downstream of the splicing event
@@ -970,8 +971,8 @@ class KnockdownData(LightningDataModule):
                         )
                         event_info["GENE_ID"].append(None)
                 event_info["HAS_GENE_EXP_VALUES"].append(
-                    row["GENE_ID"] is not None
-                    and row["GENE_ID"] in gene_counts["gene_id"]
+                    event_info["GENE_ID"][-1] is not None
+                    and event_info["GENE_ID"][-1] in gene_counts["gene_id"]
                 )
 
                 event_info["COORD"].append(row["COORD"])
@@ -1018,6 +1019,7 @@ class KnockdownData(LightningDataModule):
                     # intron upstream of the alternative exon
                     # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
                     introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["EVENT_TYPE"].append(event_type)
                     introns_around_splicing_events["LOCATION"].append("upstream")
                     if strand == ".":
                         intron_start = max(C1donor)
@@ -1036,6 +1038,7 @@ class KnockdownData(LightningDataModule):
                     # intron downstream of the alternative exon
                     # again, choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
                     introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["EVENT_TYPE"].append(event_type)
                     introns_around_splicing_events["LOCATION"].append("downstream")
                     if strand == ".":
                         intron_start = max(Aexon_3p_ends)
@@ -1089,6 +1092,7 @@ class KnockdownData(LightningDataModule):
                     # intron downstream of the alternative exon
                     # choose the region that is almost guaranteed to be an intron i.e. the region between the most downstream alternate exon donor and the most proximal acceptor of the downstream exon
                     introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["EVENT_TYPE"].append(event_type)
                     introns_around_splicing_events["LOCATION"].append("downstream")
                     if strand == ".":
                         intron_start = max(Aexon_end)
@@ -1134,6 +1138,7 @@ class KnockdownData(LightningDataModule):
                     # intron upstream of the alternative exon
                     # choose the region that is almost guaranteed to be an intron i.e. the region between the most proximal donor of the upstream exon and the most upstream alternate exon acceptor
                     introns_around_splicing_events["EVENT"].append(row["EVENT"])
+                    introns_around_splicing_events["EVENT_TYPE"].append(event_type)
                     introns_around_splicing_events["LOCATION"].append("upstream")
                     if strand == ".":
                         intron_start = max(C1donor)
