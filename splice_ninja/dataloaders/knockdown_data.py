@@ -875,7 +875,7 @@ class KnockdownData(LightningDataModule):
             ]
 
             # create a column for the chromosome
-            inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
+            inclusion_levels_full["CHR"] = inclusion_levels_full["COORD"].apply(
                 lambda x: x.split(":")[0]
             )
 
