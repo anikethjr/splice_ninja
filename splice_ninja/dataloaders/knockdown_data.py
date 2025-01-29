@@ -874,6 +874,11 @@ class KnockdownData(LightningDataModule):
                 i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
             ]
 
+            # create a column for the chromosome
+            inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
+                lambda x: x.split(":")[0]
+            )
+
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
             flattened_inclusion_levels_full["EVENT"] = []  # event ID
