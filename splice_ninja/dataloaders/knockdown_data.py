@@ -1060,15 +1060,6 @@ class KnockdownData(LightningDataModule):
             for i, row in tqdm(
                 inclusion_levels_full.iterrows(), total=inclusion_levels_full.shape[0]
             ):
-                for psi_col in psi_vals_columns:
-                    if not np.isnan(row[psi_col]):
-                        flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
-                        flattened_inclusion_levels_full["EVENT_TYPE"].append(
-                            row["EVENT_TYPE"]
-                        )
-                        flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
-                        flattened_inclusion_levels_full["PSI"].append(row[psi_col])
-
                 # VAST-DB event ID. Formed by:
                 # - Species identifier: Hsa (Human), Mmu (Mouse), or Gga (Chicken);
                 # - Type of alternative splicing event:
@@ -1093,6 +1084,13 @@ class KnockdownData(LightningDataModule):
                         f"Unknown event type for event with ID: {row['EVENT']}"
                     )
                 event_info["EVENT_TYPE"].append(event_type)
+
+                for psi_col in psi_vals_columns:
+                    if not np.isnan(row[psi_col]):
+                        flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
+                        flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
+                        flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
+                        flattened_inclusion_levels_full["PSI"].append(row[psi_col])
 
                 event_info["GENE"].append(row["GENE"])
                 event_info["GENE_ID"].append(row["GENE_ID"])
