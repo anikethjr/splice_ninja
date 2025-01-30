@@ -7,6 +7,7 @@
         "seed": 97,
         "input_size": 10000,
         "batch_size": 64,
+        "intron_keep_ratio": 0.25,
         "train_chromosomes": ["chr1", "chr2", "chr3", "chr6", "chr9", "chr11", "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19"],
         "val_chromosomes": ["chr10", "chr22", "chrX", "chrY"],
         "test_chromosomes": ["chr4", "chr5", "chr7", "chr8", "chr20", "chr21"]

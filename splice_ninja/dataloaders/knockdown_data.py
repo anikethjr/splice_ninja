@@ -28,20 +28,43 @@ class KnockdownDataset(Dataset):
     def __init__(self, data_module, split="train"):
         self.data_module = data_module
         self.split = split
+        self.intron_keep_ratio = self.data.config["train_config"]["intron_keep_ratio"]
+        self.genome = self.data_module.genome
 
         if self.split == "train":
             self.chromosomes = self.data_module.train_chromosomes
+            self.flattened_inclusion_levels = (
+                self.data_module.train_flattened_inclusion_levels
+            )
+            self.event_info = self.data_module.train_event_info
+            self.introns_around_splicing_events = (
+                self.data_module.train_introns_around_splicing_events
+            )
+
         elif self.split == "val":
             self.chromosomes = self.data_module.val_chromosomes
+            self.flattened_inclusion_levels = (
+                self.data_module.val_flattened_inclusion_levels
+            )
+            self.event_info = self.data_module.val_event_info
+            self.introns_around_splicing_events = (
+                self.data_module.val_introns_around_splicing_events
+            )
+
         elif self.split == "test":
             self.chromosomes = self.data_module.test_chromosomes
-
-        self.data = self.data_module.inclusion_levels_full[
-            self.data_module.inclusion_levels_full["CHR"].isin(self.chromosomes)
-        ].reset_index(drop=True)
+            self.flattened_inclusion_levels = (
+                self.data_module.test_flattened_inclusion_levels
+            )
+            self.event_info = self.data_module.test_event_info
+            self.introns_around_splicing_events = (
+                self.data_module.test_introns_around_splicing_events
+            )
 
     def __len__(self):
-        return len(self.data)
+        return len(self.flattened_inclusion_levels) + np.ceil(
+            len(self.introns_around_splicing_events) * self.intron_keep_ratio
+        ).astype(int)
 
     def __getitem__(self, idx):
         splicing_event = self.data.iloc[idx]
@@ -1455,80 +1478,269 @@ class KnockdownData(LightningDataModule):
             print("Flattened data cached")
 
     def setup(self, stage: str = None):
-        print("Loading filtered data from cache")
-        self.inclusion_levels_full = pd.read_csv(
-            os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
-        )
+        print("Loading filtered and flattened data from cache")
         self.gene_counts = pd.read_csv(
             os.path.join(self.cache_dir, "gene_counts_filtered.csv")
         )
-        with open(
-            os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "r"
-        ) as f:
-            self.gene_name_to_ensembl_id = json.load(f)
-        with open(
-            os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "r"
-        ) as f:
-            self.ensembl_id_to_gene_name = json.load(f)
-
-        self.psi_vals_columns = [
-            i for i in self.inclusion_levels_full.columns[6:] if not i.endswith("-Q")
-        ]
-        self.quality_columns = [
-            i for i in self.inclusion_levels_full.columns[6:] if i.endswith("-Q")
-        ]
-
-        # print number of events of each type
-        print(
-            f"Final number of events of each type:\n{self.inclusion_levels_full['COMPLEX'].value_counts()}"
+        self.flattened_inclusion_levels_full = pd.read_csv(
+            os.path.join(self.cache_dir, "flattened_inclusion_levels_full_filtered.csv")
         )
+        self.event_info = pd.read_csv(
+            os.path.join(self.cache_dir, "event_info_filtered.csv")
+        )
+        self.introns_around_splicing_events = pd.read_csv(
+            os.path.join(self.cache_dir, "intron_around_splicing_events.csv")
+        )
+
+        print("Total number of PSI values:", len(self.flattened_inclusion_levels_full))
+        print("Total number of events:", len(self.event_info))
+        print("Total number of introns:", len(self.introns_around_splicing_events))
+
+        print("Number of PSI values of each event type:")
+        print(self.flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+        print("Number of events of each event type:")
+        print(self.event_info["EVENT_TYPE"].value_counts())
+
+        print("Number of introns of each event type:")
+        print(self.introns_around_splicing_events["EVENT_TYPE"].value_counts())
 
         # load the genome
         self.genome = genomepy.Genome(
             "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
         )  # only need hg38 since the data is from human cell lines
 
-        # add a column for chromosome number
-        self.inclusion_levels_full["CHR"] = self.inclusion_levels_full["COORD"].apply(
-            lambda x: x.split(":")[0]
+        # create datasets for training, validation, and testing
+        # train dataset
+        self.train_event_info = self.event_info[
+            self.event_info["CHR"].isin(self.train_chromosomes)
+        ]
+        self.train_flattened_inclusion_levels_full = (
+            self.flattened_inclusion_levels_full[
+                self.flattened_inclusion_levels_full["EVENT"].isin(
+                    self.train_event_info["EVENT"]
+                )
+            ]
         )
-
-        self.train_inclusion_levels_full = self.inclusion_levels_full[
-            self.inclusion_levels_full["CHR"].isin(self.train_chromosomes)
-        ]
-        self.val_inclusion_levels_full = self.inclusion_levels_full[
-            self.inclusion_levels_full["CHR"].isin(self.val_chromosomes)
-        ]
-        self.test_inclusion_levels_full = self.inclusion_levels_full[
-            self.inclusion_levels_full["CHR"].isin(self.test_chromosomes)
+        self.train_introns_around_splicing_events = self.introns_around_splicing_events[
+            self.introns_around_splicing_events["EVENT"].isin(
+                self.train_event_info["EVENT"]
+            )
         ]
 
+        print("Train dataset:")
         print(
-            "Total number of events in full data: {}".format(
-                self.inclusion_levels_full.shape[0]
+            "Number of PSI values: {} ({}%)".format(
+                len(self.train_flattened_inclusion_levels_full),
+                100
+                * len(self.train_flattened_inclusion_levels_full)
+                / len(self.flattened_inclusion_levels_full),
             )
         )
         print(
-            f"Number of events in train: {self.train_inclusion_levels_full.shape[0]} (proportion: {self.train_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
+            "Number of events: {} ({}%)".format(
+                len(self.train_event_info),
+                100 * len(self.train_event_info) / len(self.event_info),
+            )
         )
         print(
-            f"Number of events of each type in train:\n{self.train_inclusion_levels_full['COMPLEX'].value_counts()}"
+            "Number of introns: {} ({}%)".format(
+                len(self.train_introns_around_splicing_events),
+                100
+                * len(self.train_introns_around_splicing_events)
+                / len(self.introns_around_splicing_events),
+            )
         )
 
+        print("Number of PSI values of each event type:")
+        full_value_counts = self.flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].value_counts()
+        train_value_counts = self.train_flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].value_counts()
+        for event_type in self.train_flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].unique():
+            print(
+                f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        print("Number of events of each event type:")
+        full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
+        train_value_counts = self.train_event_info["EVENT_TYPE"].value_counts()
+        for event_type in self.train_event_info["EVENT_TYPE"].unique():
+            print(
+                f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        print("Number of introns of each event type:")
+        full_value_counts = self.introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].value_counts()
+        train_value_counts = self.train_introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].value_counts()
+        for event_type in self.train_introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].unique():
+            print(
+                f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        # val dataset
+        self.val_event_info = self.event_info[
+            self.event_info["CHR"].isin(self.val_chromosomes)
+        ]
+        self.val_flattened_inclusion_levels_full = self.flattened_inclusion_levels_full[
+            self.flattened_inclusion_levels_full["EVENT"].isin(
+                self.val_event_info["EVENT"]
+            )
+        ]
+        self.val_introns_around_splicing_events = self.introns_around_splicing_events[
+            self.introns_around_splicing_events["EVENT"].isin(
+                self.val_event_info["EVENT"]
+            )
+        ]
+
+        print("Val dataset:")
         print(
-            f"Number of events in val: {self.val_inclusion_levels_full.shape[0]} (proportion: {self.val_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
+            "Number of PSI values: {} ({}%)".format(
+                len(self.val_flattened_inclusion_levels_full),
+                100
+                * len(self.val_flattened_inclusion_levels_full)
+                / len(self.flattened_inclusion_levels_full),
+            )
         )
         print(
-            f"Number of events of each type in val:\n{self.val_inclusion_levels_full['COMPLEX'].value_counts()}"
+            "Number of events: {} ({}%)".format(
+                len(self.val_event_info),
+                100 * len(self.val_event_info) / len(self.event_info),
+            )
+        )
+        print(
+            "Number of introns: {} ({}%)".format(
+                len(self.val_introns_around_splicing_events),
+                100
+                * len(self.val_introns_around_splicing_events)
+                / len(self.introns_around_splicing_events),
+            )
         )
 
+        print("Number of PSI values of each event type:")
+        full_value_counts = self.flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].value_counts()
+        val_value_counts = self.val_flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].value_counts()
+        for event_type in self.val_flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].unique():
+            print(
+                f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        print("Number of events of each event type:")
+        full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
+        val_value_counts = self.val_event_info["EVENT_TYPE"].value_counts()
+        for event_type in self.val_event_info["EVENT_TYPE"].unique():
+            print(
+                f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        print("Number of introns of each event type:")
+        full_value_counts = self.introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].value_counts()
+        val_value_counts = self.val_introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].value_counts()
+        for event_type in self.val_introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].unique():
+            print(
+                f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        # test dataset
+        self.test_event_info = self.event_info[
+            self.event_info["CHR"].isin(self.test_chromosomes)
+        ]
+        self.test_flattened_inclusion_levels_full = (
+            self.flattened_inclusion_levels_full[
+                self.flattened_inclusion_levels_full["EVENT"].isin(
+                    self.test_event_info["EVENT"]
+                )
+            ]
+        )
+        self.test_introns_around_splicing_events = self.introns_around_splicing_events[
+            self.introns_around_splicing_events["EVENT"].isin(
+                self.test_event_info["EVENT"]
+            )
+        ]
+
+        print("Test dataset:")
         print(
-            f"Number of events in test: {self.test_inclusion_levels_full.shape[0]} (proportion: {self.test_inclusion_levels_full.shape[0] / self.inclusion_levels_full.shape[0] * 100:.2f}%)"
+            "Number of PSI values: {} ({}%)".format(
+                len(self.test_flattened_inclusion_levels_full),
+                100
+                * len(self.test_flattened_inclusion_levels_full)
+                / len(self.flattened_inclusion_levels_full),
+            )
         )
         print(
-            f"Number of events of each type in test:\n{self.test_inclusion_levels_full['COMPLEX'].value_counts()}"
+            "Number of events: {} ({}%)".format(
+                len(self.test_event_info),
+                100 * len(self.test_event_info) / len(self.event_info),
+            )
+        )
+        print(
+            "Number of introns: {} ({}%)".format(
+                len(self.test_introns_around_splicing_events),
+                100
+                * len(self.test_introns_around_splicing_events)
+                / len(self.introns_around_splicing_events),
+            )
         )
 
+        print("Number of PSI values of each event type:")
+        full_value_counts = self.flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].value_counts()
+        test_value_counts = self.test_flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].value_counts()
+        for event_type in self.test_flattened_inclusion_levels_full[
+            "EVENT_TYPE"
+        ].unique():
+            print(
+                f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        print("Number of events of each event type:")
+        full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
+        test_value_counts = self.test_event_info["EVENT_TYPE"].value_counts()
+        for event_type in self.test_event_info["EVENT_TYPE"].unique():
+            print(
+                f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        print("Number of introns of each event type:")
+        full_value_counts = self.introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].value_counts()
+        test_value_counts = self.test_introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].value_counts()
+        for event_type in self.test_introns_around_splicing_events[
+            "EVENT_TYPE"
+        ].unique():
+            print(
+                f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
+            )
+
+        # create datasets
         self.train_dataset = KnockdownDataset(self, split="train")
         self.val_dataset = KnockdownDataset(self, split="val")
         self.test_dataset = KnockdownDataset(self, split="test")
