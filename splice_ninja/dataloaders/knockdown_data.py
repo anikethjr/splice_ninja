@@ -1235,8 +1235,6 @@ class KnockdownData(LightningDataModule):
                     Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
                     C2acceptor = [int(i) for i in C2acceptor.split("+")]
                     Aexon_start, Aexon_end = Aexon.split("-")
-                    Aexon_start = [int(i) for i in Aexon_start.split("+")]
-                    Aexon_end = [int(i) for i in Aexon_end.split("+")]
 
                     this_Aexon_start, this_Aexon_end = (
                         row["COORD"].split(":")[-1].split("-")
@@ -1257,6 +1255,23 @@ class KnockdownData(LightningDataModule):
                     else:
                         event_info["STRAND"].append("-")
                         strand = "-"
+
+                    # sometimes the fixed coordinates of the alternative exon are not available
+                    # in this case, use the coordinates from the event
+                    if len(Aexon_start.strip()) == 0:
+                        Aexon_start = this_Aexon_start
+                        assert (
+                            strand == "."
+                        ), "Unfixed coordinates are unavailable for the alternative exon"
+                    else:
+                        Aexon_start = [int(i) for i in Aexon_start.split("+")]
+                    if len(Aexon_end.strip()) == 0:
+                        Aexon_end = this_Aexon_end
+                        assert (
+                            strand == "-"
+                        ), "Unfixed coordinates are unavailable for the alternative exon"
+                    else:
+                        Aexon_end = [int(i) for i in Aexon_end.split("+")]
 
                     if not pd.isna(
                         row["CO_C2"]
@@ -1312,8 +1327,6 @@ class KnockdownData(LightningDataModule):
                     C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
                     C1donor = [int(i) for i in C1donor.split("+")]
                     Aexon_start, Aexon_end = Aexon.split("-")
-                    Aexon_start = [int(i) for i in Aexon_start.split("+")]
-                    Aexon_end = [int(i) for i in Aexon_end.split("+")]
 
                     this_Aexon_start, this_Aexon_end = (
                         row["COORD"].split(":")[-1].split("-")
@@ -1334,6 +1347,23 @@ class KnockdownData(LightningDataModule):
                     else:
                         event_info["STRAND"].append("-")
                         strand = "-"
+
+                    # sometimes the fixed coordinates of the alternative exon are not available
+                    # in this case, use the coordinates from the event
+                    if len(Aexon_start.strip()) == 0:
+                        Aexon_start = this_Aexon_start
+                        assert (
+                            strand == "-"
+                        ), "Unfixed coordinates are unavailable for the alternative exon"
+                    else:
+                        Aexon_start = [int(i) for i in Aexon_start.split("+")]
+                    if len(Aexon_end.strip()) == 0:
+                        Aexon_end = this_Aexon_end
+                        assert (
+                            strand == "."
+                        ), "Unfixed coordinates are unavailable for the alternative exon"
+                    else:
+                        Aexon_end = [int(i) for i in Aexon_end.split("+")]
 
                     if not pd.isna(
                         row["CO_C1"]
