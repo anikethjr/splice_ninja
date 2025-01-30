@@ -28,8 +28,11 @@ class KnockdownDataset(Dataset):
     def __init__(self, data_module, split="train"):
         self.data_module = data_module
         self.split = split
-        self.intron_keep_ratio = self.data.config["train_config"]["intron_keep_ratio"]
-        self.genome = self.data_module.genome
+        self.input_size = self.data_module.config["train_config"]["input_size"]
+        self.intron_keep_ratio = self.data_module.config["train_config"][
+            "intron_keep_ratio"
+        ]
+        self.genome: genomepy.Genome = self.data_module.genome
 
         if self.split == "train":
             self.chromosomes = self.data_module.train_chromosomes
@@ -66,7 +69,68 @@ class KnockdownDataset(Dataset):
             len(self.introns_around_splicing_events) * self.intron_keep_ratio
         ).astype(int)
 
+    def get_psi_val(self, idx):
+        # get the PSI value for the idx-th row in the flattened_inclusion_levels dataframe
+        psi_row = self.flattened_inclusion_levels.iloc[idx]
+        event_id = psi_row["EVENT"]
+        event_type = psi_row["EVENT_TYPE"]
+        sample = psi_row["SAMPLE"]
+        psi_val = psi_row["PSI"]
+
+        # get the event information for sequence construction
+        event_row = self.event_info[
+            (self.event_info["EVENT"] == event_id)
+            & (self.event_info["EVENT_TYPE"] == event_type)
+        ]
+        assert len(event_row) == 1
+        event_row = event_row.iloc[0]
+        gene_id = event_row["GENE_ID"]
+        has_gene_exp_values = event_row["HAS_GENE_EXP_VALUES"]
+        chrom = event_row["CHR"]
+        strand = event_row["STRAND"]
+        extraction_coordinates = event_row["EVENT_EXTRACTION_COORD"]
+        extraction_start = int(extraction_coordinates.split(":")[-1].split("-")[0])
+        extraction_end = int(extraction_coordinates.split(":")[-1].split("-")[1])
+
+        # construct sequence
+        # now compute input start and end coordinates based on the input size
+        # we want to have the event in the middle of the input sequence
+        background_sequence_length = self.input_size - (
+            extraction_end - extraction_start + 1
+        )
+        if background_sequence_length > 0:
+            # we have to pad the sequence with background sequence
+            input_start = max(
+                1,
+                extraction_start - np.ceil(background_sequence_length / 2).astype(int),
+            )
+            input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            spliced_in_sequence_start_idx = extraction_start - input_start
+            spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + (
+                extraction_end - extraction_start
+            )
+        else:
+            # the event is larger than the input size
+            input_start = max(
+                1,
+                extraction_start
+                - np.ceil(
+                    (self.input_size - (extraction_end - extraction_start + 1)) / 2
+                ).astype(int),
+            )
+            input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            spliced_in_sequence_start_idx = 0
+            spliced_in_sequence_end_idx = self.input_size
+
+        sequence = self.genome.get_seq(
+            chrom, extraction_start, extraction_end, rc=(strand == "-")
+        )
+        sequence = sequence.upper()
+
     def __getitem__(self, idx):
+        if idx < len(self.flattened_inclusion_levels):
+            return self.get_psi_val(idx)
+
         splicing_event = self.data.iloc[idx]
 
         gene_name = splicing_event["GENE"]
