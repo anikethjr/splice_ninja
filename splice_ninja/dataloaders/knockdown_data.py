@@ -1112,8 +1112,8 @@ class KnockdownData(LightningDataModule):
                 event_info["CHR"].append(row["FullCO"].split(":")[0])
                 if event_type == "EX":
                     C1donor, Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
-                    C1donor = [int(i) for i in C1donor.split("+")]
-                    C2acceptor = [int(i) for i in C2acceptor.split("+")]
+                    C1donor = [int(i) for i in C1donor.split("+") if i != ""]
+                    C2acceptor = [int(i) for i in C2acceptor.split("+") if i != ""]
                     Aexon_5p_ends = [int(i) for i in Aexon.split("-")[0].split("+")]
                     Aexon_3p_ends = [int(i) for i in Aexon.split("-")[1].split("+")]
 
