@@ -1010,6 +1010,7 @@ class KnockdownData(LightningDataModule):
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
             flattened_inclusion_levels_full["EVENT"] = []  # event ID
+            flattened_inclusion_levels_full["EVENT_TYPE"] = []  # general event type
             flattened_inclusion_levels_full[
                 "SAMPLE"
             ] = []  # knocked down splicing factor i.e. sample name
@@ -1062,6 +1063,9 @@ class KnockdownData(LightningDataModule):
                 for psi_col in psi_vals_columns:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
+                        flattened_inclusion_levels_full["EVENT_TYPE"].append(
+                            row["EVENT_TYPE"]
+                        )
                         flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
                         flattened_inclusion_levels_full["PSI"].append(row[psi_col])
 
@@ -1423,19 +1427,6 @@ class KnockdownData(LightningDataModule):
                 introns_around_splicing_events
             )
 
-            print("Total number of PSI values:", len(flattened_inclusion_levels_full))
-            print("Total number of events:", len(event_info))
-            print("Total number of introns:", len(introns_around_splicing_events))
-
-            print("Number of PSI values of each event type:")
-            print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
-
-            print("Number of events of each event type:")
-            print(event_info["EVENT_TYPE"].value_counts())
-
-            print("Number of introns of each event type:")
-            print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
-
             flattened_inclusion_levels_full.to_csv(
                 os.path.join(
                     self.cache_dir, "flattened_inclusion_levels_full_filtered.csv"
@@ -1449,6 +1440,19 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "intron_around_splicing_events.csv"),
                 index=False,
             )
+
+            print("Total number of PSI values:", len(flattened_inclusion_levels_full))
+            print("Total number of events:", len(event_info))
+            print("Total number of introns:", len(introns_around_splicing_events))
+
+            print("Number of PSI values of each event type:")
+            print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+            print("Number of events of each event type:")
+            print(event_info["EVENT_TYPE"].value_counts())
+
+            print("Number of introns of each event type:")
+            print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
 
             print("Flattened data cached")
 
