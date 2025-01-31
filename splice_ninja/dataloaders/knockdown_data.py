@@ -172,11 +172,11 @@ class KnockdownDataset(Dataset):
         ), "Event sequence is not at the correct position in the input sequence"
 
         # construct one-hot encoding
-        one_hot_encoding = np.zeros((4, self.input_size))
+        one_hot_encoding = np.zeros((self.input_size, 4))
         base_to_idx = {"A": 0, "C": 1, "G": 2, "T": 3}
         for i, base in enumerate(sequence):
             if base in base_to_idx:
-                one_hot_encoding[base_to_idx[base], i] = 1
+                one_hot_encoding[i, base_to_idx[base]] = 1
 
         # construct mask that indicates the positions of the event
         mask = np.zeros(self.input_size)
@@ -200,8 +200,6 @@ class KnockdownDataset(Dataset):
             "psi_val": np.array([psi_val]),
             "gene_exp_values": gene_exp_values,
             "splicing_factor_exp_values": splicing_factor_exp_values,
-            "event_type": np.array([event_type]),
-            "sample": np.array([sample]),
             "is_intron": np.array([False]),
         }
 
@@ -322,11 +320,11 @@ class KnockdownDataset(Dataset):
             ), "Intron sequence is not at the correct position in the input sequence"
 
         # construct one-hot encoding
-        one_hot_encoding = np.zeros((4, self.input_size))
+        one_hot_encoding = np.zeros((self.input_size, 4))
         base_to_idx = {"A": 0, "C": 1, "G": 2, "T": 3}
         for i, base in enumerate(sequence):
             if base in base_to_idx:
-                one_hot_encoding[base_to_idx[base], i] = 1
+                one_hot_encoding[i, base_to_idx[base]] = 1
 
         # construct mask that indicates the positions of the event
         mask = np.zeros(self.input_size)
@@ -350,8 +348,6 @@ class KnockdownDataset(Dataset):
             "psi_val": np.array([0.0]),
             "gene_exp_values": gene_exp_values,
             "splicing_factor_exp_values": splicing_factor_exp_values,
-            "event_type": np.array([event_type]),
-            "sample": np.array([sample]),
             "is_intron": np.array([True]),
         }
 
