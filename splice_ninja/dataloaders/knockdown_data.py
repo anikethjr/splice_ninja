@@ -197,12 +197,12 @@ class KnockdownDataset(Dataset):
         return {
             "sequence": one_hot_encoding,
             "mask": mask,
-            "psi_val": psi_val,
+            "psi_val": np.array([psi_val]),
             "gene_exp_values": gene_exp_values,
             "splicing_factor_exp_values": splicing_factor_exp_values,
             "event_type": np.array([event_type]),
             "sample": np.array([sample]),
-            "is_intron": False,
+            "is_intron": np.array([False]),
         }
 
     def get_intron(self, idx):
@@ -347,12 +347,12 @@ class KnockdownDataset(Dataset):
         return {
             "sequence": one_hot_encoding,
             "mask": mask,
-            "psi_val": 0.0,
+            "psi_val": np.array([0.0]),
             "gene_exp_values": gene_exp_values,
             "splicing_factor_exp_values": splicing_factor_exp_values,
             "event_type": np.array([event_type]),
             "sample": np.array([sample]),
-            "is_intron": True,
+            "is_intron": np.array([True]),
         }
 
     def __getitem__(self, idx):
