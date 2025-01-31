@@ -37,7 +37,7 @@ class KnockdownDataset(Dataset):
         if self.split == "train":
             self.chromosomes = self.data_module.train_chromosomes
             self.flattened_inclusion_levels = (
-                self.data_module.train_flattened_inclusion_levels
+                self.data_module.train_flattened_inclusion_levels_full
             )
             self.event_info = self.data_module.train_event_info
             self.introns_around_splicing_events = (
@@ -47,7 +47,7 @@ class KnockdownDataset(Dataset):
         elif self.split == "val":
             self.chromosomes = self.data_module.val_chromosomes
             self.flattened_inclusion_levels = (
-                self.data_module.val_flattened_inclusion_levels
+                self.data_module.val_flattened_inclusion_levels_full
             )
             self.event_info = self.data_module.val_event_info
             self.introns_around_splicing_events = (
@@ -57,7 +57,7 @@ class KnockdownDataset(Dataset):
         elif self.split == "test":
             self.chromosomes = self.data_module.test_chromosomes
             self.flattened_inclusion_levels = (
-                self.data_module.test_flattened_inclusion_levels
+                self.data_module.test_flattened_inclusion_levels_full
             )
             self.event_info = self.data_module.test_event_info
             self.introns_around_splicing_events = (
