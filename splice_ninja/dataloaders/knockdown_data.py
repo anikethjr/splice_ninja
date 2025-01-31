@@ -154,12 +154,12 @@ class KnockdownDataset(Dataset):
 
         sequence = self.genome.get_seq(
             chrom, input_start, input_end, rc=(strand == "-")
-        )
+        ).seq
         sequence = sequence.upper()
         assert len(sequence) == self.input_size, "Sequence is not of the correct length"
         event_sequence = self.genome.get_seq(
             chrom, extraction_start, extraction_end, rc=(strand == "-")
-        )
+        ).seq
         event_sequence = event_sequence.upper()
         assert (
             sequence[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1]
@@ -248,13 +248,13 @@ class KnockdownDataset(Dataset):
             sequence = (
                 self.genome.get_seq(
                     chrom, first_segment_start, first_segment_end, rc=(strand == "-")
-                )
+                ).seq
                 + self.genome.get_seq(
                     chrom, middle_segment_start, middle_segment_end, rc=(strand == "-")
-                )
+                ).seq
                 + self.genome.get_seq(
                     chrom, second_segment_start, second_segment_end, rc=(strand == "-")
-                )
+                ).seq
             )
             sequence = sequence.upper()
             assert len(sequence) == self.input_size
@@ -275,10 +275,12 @@ class KnockdownDataset(Dataset):
 
             sequence = self.genome.get_seq(
                 chrom, input_start, input_end, rc=(strand == "-")
-            )
+            ).seq
             sequence = sequence.upper()
             assert len(sequence) == self.input_size
-            intron_sequence = self.genome.get_seq(chrom, start, end, rc=(strand == "-"))
+            intron_sequence = self.genome.get_seq(
+                chrom, start, end, rc=(strand == "-")
+            ).seq
             intron_sequence = intron_sequence.upper()
             assert (
                 sequence[
