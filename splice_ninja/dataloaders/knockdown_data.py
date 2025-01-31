@@ -161,6 +161,7 @@ class KnockdownDataset(Dataset):
             chrom, extraction_start, extraction_end, rc=(strand == "-")
         ).seq
         event_sequence = event_sequence.upper()
+        assert len(event_sequence) == (extraction_end - extraction_start + 1)
         assert (
             sequence[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1]
             == event_sequence
@@ -282,6 +283,7 @@ class KnockdownDataset(Dataset):
                 chrom, start, end, rc=(strand == "-")
             ).seq
             intron_sequence = intron_sequence.upper()
+            assert len(intron_sequence) == length
             assert (
                 sequence[
                     spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1
