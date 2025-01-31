@@ -1727,6 +1727,16 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "gene_counts_filtered.csv")
             )
 
+            if not os.path.exists(
+                os.path.join(self.cache_dir, "genomes", "hg38", "hg38.annotation.gtf")
+            ):
+                print("Downloading the genome annotation")
+                genomepy.install_genome(
+                    "hg38",
+                    genomes_dir=os.path.join(self.cache_dir, "genomes"),
+                    annotation=True,
+                )
+                print("Genome annotation downloaded")
             genome_annotation = genomepy.Annotation(
                 "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
             )
