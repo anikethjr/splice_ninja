@@ -156,12 +156,16 @@ class KnockdownDataset(Dataset):
             chrom, input_start, input_end, rc=(strand == "-")
         ).seq
         sequence = sequence.upper()
-        assert len(sequence) == self.input_size, "Sequence is not of the correct length"
+        assert (
+            len(sequence) == self.input_size
+        ), f"Sequence is not of the correct length {len(sequence)} vs {self.input_size}"
         event_sequence = self.genome.get_seq(
             chrom, extraction_start, extraction_end, rc=(strand == "-")
         ).seq
         event_sequence = event_sequence.upper()
-        assert len(event_sequence) == (extraction_end - extraction_start + 1)
+        assert len(event_sequence) == (
+            extraction_end - extraction_start + 1
+        ), f"Event sequence is not of the correct length: {len(event_sequence)} vs {(extraction_end - extraction_start + 1)}"
         assert (
             sequence[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1]
             == event_sequence
@@ -272,7 +276,9 @@ class KnockdownDataset(Dataset):
                 )
 
             sequence = sequence.upper()
-            assert len(sequence) == self.input_size
+            assert (
+                len(sequence) == self.input_size
+            ), f"Length of sequence is {len(sequence)} instead of {self.input_size}"
 
         else:
             background_sequence_length = self.input_size - length
@@ -298,12 +304,16 @@ class KnockdownDataset(Dataset):
                 chrom, input_start, input_end, rc=(strand == "-")
             ).seq
             sequence = sequence.upper()
-            assert len(sequence) == self.input_size
+            assert (
+                len(sequence) == self.input_size
+            ), f"Length of sequence is {len(sequence)} instead of {self.input_size}"
             intron_sequence = self.genome.get_seq(
                 chrom, start, end, rc=(strand == "-")
             ).seq
             intron_sequence = intron_sequence.upper()
-            assert len(intron_sequence) == length
+            assert (
+                len(intron_sequence) == length
+            ), f"Length of intron sequence is {len(intron_sequence)} instead of {length}"
             assert (
                 sequence[
                     spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1
