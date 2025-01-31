@@ -117,7 +117,7 @@ class KnockdownDataset(Dataset):
         event_row = event_row.iloc[0]
         gene_id = event_row["GENE_ID"]
         has_gene_exp_values = event_row["HAS_GENE_EXP_VALUES"]
-        chrom = event_row["CHR"]
+        chrom = event_row["CHR"][3:]  # remove "chr" prefix
         strand = event_row["STRAND"]
         extraction_coordinates = event_row["EVENT_EXTRACTION_COORD"]
         extraction_start = int(extraction_coordinates.split(":")[-1].split("-")[0])
@@ -206,7 +206,7 @@ class KnockdownDataset(Dataset):
         event_id = intron_row["EVENT"]
         event_type = intron_row["EVENT_TYPE"]
         intron_coordinates = intron_row["COORD"]
-        chrom = intron_coordinates.split(":")[0]
+        chrom = intron_coordinates.split(":")[0][3:]  # remove "chr" prefix
         start = int(intron_coordinates.split(":")[-1].split("-")[0])
         end = int(intron_coordinates.split(":")[-1].split("-")[1])
         length = end - start + 1
