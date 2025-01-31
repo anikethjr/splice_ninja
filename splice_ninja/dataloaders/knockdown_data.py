@@ -1810,7 +1810,7 @@ class KnockdownData(LightningDataModule):
             splicing_factor_gene_ids = [
                 i for i in normalized_gene_expression.columns if i in all_gene_ids
             ]
-            assert (len(splicing_factor_gene_ids) * 4) == len(
+            assert (len(splicing_factor_gene_ids) * 5) == len(
                 normalized_gene_expression.columns
             ) - 3, "Could not find all splicing factor gene IDs in the normalized gene expression data"
 
