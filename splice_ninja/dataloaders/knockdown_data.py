@@ -129,28 +129,28 @@ class KnockdownDataset(Dataset):
         background_sequence_length = self.input_size - (
             extraction_end - extraction_start + 1
         )
-        if background_sequence_length > 0:
-            # we have to pad the sequence with background sequence
+        # we have to pad the sequence with background sequence
+        input_start = max(
+            1,
+            extraction_start - np.ceil(background_sequence_length / 2).astype(int),
+        )
+        input_end = min(self.genome.sizes[chrom], input_start + self.input_size - 1)
+        if (input_end - input_start + 1) < self.input_size:
             input_start = max(
-                1,
-                extraction_start - np.ceil(background_sequence_length / 2).astype(int),
+                1, input_end - self.input_size + 1
+            )  # make sure the input size is exactly self.input_size
+        assert (input_end - input_start + 1) == self.input_size
+        # both idxs below are inclusive
+        spliced_in_sequence_start_idx = extraction_start - input_start
+        spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + (
+            extraction_end - extraction_start
+        )
+        if strand == "-":
+            # need to account for the reverse complement
+            spliced_in_sequence_start_idx, spliced_in_sequence_end_idx = (
+                self.input_size - 1 - spliced_in_sequence_end_idx,
+                self.input_size - 1 - spliced_in_sequence_start_idx,
             )
-            input_end = min(self.genome.sizes[chrom], input_start + self.input_size - 1)
-            if (input_end - input_start + 1) < self.input_size:
-                input_start = max(
-                    1, input_end - self.input_size + 1
-                )  # make sure the input size is exactly self.input_size
-            assert (input_end - input_start + 1) == self.input_size
-            # both idxs below are inclusive
-            spliced_in_sequence_start_idx = extraction_start - input_start
-            spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + (
-                extraction_end - extraction_start
-            )
-        else:
-            input_start = extraction_start
-            input_end = extraction_end
-            spliced_in_sequence_start_idx = 0
-            spliced_in_sequence_end_idx = self.input_size - 1
 
         sequence = self.genome.get_seq(
             chrom, input_start, input_end, rc=(strand == "-")
@@ -246,17 +246,31 @@ class KnockdownDataset(Dataset):
             )
             middle_segment_end = middle_segment_start + middle_segment_length - 1
 
-            sequence = (
-                self.genome.get_seq(
-                    chrom, first_segment_start, first_segment_end, rc=(strand == "-")
-                ).seq
-                + self.genome.get_seq(
-                    chrom, middle_segment_start, middle_segment_end, rc=(strand == "-")
-                ).seq
-                + self.genome.get_seq(
-                    chrom, second_segment_start, second_segment_end, rc=(strand == "-")
-                ).seq
-            )
+            if strand == ".":
+                sequence = (
+                    self.genome.get_seq(
+                        chrom, first_segment_start, first_segment_end
+                    ).seq
+                    + self.genome.get_seq(
+                        chrom, middle_segment_start, middle_segment_end
+                    ).seq
+                    + self.genome.get_seq(
+                        chrom, second_segment_start, second_segment_end
+                    ).seq
+                )
+            else:
+                sequence = (
+                    self.genome.get_seq(
+                        chrom, second_segment_start, second_segment_end, rc=True
+                    ).seq
+                    + self.genome.get_seq(
+                        chrom, middle_segment_start, middle_segment_end, rc=True
+                    ).seq
+                    + self.genome.get_seq(
+                        chrom, first_segment_start, first_segment_end, rc=True
+                    ).seq
+                )
+
             sequence = sequence.upper()
             assert len(sequence) == self.input_size
 
@@ -273,6 +287,12 @@ class KnockdownDataset(Dataset):
             # both idxs below are inclusive
             spliced_in_sequence_start_idx = start - input_start
             spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + length - 1
+            if strand == "-":
+                # need to account for reverse complement
+                spliced_in_sequence_start_idx, spliced_in_sequence_end_idx = (
+                    self.input_size - spliced_in_sequence_end_idx - 1,
+                    self.input_size - spliced_in_sequence_start_idx - 1,
+                )
 
             sequence = self.genome.get_seq(
                 chrom, input_start, input_end, rc=(strand == "-")
