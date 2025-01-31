@@ -1731,14 +1731,17 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "genomes", "hg38", "hg38.annotation.gtf")
             ):
                 print("Downloading the genome annotation")
+                # download ENSEMBL GRChg38 v112 GTF since that was the version used for the gene counts
                 genomepy.install_genome(
-                    "hg38",
-                    genomes_dir=os.path.join(self.cache_dir, "genomes"),
+                    name="GRCh38.p14",
+                    provider="Ensembl",
                     annotation=True,
+                    version=112,
+                    genomes_dir=os.path.join(self.cache_dir, "genomes"),
                 )
                 print("Genome annotation downloaded")
             genome_annotation = genomepy.Annotation(
-                "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
+                name="GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
             )
 
             # calculate the length of each gene
