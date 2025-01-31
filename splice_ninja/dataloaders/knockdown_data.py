@@ -1743,6 +1743,11 @@ class KnockdownData(LightningDataModule):
             gene_lengths.index = gene_lengths.index.str.split(".").str[0]
             assert gene_lengths.index.is_unique, "Gene IDs are not unique"
 
+            # convert the gene lengths to a DataFrame
+            gene_lengths = gene_lengths.to_frame(name="length")
+            gene_lengths["gene_id"] = gene_lengths.index
+            gene_lengths = gene_lengths.reset_index(drop=True)
+
             missing_genes = gene_counts[
                 ~gene_counts["gene_id"].isin(gene_lengths["gene_id"])
             ]
@@ -1751,11 +1756,6 @@ class KnockdownData(LightningDataModule):
                     f"Warning: {len(missing_genes)} genes are missing from gene length data."
                 )
                 raise Exception("Missing gene length data")
-
-            # convert the gene lengths to a DataFrame
-            gene_lengths = gene_lengths.to_frame(name="length")
-            gene_lengths["gene_id"] = gene_lengths.index
-            gene_lengths = gene_lengths.reset_index(drop=True)
 
             normalized_gene_expression = gene_counts.merge(
                 gene_lengths, on="gene_id", how="inner", validate="1:1"
