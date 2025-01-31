@@ -1753,9 +1753,8 @@ class KnockdownData(LightningDataModule):
             ]
             if not missing_genes.empty:
                 print(
-                    f"Warning: {len(missing_genes)} genes are missing from gene length data."
+                    f"Warning: {len(missing_genes)} genes are missing from gene length data, removing them"
                 )
-                raise Exception("Missing gene length data")
 
             normalized_gene_expression = gene_counts.merge(
                 gene_lengths, on="gene_id", how="inner", validate="1:1"
