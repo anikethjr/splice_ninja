@@ -1084,11 +1084,16 @@ class KnockdownData(LightningDataModule):
 
             print("Filtered data cached")
 
-        if not os.path.exists(os.path.join(self.cache_dir, "genomes", "hg38")):
+        if not os.path.exists(os.path.join(self.cache_dir, "genomes", "GRCh38.p14")):
             print("Downloading the genome")
             os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
+            # download ENSEMBL GRChg38 v112 GTF since that was the version used for the gene counts
             genomepy.install_genome(
-                "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
+                name="GRCh38.p14",
+                provider="Ensembl",
+                annotation=True,
+                version=112,
+                genomes_dir=os.path.join(self.cache_dir, "genomes"),
             )
             print("Genome downloaded")
 
@@ -1727,19 +1732,6 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "gene_counts_filtered.csv")
             )
 
-            if not os.path.exists(
-                os.path.join(self.cache_dir, "genomes", "hg38", "hg38.annotation.gtf")
-            ):
-                print("Downloading the genome annotation")
-                # download ENSEMBL GRChg38 v112 GTF since that was the version used for the gene counts
-                genomepy.install_genome(
-                    name="GRCh38.p14",
-                    provider="Ensembl",
-                    annotation=True,
-                    version=112,
-                    genomes_dir=os.path.join(self.cache_dir, "genomes"),
-                )
-                print("Genome annotation downloaded")
             genome_annotation = genomepy.Annotation(
                 name="GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
             )
@@ -1861,8 +1853,8 @@ class KnockdownData(LightningDataModule):
 
         # load the genome
         self.genome = genomepy.Genome(
-            "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
-        )  # only need hg38 since the data is from human cell lines
+            "GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
+        )  # only need "GRCh38.p14" since the data is from human cell lines
 
         # create datasets for training, validation, and testing
         # train dataset
