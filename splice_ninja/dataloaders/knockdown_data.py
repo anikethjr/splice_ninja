@@ -135,7 +135,7 @@ class KnockdownDataset(Dataset):
                 1,
                 extraction_start - np.ceil(background_sequence_length / 2).astype(int),
             )
-            input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            input_end = min(self.genome.sizes[chrom], input_start + self.input_size - 1)
             if (input_end - input_start + 1) < self.input_size:
                 input_start = max(
                     1, input_end - self.input_size + 1
@@ -156,6 +156,7 @@ class KnockdownDataset(Dataset):
             chrom, input_start, input_end, rc=(strand == "-")
         )
         sequence = sequence.upper()
+        assert len(sequence) == self.input_size, "Sequence is not of the correct length"
         event_sequence = self.genome.get_seq(
             chrom, extraction_start, extraction_end, rc=(strand == "-")
         )
@@ -264,7 +265,7 @@ class KnockdownDataset(Dataset):
                 1,
                 start - np.ceil(background_sequence_length / 2).astype(int),
             )
-            input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            input_end = min(self.genome.sizes[chrom], input_start + self.input_size - 1)
             if (input_end - input_start + 1) < self.input_size:
                 input_start = max(1, input_end - self.input_size + 1)
             assert (input_end - input_start + 1) == self.input_size
@@ -276,6 +277,7 @@ class KnockdownDataset(Dataset):
                 chrom, input_start, input_end, rc=(strand == "-")
             )
             sequence = sequence.upper()
+            assert len(sequence) == self.input_size
             intron_sequence = self.genome.get_seq(chrom, start, end, rc=(strand == "-"))
             intron_sequence = intron_sequence.upper()
             assert (
