@@ -1742,9 +1742,16 @@ class KnockdownData(LightningDataModule):
             # remove the version number from the gene IDs
             gene_lengths.index = gene_lengths.index.str.split(".").str[0]
             assert gene_lengths.index.is_unique, "Gene IDs are not unique"
-            assert (
-                gene_counts["gene_id"].isin(gene_lengths.index).all()
-            ), "Some gene IDs are missing from the gene lengths data"
+
+            missing_genes = gene_counts[
+                ~gene_counts["gene_id"].isin(gene_lengths["gene_id"])
+            ]
+            if not missing_genes.empty:
+                print(
+                    f"Warning: {len(missing_genes)} genes are missing from gene length data."
+                )
+                raise Exception("Missing gene length data")
+
             # convert the gene lengths to a DataFrame
             gene_lengths = gene_lengths.to_frame(name="length")
             gene_lengths["gene_id"] = gene_lengths.index
