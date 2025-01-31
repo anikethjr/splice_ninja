@@ -183,7 +183,7 @@ class KnockdownDataset(Dataset):
         mask[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1] = 1
 
         # get the gene expression values if they are available
-        gene_exp_values = None
+        gene_exp_values = -1.0
         if has_gene_exp_values:
             gene_exp_values = self.data_module.gene_counts.loc[
                 self.data_module.gene_counts["gene_id"] == gene_id, sample + "_log2TPM"
@@ -333,7 +333,7 @@ class KnockdownDataset(Dataset):
         mask[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1] = 1
 
         # get the gene expression values if they are available
-        gene_exp_values = None
+        gene_exp_values = -1.0
         if has_gene_exp_values:
             gene_exp_values = self.data_module.gene_counts.loc[
                 self.data_module.gene_counts["gene_id"] == gene_id, sample + "_log2TPM"
