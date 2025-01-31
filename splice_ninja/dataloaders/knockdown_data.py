@@ -76,6 +76,9 @@ class KnockdownDataset(Dataset):
         print(
             f"{split} split - Removed {original_num_events - len(self.event_info)} events that are larger than the input size ({(original_num_events - len(self.event_info)) / original_num_events:.2f}%)"
         )
+        print(
+            f"{split} split - Removed {original_num_flattened_inclusion_levels - len(self.flattened_inclusion_levels)} rows from the flattened inclusion levels dataframe that correspond to events that are larger than the input size ({(original_num_flattened_inclusion_levels - len(self.flattened_inclusion_levels)) / original_num_flattened_inclusion_levels:.2f}%)"
+        )
 
         # for introns that are larger than the input size, we keep the beginning and end of the intron and the middle part is randomly sampled
         self.introns_around_splicing_events[
@@ -133,6 +136,11 @@ class KnockdownDataset(Dataset):
                 extraction_start - np.ceil(background_sequence_length / 2).astype(int),
             )
             input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            if (input_end - input_start + 1) < self.input_size:
+                input_start = max(
+                    1, input_end - self.input_size + 1
+                )  # make sure the input size is exactly self.input_size
+            assert (input_end - input_start + 1) == self.input_size
             # both idxs below are inclusive
             spliced_in_sequence_start_idx = extraction_start - input_start
             spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + (
@@ -148,6 +156,14 @@ class KnockdownDataset(Dataset):
             chrom, input_start, input_end, rc=(strand == "-")
         )
         sequence = sequence.upper()
+        event_sequence = self.genome.get_seq(
+            chrom, extraction_start, extraction_end, rc=(strand == "-")
+        )
+        event_sequence = event_sequence.upper()
+        assert (
+            sequence[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1]
+            == event_sequence
+        ), "Event sequence is not at the correct position in the input sequence"
 
         # construct one-hot encoding
         one_hot_encoding = np.zeros((4, self.input_size))
@@ -164,34 +180,150 @@ class KnockdownDataset(Dataset):
         gene_exp_values = None
         if has_gene_exp_values:
             gene_exp_values = self.data_module.gene_counts.loc[
-                self.data_module.gene_counts["gene_id"] == gene_id, sample
+                self.data_module.gene_counts["gene_id"] == gene_id, sample + "_log2TPM"
             ].iloc[0]
 
         # get splicing factor expression values
+        splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
+            sample + "_log2TPM"
+        ].values.reshape(-1)
+
+        return {
+            "sequence": one_hot_encoding,
+            "mask": mask,
+            "psi_val": psi_val,
+            "gene_exp_values": gene_exp_values,
+            "splicing_factor_exp_values": splicing_factor_exp_values,
+            "event_type": np.array([event_type]),
+            "sample": np.array([sample]),
+            "is_intron": False,
+        }
+
+    def get_intron(self, idx):
+        # return a random intron
+        intron_row = self.introns_around_splicing_events.sample().iloc[0]
+        sample = intron_row["SAMPLE"]
+        event_id = intron_row["EVENT"]
+        event_type = intron_row["EVENT_TYPE"]
+        intron_coordinates = intron_row["COORD"]
+        chrom = intron_coordinates.split(":")[0]
+        start = int(intron_coordinates.split(":")[-1].split("-")[0])
+        end = int(intron_coordinates.split(":")[-1].split("-")[1])
+        length = end - start + 1
+        strand = intron_row["STRAND"]
+        location = intron_row["LOCATION"]
+
+        # get the event information for extracting expression values
+        event_row = self.event_info[self.event_info["EVENT"] == event_id]
+        assert len(event_row) == 1
+        event_row = event_row.iloc[0]
+        gene_id = event_row["GENE_ID"]
+        has_gene_exp_values = event_row["HAS_GENE_EXP_VALUES"]
+
+        # construct sequence
+        # now compute input start and end coordinates based on the input size
+        # we want to have the event in the middle of the input sequence
+        # however, if the intron is larger than the input size, we keep the beginning and end of the intron and randomly sample the middle part
+        if length > self.input_size:
+            background_sequence_length = 0
+            spliced_in_sequence_start_idx = 0
+            spliced_in_sequence_end_idx = self.input_size - 1
+
+            # one-third of the intron is kept on each side and the middle part is randomly sampled
+            first_segment_start = start
+            first_segment_end = start + np.ceil(length / 3).astype(int) - 1
+            second_segment_start = end - np.ceil(length / 3).astype(int) + 1
+            second_segment_end = end
+            middle_segment_length = (
+                self.input_size
+                - (first_segment_end - first_segment_start + 1)
+                - (second_segment_end - second_segment_start + 1)
+            )
+            middle_segment_start = np.random.randint(
+                first_segment_end + 1, second_segment_start - middle_segment_length
+            )
+            middle_segment_end = middle_segment_start + middle_segment_length - 1
+
+            sequence = (
+                self.genome.get_seq(
+                    chrom, first_segment_start, first_segment_end, rc=(strand == "-")
+                )
+                + self.genome.get_seq(
+                    chrom, middle_segment_start, middle_segment_end, rc=(strand == "-")
+                )
+                + self.genome.get_seq(
+                    chrom, second_segment_start, second_segment_end, rc=(strand == "-")
+                )
+            )
+            sequence = sequence.upper()
+            assert len(sequence) == self.input_size
+
+        else:
+            background_sequence_length = self.input_size - length
+            input_start = max(
+                1,
+                start - np.ceil(background_sequence_length / 2).astype(int),
+            )
+            input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            if (input_end - input_start + 1) < self.input_size:
+                input_start = max(1, input_end - self.input_size + 1)
+            assert (input_end - input_start + 1) == self.input_size
+            # both idxs below are inclusive
+            spliced_in_sequence_start_idx = start - input_start
+            spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + length - 1
+
+            sequence = self.genome.get_seq(
+                chrom, input_start, input_end, rc=(strand == "-")
+            )
+            sequence = sequence.upper()
+            intron_sequence = self.genome.get_seq(chrom, start, end, rc=(strand == "-"))
+            intron_sequence = intron_sequence.upper()
+            assert (
+                sequence[
+                    spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1
+                ]
+                == intron_sequence
+            ), "Intron sequence is not at the correct position in the input sequence"
+
+        # construct one-hot encoding
+        one_hot_encoding = np.zeros((4, self.input_size))
+        base_to_idx = {"A": 0, "C": 1, "G": 2, "T": 3}
+        for i, base in enumerate(sequence):
+            if base in base_to_idx:
+                one_hot_encoding[base_to_idx[base], i] = 1
+
+        # construct mask that indicates the positions of the event
+        mask = np.zeros(self.input_size)
+        mask[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1] = 1
+
+        # get the gene expression values if they are available
+        gene_exp_values = None
+        if has_gene_exp_values:
+            gene_exp_values = self.data_module.gene_counts.loc[
+                self.data_module.gene_counts["gene_id"] == gene_id, sample + "_log2TPM"
+            ].iloc[0]
+
+        # get splicing factor expression values
+        splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
+            sample + "_log2TPM"
+        ].values.reshape(-1)
+
+        return {
+            "sequence": one_hot_encoding,
+            "mask": mask,
+            "psi_val": 0.0,
+            "gene_exp_values": gene_exp_values,
+            "splicing_factor_exp_values": splicing_factor_exp_values,
+            "event_type": np.array([event_type]),
+            "sample": np.array([sample]),
+            "is_intron": True,
+        }
 
     def __getitem__(self, idx):
         if idx < len(self.flattened_inclusion_levels):
             return self.get_psi_val(idx)
-
-        splicing_event = self.data.iloc[idx]
-
-        gene_name = splicing_event["GENE"]
-
-        event_id = splicing_event["EVENT"]
-
-        length_of_event = splicing_event["LENGTH"]
-        coordinates = splicing_event["FullCO"].split(",")
-
-        # construct full input sequence and a mask which indicates the positions of the event
-        # input sequence is the concatenation of the event + upstream and downstream sequences of the event
-        # the mask is used to condition the model on the event, therefore model predicts P(inclusion | event) = PSI
-
-        return {
-            "gene_name": gene_name,
-            "event_id": event_id,
-            "length_of_event": length_of_event,
-            "coordinates": coordinates,
-        }
+        else:
+            return self.get_intron(idx - len(self.flattened_inclusion_levels))
 
 
 # DataModule for the knockdown data
@@ -1584,18 +1716,109 @@ class KnockdownData(LightningDataModule):
             print("Flattened data cached")
 
         if not os.path.exists(
+            os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+        ):
+            # from the gene counts data, calculate the normalized gene expression values - TPM and RPKM
+            print(
+                "Calculating normalized gene expression values from gene counts (TPM and RPKM)"
+            )
+
+            gene_counts = pd.read_csv(
+                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+            )
+
+            genome_annotation = genomepy.Annotation(
+                "hg38", genomes_dir=os.path.join(self.cache_dir, "genomes")
+            )
+
+            # calculate the length of each gene
+            # returns a pandas Series with gene IDs as the index and gene lengths as the values
+            gene_lengths: pd.Series = genome_annotation.lengths(attribute="gene_id")
+            # remove the version number from the gene IDs
+            gene_lengths.index = gene_lengths.index.str.split(".").str[0]
+            assert gene_lengths.index.is_unique, "Gene IDs are not unique"
+            assert (
+                gene_counts["gene_id"].isin(gene_lengths.index).all()
+            ), "Some gene IDs are missing from the gene lengths data"
+            # convert the gene lengths to a DataFrame
+            gene_lengths = gene_lengths.to_frame(name="length")
+            gene_lengths["gene_id"] = gene_lengths.index
+            gene_lengths = gene_lengths.reset_index(drop=True)
+
+            normalized_gene_expression = gene_counts.merge(
+                gene_lengths, on="gene_id", how="inner", validate="1:1"
+            )
+            for sample in gene_counts.columns[2:]:
+                # calculate the TPM values
+                normalized_gene_expression[sample + "_TPM"] = (
+                    normalized_gene_expression[sample]
+                    / normalized_gene_expression["length"]
+                )  # reads per base pair
+                rpk_sum = normalized_gene_expression[sample + "_TPM"].sum()
+                normalized_gene_expression[sample + "_TPM"] = (
+                    normalized_gene_expression[sample + "_TPM"] / rpk_sum
+                ) * 1e6  # normalize to TPM
+
+                # calculate log2(TPM + 1) values
+                normalized_gene_expression[sample + "_log2TPM"] = np.log2(
+                    normalized_gene_expression[sample + "_TPM"] + 1
+                )
+
+                # calculate the RPKM values
+                normalized_gene_expression[
+                    sample + "_RPKM"
+                ] = normalized_gene_expression[sample] / (
+                    normalized_gene_expression["length"] / 1e3
+                )  # reads per kilobase pair
+                normalized_gene_expression[sample + "_RPKM"] = (
+                    normalized_gene_expression[sample + "_RPKM"] * 1e6
+                )  # normalize to RPKM
+
+                # calculate log2(RPKM + 1) values
+                normalized_gene_expression[sample + "_log2RPKM"] = np.log2(
+                    normalized_gene_expression[sample + "_RPKM"] + 1
+                )
+
+            normalized_gene_expression.to_csv(
+                os.path.join(self.cache_dir, "normalized_gene_expression.csv"),
+                index=False,
+            )
+
+        if not os.path.exists(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
         ):
-            # from the gene counts data, extract the expression levels of the splicing factors in each sample
+            # from the normalized gene expression data, extract the expression levels of the splicing factors in each sample
             # the splicing factor gene IDs are the same as the sample names
             print("Extracting splicing factor expression levels")
 
-            # TODO
+            normalized_gene_expression = pd.read_csv(
+                os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+            )
+
+            all_gene_ids = normalized_gene_expression["gene_id"].values
+            splicing_factor_gene_ids = [
+                i for i in normalized_gene_expression.columns if i in all_gene_ids
+            ]
+            assert (len(splicing_factor_gene_ids) * 4) == len(
+                normalized_gene_expression.columns
+            ) - 3, "Could not find all splicing factor gene IDs in the normalized gene expression data"
+
+            splicing_factor_expression_levels = normalized_gene_expression.loc[
+                normalized_gene_expression["gene_id"].isin(splicing_factor_gene_ids)
+            ]
+            splicing_factor_expression_levels.to_csv(
+                os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv"),
+                index=False,
+            )
+            print(
+                "Splicing factor expression levels extracted - dataframe shape:",
+                splicing_factor_expression_levels.shape,
+            )
 
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
-        self.gene_counts = pd.read_csv(
-            os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+        self.normalized_gene_expression = pd.read_csv(
+            os.path.join(self.cache_dir, "normalized_gene_expression.csv")
         )
         self.flattened_inclusion_levels_full = pd.read_csv(
             os.path.join(self.cache_dir, "flattened_inclusion_levels_full_filtered.csv")
@@ -1605,6 +1828,9 @@ class KnockdownData(LightningDataModule):
         )
         self.introns_around_splicing_events = pd.read_csv(
             os.path.join(self.cache_dir, "intron_around_splicing_events.csv")
+        )
+        self.splicing_factor_expression_levels = pd.read_csv(
+            os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
         )
 
         print("Total number of PSI values:", len(self.flattened_inclusion_levels_full))
