@@ -64,6 +64,34 @@ class KnockdownDataset(Dataset):
                 self.data_module.test_introns_around_splicing_events
             )
 
+        # remove events that are larger than the input size
+        original_num_events = len(self.event_info)
+        original_num_flattened_inclusion_levels = len(self.flattened_inclusion_levels)
+        self.event_info = self.event_info[
+            self.event_info["LENGTH"] <= self.input_size
+        ].reset_index(drop=True)
+        self.flattened_inclusion_levels = self.flattened_inclusion_levels[
+            self.flattened_inclusion_levels["EVENT"].isin(self.event_info["EVENT"])
+        ].reset_index(drop=True)
+        print(
+            f"{split} split - Removed {original_num_events - len(self.event_info)} events that are larger than the input size ({(original_num_events - len(self.event_info)) / original_num_events:.2f}%)"
+        )
+
+        # for introns that are larger than the input size, we keep the beginning and end of the intron and the middle part is randomly sampled
+        self.introns_around_splicing_events[
+            "LENGTH"
+        ] = self.introns_around_splicing_events["COORD"].apply(
+            lambda x: int(x.split(":")[-1].split("-")[1])
+            - int(x.split(":")[-1].split("-")[0])
+            + 1
+        )
+        num_introns_longer_than_input_size = (
+            self.introns_around_splicing_events["LENGTH"] > self.input_size
+        ).sum()
+        print(
+            f"{split} split - Number of introns longer than the input size: {num_introns_longer_than_input_size} ({num_introns_longer_than_input_size / len(self.introns_around_splicing_events):.2f}%)"
+        )
+
     def __len__(self):
         return len(self.flattened_inclusion_levels) + np.ceil(
             len(self.introns_around_splicing_events) * self.intron_keep_ratio
@@ -105,27 +133,41 @@ class KnockdownDataset(Dataset):
                 extraction_start - np.ceil(background_sequence_length / 2).astype(int),
             )
             input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            # both idxs below are inclusive
             spliced_in_sequence_start_idx = extraction_start - input_start
             spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + (
                 extraction_end - extraction_start
             )
         else:
-            # the event is larger than the input size
-            input_start = max(
-                1,
-                extraction_start
-                - np.ceil(
-                    (self.input_size - (extraction_end - extraction_start + 1)) / 2
-                ).astype(int),
-            )
-            input_end = min(self.genome.sizes[chrom], input_start + self.input_size)
+            input_start = extraction_start
+            input_end = extraction_end
             spliced_in_sequence_start_idx = 0
-            spliced_in_sequence_end_idx = self.input_size
+            spliced_in_sequence_end_idx = self.input_size - 1
 
         sequence = self.genome.get_seq(
-            chrom, extraction_start, extraction_end, rc=(strand == "-")
+            chrom, input_start, input_end, rc=(strand == "-")
         )
         sequence = sequence.upper()
+
+        # construct one-hot encoding
+        one_hot_encoding = np.zeros((4, self.input_size))
+        base_to_idx = {"A": 0, "C": 1, "G": 2, "T": 3}
+        for i, base in enumerate(sequence):
+            if base in base_to_idx:
+                one_hot_encoding[base_to_idx[base], i] = 1
+
+        # construct mask that indicates the positions of the event
+        mask = np.zeros(self.input_size)
+        mask[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1] = 1
+
+        # get the gene expression values if they are available
+        gene_exp_values = None
+        if has_gene_exp_values:
+            gene_exp_values = self.data_module.gene_counts.loc[
+                self.data_module.gene_counts["gene_id"] == gene_id, sample
+            ].iloc[0]
+
+        # get splicing factor expression values
 
     def __getitem__(self, idx):
         if idx < len(self.flattened_inclusion_levels):
@@ -1540,6 +1582,15 @@ class KnockdownData(LightningDataModule):
             print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
 
             print("Flattened data cached")
+
+        if not os.path.exists(
+            os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
+        ):
+            # from the gene counts data, extract the expression levels of the splicing factors in each sample
+            # the splicing factor gene IDs are the same as the sample names
+            print("Extracting splicing factor expression levels")
+
+            # TODO
 
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
