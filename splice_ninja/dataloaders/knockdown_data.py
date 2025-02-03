@@ -236,8 +236,8 @@ class KnockdownDataset(Dataset):
 
             # one-third of the intron is kept on each side and the middle part is randomly sampled
             first_segment_start = start
-            first_segment_end = start + np.ceil(length / 3).astype(int) - 1
-            second_segment_start = end - np.ceil(length / 3).astype(int) + 1
+            first_segment_end = start + np.ceil(self.input_size / 3).astype(int) - 1
+            second_segment_start = end - np.ceil(self.input_size / 3).astype(int) + 1
             second_segment_end = end
             middle_segment_length = (
                 self.input_size
