@@ -185,8 +185,9 @@ class KnockdownDataset(Dataset):
         # get the gene expression values if they are available
         gene_exp_values = -1.0
         if has_gene_exp_values:
-            gene_exp_values = self.data_module.gene_counts.loc[
-                self.data_module.gene_counts["gene_id"] == gene_id, sample + "_log2TPM"
+            gene_exp_values = self.data_module.normalized_gene_expression.loc[
+                self.data_module.normalized_gene_expression["gene_id"] == gene_id,
+                sample + "_log2TPM",
             ].iloc[0]
 
         # get splicing factor expression values
@@ -333,8 +334,9 @@ class KnockdownDataset(Dataset):
         # get the gene expression values if they are available
         gene_exp_values = -1.0
         if has_gene_exp_values:
-            gene_exp_values = self.data_module.gene_counts.loc[
-                self.data_module.gene_counts["gene_id"] == gene_id, sample + "_log2TPM"
+            gene_exp_values = self.data_module.normalized_gene_expression.loc[
+                self.data_module.normalized_gene_expression["gene_id"] == gene_id,
+                sample + "_log2TPM",
             ].iloc[0]
 
         # get splicing factor expression values
