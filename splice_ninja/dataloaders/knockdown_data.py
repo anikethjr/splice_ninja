@@ -1354,6 +1354,8 @@ class KnockdownData(LightningDataModule):
             ] = []  # coordinates of the intron around the splicing event
             introns_around_splicing_events["STRAND"] = []  # strand of the intron
 
+            all_gene_ids_with_expression_values = set(gene_counts["gene_id"])
+
             # iterate over each row in the data and populate the flattened data and event information
             for i, row in tqdm(
                 inclusion_levels_full.iterrows(), total=inclusion_levels_full.shape[0]
@@ -1394,7 +1396,7 @@ class KnockdownData(LightningDataModule):
                 event_info["GENE_ID"].append(row["GENE_ID"])
                 event_info["HAS_GENE_EXP_VALUES"].append(
                     (not pd.isna(row["GENE_ID"]))
-                    and row["GENE_ID"] in gene_counts["gene_id"]
+                    and row["GENE_ID"] in all_gene_ids_with_expression_values
                 )
 
                 event_info["COORD"].append(row["COORD"])
