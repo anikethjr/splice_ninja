@@ -188,7 +188,11 @@ class KnockdownDataset(Dataset):
             gene_exp_values = self.data_module.normalized_gene_expression.loc[
                 self.data_module.normalized_gene_expression["gene_id"] == gene_id,
                 sample + "_log2TPM",
-            ].iloc[0]
+            ]
+            assert (
+                len(gene_exp_values) == 1
+            ), f"Gene expression values not found, length of dataframe is {len(gene_exp_values)}: {gene_exp_values}"
+            gene_exp_values = gene_exp_values.iloc[0]
 
         # get splicing factor expression values
         splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
