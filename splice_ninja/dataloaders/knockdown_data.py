@@ -1135,6 +1135,112 @@ class KnockdownData(LightningDataModule):
             )
             print("Genome downloaded")
 
+        if not os.path.exists(
+            os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+        ):
+            # from the gene counts data, calculate the normalized gene expression values - TPM and RPKM
+            print(
+                "Calculating normalized gene expression values from gene counts (TPM and RPKM)"
+            )
+
+            gene_counts = pd.read_csv(
+                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+            )
+
+            genome_annotation = genomepy.Annotation(
+                name="GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
+            )
+
+            # calculate the length of each gene
+            # returns a pandas Series with gene IDs as the index and gene lengths as the values
+            gene_lengths: pd.Series = genome_annotation.lengths(attribute="gene_id")
+            # remove the version number from the gene IDs
+            gene_lengths.index = gene_lengths.index.str.split(".").str[0]
+            assert gene_lengths.index.is_unique, "Gene IDs are not unique"
+
+            # convert the gene lengths to a DataFrame
+            gene_lengths = gene_lengths.to_frame(name="length")
+            gene_lengths["gene_id"] = gene_lengths.index
+            gene_lengths = gene_lengths.reset_index(drop=True)
+
+            missing_genes = gene_counts[
+                ~gene_counts["gene_id"].isin(gene_lengths["gene_id"])
+            ]
+            if not missing_genes.empty:
+                print(
+                    f"Warning: {len(missing_genes)} genes are missing from gene length data, removing them"
+                )
+
+            normalized_gene_expression = gene_counts.merge(
+                gene_lengths, on="gene_id", how="inner", validate="1:1"
+            )
+            for sample in gene_counts.columns[2:]:
+                # calculate the TPM values
+                normalized_gene_expression[sample + "_TPM"] = (
+                    normalized_gene_expression[sample]
+                    / normalized_gene_expression["length"]
+                )  # reads per base pair
+                rpk_sum = normalized_gene_expression[sample + "_TPM"].sum()
+                normalized_gene_expression[sample + "_TPM"] = (
+                    normalized_gene_expression[sample + "_TPM"] / rpk_sum
+                ) * 1e6  # normalize to TPM
+
+                # calculate log2(TPM + 1) values
+                normalized_gene_expression[sample + "_log2TPM"] = np.log2(
+                    normalized_gene_expression[sample + "_TPM"] + 1
+                )
+
+                # calculate the RPKM values
+                normalized_gene_expression[
+                    sample + "_RPKM"
+                ] = normalized_gene_expression[sample] / (
+                    normalized_gene_expression["length"] / 1e3
+                )  # reads per kilobase pair
+                normalized_gene_expression[sample + "_RPKM"] = (
+                    normalized_gene_expression[sample + "_RPKM"] * 1e6
+                )  # normalize to RPKM
+
+                # calculate log2(RPKM + 1) values
+                normalized_gene_expression[sample + "_log2RPKM"] = np.log2(
+                    normalized_gene_expression[sample + "_RPKM"] + 1
+                )
+
+            normalized_gene_expression.to_csv(
+                os.path.join(self.cache_dir, "normalized_gene_expression.csv"),
+                index=False,
+            )
+
+        if not os.path.exists(
+            os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
+        ):
+            # from the normalized gene expression data, extract the expression levels of the splicing factors in each sample
+            # the splicing factor gene IDs are the same as the sample names
+            print("Extracting splicing factor expression levels")
+
+            normalized_gene_expression = pd.read_csv(
+                os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+            )
+
+            all_gene_ids = normalized_gene_expression["gene_id"].values
+            splicing_factor_gene_ids = [
+                i for i in normalized_gene_expression.columns if i in all_gene_ids
+            ]
+            assert (len(splicing_factor_gene_ids) * 5) == len(
+                normalized_gene_expression.columns
+            ) - 3, "Could not find all splicing factor gene IDs in the normalized gene expression data"
+
+            splicing_factor_expression_levels = normalized_gene_expression.loc[
+                normalized_gene_expression["gene_id"].isin(splicing_factor_gene_ids)
+            ]
+            splicing_factor_expression_levels.to_csv(
+                os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv"),
+                index=False,
+            )
+            print(
+                "Splicing factor expression levels extracted - dataframe shape:",
+                splicing_factor_expression_levels.shape,
+            )
+
         if (
             not os.path.exists(
                 os.path.join(
@@ -1221,8 +1327,8 @@ class KnockdownData(LightningDataModule):
             )
 
             # load the filtered data
-            gene_counts = pd.read_csv(
-                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+            normalized_gene_expression = pd.read_csv(
+                os.path.join(self.cache_dir, "normalized_gene_expression.csv")
             )
             inclusion_levels_full = pd.read_csv(
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
@@ -1360,7 +1466,9 @@ class KnockdownData(LightningDataModule):
             ] = []  # coordinates of the intron around the splicing event
             introns_around_splicing_events["STRAND"] = []  # strand of the intron
 
-            all_gene_ids_with_expression_values = set(gene_counts["gene_id"])
+            all_gene_ids_with_expression_values = set(
+                normalized_gene_expression["gene_id"]
+            )
 
             # iterate over each row in the data and populate the flattened data and event information
             for i, row in tqdm(
@@ -1759,112 +1867,6 @@ class KnockdownData(LightningDataModule):
             print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
 
             print("Flattened data cached")
-
-        if not os.path.exists(
-            os.path.join(self.cache_dir, "normalized_gene_expression.csv")
-        ):
-            # from the gene counts data, calculate the normalized gene expression values - TPM and RPKM
-            print(
-                "Calculating normalized gene expression values from gene counts (TPM and RPKM)"
-            )
-
-            gene_counts = pd.read_csv(
-                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
-            )
-
-            genome_annotation = genomepy.Annotation(
-                name="GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
-            )
-
-            # calculate the length of each gene
-            # returns a pandas Series with gene IDs as the index and gene lengths as the values
-            gene_lengths: pd.Series = genome_annotation.lengths(attribute="gene_id")
-            # remove the version number from the gene IDs
-            gene_lengths.index = gene_lengths.index.str.split(".").str[0]
-            assert gene_lengths.index.is_unique, "Gene IDs are not unique"
-
-            # convert the gene lengths to a DataFrame
-            gene_lengths = gene_lengths.to_frame(name="length")
-            gene_lengths["gene_id"] = gene_lengths.index
-            gene_lengths = gene_lengths.reset_index(drop=True)
-
-            missing_genes = gene_counts[
-                ~gene_counts["gene_id"].isin(gene_lengths["gene_id"])
-            ]
-            if not missing_genes.empty:
-                print(
-                    f"Warning: {len(missing_genes)} genes are missing from gene length data, removing them"
-                )
-
-            normalized_gene_expression = gene_counts.merge(
-                gene_lengths, on="gene_id", how="inner", validate="1:1"
-            )
-            for sample in gene_counts.columns[2:]:
-                # calculate the TPM values
-                normalized_gene_expression[sample + "_TPM"] = (
-                    normalized_gene_expression[sample]
-                    / normalized_gene_expression["length"]
-                )  # reads per base pair
-                rpk_sum = normalized_gene_expression[sample + "_TPM"].sum()
-                normalized_gene_expression[sample + "_TPM"] = (
-                    normalized_gene_expression[sample + "_TPM"] / rpk_sum
-                ) * 1e6  # normalize to TPM
-
-                # calculate log2(TPM + 1) values
-                normalized_gene_expression[sample + "_log2TPM"] = np.log2(
-                    normalized_gene_expression[sample + "_TPM"] + 1
-                )
-
-                # calculate the RPKM values
-                normalized_gene_expression[
-                    sample + "_RPKM"
-                ] = normalized_gene_expression[sample] / (
-                    normalized_gene_expression["length"] / 1e3
-                )  # reads per kilobase pair
-                normalized_gene_expression[sample + "_RPKM"] = (
-                    normalized_gene_expression[sample + "_RPKM"] * 1e6
-                )  # normalize to RPKM
-
-                # calculate log2(RPKM + 1) values
-                normalized_gene_expression[sample + "_log2RPKM"] = np.log2(
-                    normalized_gene_expression[sample + "_RPKM"] + 1
-                )
-
-            normalized_gene_expression.to_csv(
-                os.path.join(self.cache_dir, "normalized_gene_expression.csv"),
-                index=False,
-            )
-
-        if not os.path.exists(
-            os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
-        ):
-            # from the normalized gene expression data, extract the expression levels of the splicing factors in each sample
-            # the splicing factor gene IDs are the same as the sample names
-            print("Extracting splicing factor expression levels")
-
-            normalized_gene_expression = pd.read_csv(
-                os.path.join(self.cache_dir, "normalized_gene_expression.csv")
-            )
-
-            all_gene_ids = normalized_gene_expression["gene_id"].values
-            splicing_factor_gene_ids = [
-                i for i in normalized_gene_expression.columns if i in all_gene_ids
-            ]
-            assert (len(splicing_factor_gene_ids) * 5) == len(
-                normalized_gene_expression.columns
-            ) - 3, "Could not find all splicing factor gene IDs in the normalized gene expression data"
-
-            splicing_factor_expression_levels = normalized_gene_expression.loc[
-                normalized_gene_expression["gene_id"].isin(splicing_factor_gene_ids)
-            ]
-            splicing_factor_expression_levels.to_csv(
-                os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv"),
-                index=False,
-            )
-            print(
-                "Splicing factor expression levels extracted - dataframe shape:",
-                splicing_factor_expression_levels.shape,
-            )
 
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
