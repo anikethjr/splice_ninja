@@ -29,9 +29,6 @@ class KnockdownDataset(Dataset):
         self.data_module = data_module
         self.split = split
         self.input_size = self.data_module.config["train_config"]["input_size"]
-        self.intron_keep_ratio = self.data_module.config["train_config"][
-            "intron_keep_ratio"
-        ]
         self.genome: genomepy.Genome = self.data_module.genome
 
         if self.split == "train":
@@ -40,9 +37,6 @@ class KnockdownDataset(Dataset):
                 self.data_module.train_flattened_inclusion_levels_full
             )
             self.event_info = self.data_module.train_event_info
-            self.introns_around_splicing_events = (
-                self.data_module.train_introns_around_splicing_events
-            )
 
         elif self.split == "val":
             self.chromosomes = self.data_module.val_chromosomes
@@ -50,9 +44,6 @@ class KnockdownDataset(Dataset):
                 self.data_module.val_flattened_inclusion_levels_full
             )
             self.event_info = self.data_module.val_event_info
-            self.introns_around_splicing_events = (
-                self.data_module.val_introns_around_splicing_events
-            )
 
         elif self.split == "test":
             self.chromosomes = self.data_module.test_chromosomes
@@ -60,9 +51,6 @@ class KnockdownDataset(Dataset):
                 self.data_module.test_flattened_inclusion_levels_full
             )
             self.event_info = self.data_module.test_event_info
-            self.introns_around_splicing_events = (
-                self.data_module.test_introns_around_splicing_events
-            )
 
         # remove events that are larger than the input size
         original_num_events = len(self.event_info)
@@ -80,25 +68,8 @@ class KnockdownDataset(Dataset):
             f"{split} split - Removed {original_num_flattened_inclusion_levels - len(self.flattened_inclusion_levels)} rows from the flattened inclusion levels dataframe that correspond to events that are larger than the input size ({(original_num_flattened_inclusion_levels - len(self.flattened_inclusion_levels)) / original_num_flattened_inclusion_levels:.2f}%)"
         )
 
-        # for introns that are larger than the input size, we keep the beginning and end of the intron and the middle part is randomly sampled
-        self.introns_around_splicing_events[
-            "LENGTH"
-        ] = self.introns_around_splicing_events["COORD"].apply(
-            lambda x: int(x.split(":")[-1].split("-")[1])
-            - int(x.split(":")[-1].split("-")[0])
-            + 1
-        )
-        num_introns_longer_than_input_size = (
-            self.introns_around_splicing_events["LENGTH"] > self.input_size
-        ).sum()
-        print(
-            f"{split} split - Number of introns longer than the input size: {num_introns_longer_than_input_size} ({num_introns_longer_than_input_size / len(self.introns_around_splicing_events):.2f}%)"
-        )
-
     def __len__(self):
-        return len(self.flattened_inclusion_levels) + np.ceil(
-            len(self.introns_around_splicing_events) * self.intron_keep_ratio
-        ).astype(int)
+        return len(self.flattened_inclusion_levels)
 
     def get_psi_val(self, idx):
         # get the PSI value for the idx-th row in the flattened_inclusion_levels dataframe
@@ -205,163 +176,10 @@ class KnockdownDataset(Dataset):
             "psi_val": np.array([psi_val]),
             "gene_exp_values": gene_exp_values,
             "splicing_factor_exp_values": splicing_factor_exp_values,
-            "is_intron": np.array([False]),
-        }
-
-    def get_intron(self, idx):
-        # return a random intron
-        intron_row = self.introns_around_splicing_events.sample().iloc[0]
-        sample = intron_row["SAMPLE"]
-        event_id = intron_row["EVENT"]
-        event_type = intron_row["EVENT_TYPE"]
-        intron_coordinates = intron_row["COORD"]
-        chrom = intron_coordinates.split(":")[0][3:]  # remove "chr" prefix
-        start = int(intron_coordinates.split(":")[-1].split("-")[0])
-        end = int(intron_coordinates.split(":")[-1].split("-")[1])
-        length = end - start + 1
-        strand = intron_row["STRAND"]
-        location = intron_row["LOCATION"]
-
-        # get the event information for extracting expression values
-        event_row = self.event_info[self.event_info["EVENT"] == event_id]
-        assert len(event_row) == 1
-        event_row = event_row.iloc[0]
-        gene_id = event_row["GENE_ID"]
-        has_gene_exp_values = event_row["HAS_GENE_EXP_VALUES"]
-
-        # construct sequence
-        # now compute input start and end coordinates based on the input size
-        # we want to have the event in the middle of the input sequence
-        # however, if the intron is larger than the input size, we keep the beginning and end of the intron and randomly sample the middle part
-        if length > self.input_size:
-            background_sequence_length = 0
-            spliced_in_sequence_start_idx = 0
-            spliced_in_sequence_end_idx = self.input_size - 1
-
-            # one-third of the intron is kept on each side and the middle part is randomly sampled
-            first_segment_start = start
-            first_segment_end = start + np.ceil(self.input_size / 3).astype(int) - 1
-            second_segment_start = end - np.ceil(self.input_size / 3).astype(int) + 1
-            second_segment_end = end
-            middle_segment_length = (
-                self.input_size
-                - (first_segment_end - first_segment_start + 1)
-                - (second_segment_end - second_segment_start + 1)
-            )
-            middle_segment_start = np.random.randint(
-                first_segment_end + 1, second_segment_start - middle_segment_length
-            )
-            middle_segment_end = middle_segment_start + middle_segment_length - 1
-
-            if strand == ".":
-                sequence = (
-                    self.genome.get_seq(
-                        chrom, first_segment_start, first_segment_end
-                    ).seq
-                    + self.genome.get_seq(
-                        chrom, middle_segment_start, middle_segment_end
-                    ).seq
-                    + self.genome.get_seq(
-                        chrom, second_segment_start, second_segment_end
-                    ).seq
-                )
-            else:
-                sequence = (
-                    self.genome.get_seq(
-                        chrom, second_segment_start, second_segment_end, rc=True
-                    ).seq
-                    + self.genome.get_seq(
-                        chrom, middle_segment_start, middle_segment_end, rc=True
-                    ).seq
-                    + self.genome.get_seq(
-                        chrom, first_segment_start, first_segment_end, rc=True
-                    ).seq
-                )
-
-            sequence = sequence.upper()
-            assert (
-                len(sequence) == self.input_size
-            ), f"Length of sequence is {len(sequence)} instead of {self.input_size}"
-
-        else:
-            background_sequence_length = self.input_size - length
-            input_start = max(
-                1,
-                start - np.ceil(background_sequence_length / 2).astype(int),
-            )
-            input_end = min(self.genome.sizes[chrom], input_start + self.input_size - 1)
-            if (input_end - input_start + 1) < self.input_size:
-                input_start = max(1, input_end - self.input_size + 1)
-            assert (input_end - input_start + 1) == self.input_size
-            # both idxs below are inclusive
-            spliced_in_sequence_start_idx = start - input_start
-            spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + length - 1
-            if strand == "-":
-                # need to account for reverse complement
-                spliced_in_sequence_start_idx, spliced_in_sequence_end_idx = (
-                    self.input_size - spliced_in_sequence_end_idx - 1,
-                    self.input_size - spliced_in_sequence_start_idx - 1,
-                )
-
-            sequence = self.genome.get_seq(
-                chrom, input_start, input_end, rc=(strand == "-")
-            ).seq
-            sequence = sequence.upper()
-            assert (
-                len(sequence) == self.input_size
-            ), f"Length of sequence is {len(sequence)} instead of {self.input_size}"
-            intron_sequence = self.genome.get_seq(
-                chrom, start, end, rc=(strand == "-")
-            ).seq
-            intron_sequence = intron_sequence.upper()
-            assert (
-                len(intron_sequence) == length
-            ), f"Length of intron sequence is {len(intron_sequence)} instead of {length}"
-            assert (
-                sequence[
-                    spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1
-                ]
-                == intron_sequence
-            ), "Intron sequence is not at the correct position in the input sequence"
-
-        # construct one-hot encoding
-        one_hot_encoding = np.zeros((self.input_size, 4))
-        base_to_idx = {"A": 0, "C": 1, "G": 2, "T": 3}
-        for i, base in enumerate(sequence):
-            if base in base_to_idx:
-                one_hot_encoding[i, base_to_idx[base]] = 1
-
-        # construct mask that indicates the positions of the event
-        mask = np.zeros(self.input_size)
-        mask[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1] = 1
-
-        # get the gene expression values if they are available
-        gene_exp_values = -1.0
-        if has_gene_exp_values:
-            gene_exp_values = self.data_module.normalized_gene_expression.loc[
-                self.data_module.normalized_gene_expression["gene_id"] == gene_id,
-                sample + "_log2TPM",
-            ].iloc[0]
-
-        # get splicing factor expression values
-        splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
-            sample + "_log2TPM"
-        ].values.reshape(-1)
-
-        return {
-            "sequence": one_hot_encoding,
-            "mask": mask,
-            "psi_val": np.array([0.0]),
-            "gene_exp_values": gene_exp_values,
-            "splicing_factor_exp_values": splicing_factor_exp_values,
-            "is_intron": np.array([True]),
         }
 
     def __getitem__(self, idx):
-        if idx < len(self.flattened_inclusion_levels):
-            return self.get_psi_val(idx)
-        else:
-            return self.get_intron(idx - len(self.flattened_inclusion_levels))
+        return self.get_psi_val(idx)
 
 
 # DataModule for the knockdown data
@@ -1241,18 +1059,10 @@ class KnockdownData(LightningDataModule):
                 splicing_factor_expression_levels.shape,
             )
 
-        if (
-            not os.path.exists(
-                os.path.join(
-                    self.cache_dir, "flattened_inclusion_levels_full_filtered.csv"
-                )
-            )
-            or not os.path.exists(
-                os.path.join(self.cache_dir, "event_info_filtered.csv")
-            )
-            or not os.path.exists(
-                os.path.join(self.cache_dir, "intron_around_splicing_events.csv")
-            )
+        if not os.path.exists(
+            os.path.join(self.cache_dir, "flattened_inclusion_levels_full_filtered.csv")
+        ) or not os.path.exists(
+            os.path.join(self.cache_dir, "event_info_filtered.csv")
         ):
             # flatten the filtered data - make a row for each sample for each event and remove NaN values
             # this makes it to create a dataset for training
@@ -1448,24 +1258,6 @@ class KnockdownData(LightningDataModule):
                 []
             )  # these are the coordinates for the alternative splicing event extracted from the VastDB output, and the inclusion levels are measured for this genome segment
 
-            introns_around_splicing_events = {}
-            introns_around_splicing_events[
-                "EVENT"
-            ] = []  # event ID corresponding to the splicing event
-            introns_around_splicing_events["EVENT_TYPE"] = []  # general event type
-            introns_around_splicing_events[
-                "SAMPLE"
-            ] = (
-                []
-            )  # knocked down splicing factor, only introns with low reads mapped to it in the sample are included - determined based on complexity score of the event in the sample (S is the only acceptable complexity score meaning that less than 5% of the reads mapped to non-reference splice junctions)
-            introns_around_splicing_events[
-                "LOCATION"
-            ] = []  # whether the intron is upstream or downstream of the splicing event
-            introns_around_splicing_events[
-                "COORD"
-            ] = []  # coordinates of the intron around the splicing event
-            introns_around_splicing_events["STRAND"] = []  # strand of the intron
-
             all_gene_ids_with_expression_values = set(
                 normalized_gene_expression["gene_id"]
             )
@@ -1550,95 +1342,6 @@ class KnockdownData(LightningDataModule):
                         f"{row['CHR']}:{extraction_start}-{extraction_end}"
                     )
 
-                    if not pd.isna(row["CO_C1"]) and not pd.isna(
-                        row["CO_C2"]
-                    ):  # only add the introns if the reference coordinates are available
-                        # add the introns around the splicing events
-                        for psi_col in psi_vals_columns:
-                            if not np.isnan(row[psi_col]):
-                                quality_col = psi_col + "-Q"
-                                complexity_score = (
-                                    row[quality_col].split("@")[0].split(",")[-1]
-                                )
-                                assert complexity_score in ["S", "C1", "C2", "C3", "na"]
-
-                                if complexity_score == "S":
-                                    # reference intron upstream of the alternative exon
-                                    # add/remove 1 to make sure the coordinates are within the intron
-                                    if strand == ".":
-                                        intron_start = (
-                                            int(
-                                                row["CO_C1"].split(":")[1].split("-")[1]
-                                            )
-                                            + 1
-                                        )  # the end of the upstream exon
-                                        intron_end = extraction_start - 1
-                                    else:
-                                        intron_start = extraction_end + 1
-                                        intron_end = (
-                                            int(
-                                                row["CO_C1"].split(":")[1].split("-")[0]
-                                            )
-                                            - 1
-                                        )  # the end of the upstream exon
-                                    if intron_start < intron_end:
-                                        introns_around_splicing_events["EVENT"].append(
-                                            row["EVENT"]
-                                        )
-                                        introns_around_splicing_events[
-                                            "EVENT_TYPE"
-                                        ].append(event_type)
-                                        introns_around_splicing_events["SAMPLE"].append(
-                                            psi_col
-                                        )
-                                        introns_around_splicing_events[
-                                            "LOCATION"
-                                        ].append("upstream")
-                                        introns_around_splicing_events["COORD"].append(
-                                            f"{row['CHR']}:{intron_start}-{intron_end}"
-                                        )
-                                        introns_around_splicing_events["STRAND"].append(
-                                            strand
-                                        )
-
-                                    # reference intron downstream of the alternative exon
-                                    # add/remove 1 to make sure the coordinates are within the intron
-                                    if strand == ".":
-                                        intron_start = extraction_end + 1
-                                        intron_end = (
-                                            int(
-                                                row["CO_C2"].split(":")[1].split("-")[0]
-                                            )
-                                            - 1
-                                        )  # the start of the downstream exon
-                                    else:
-                                        intron_start = (
-                                            int(
-                                                row["CO_C2"].split(":")[1].split("-")[1]
-                                            )
-                                            + 1
-                                        )  # the start of the downstream exon
-                                        intron_end = extraction_start - 1
-                                    if intron_start < intron_end:
-                                        introns_around_splicing_events["EVENT"].append(
-                                            row["EVENT"]
-                                        )
-                                        introns_around_splicing_events[
-                                            "EVENT_TYPE"
-                                        ].append(event_type)
-                                        introns_around_splicing_events["SAMPLE"].append(
-                                            psi_col
-                                        )
-                                        introns_around_splicing_events[
-                                            "LOCATION"
-                                        ].append("downstream")
-                                        introns_around_splicing_events["COORD"].append(
-                                            f"{row['CHR']}:{intron_start}-{intron_end}"
-                                        )
-                                        introns_around_splicing_events["STRAND"].append(
-                                            strand
-                                        )
-
                 elif event_type == "INT":
                     strand = row["FullCO"].split(":")[-1]
                     strand = "." if strand == "+" else "-"
@@ -1689,56 +1392,6 @@ class KnockdownData(LightningDataModule):
                     else:
                         Aexon_end = [int(i) for i in Aexon_end.split("+")]
 
-                    if not pd.isna(
-                        row["CO_C2"]
-                    ):  # only add the introns if the reference coordinates are available
-                        for psi_col in psi_vals_columns:
-                            if not np.isnan(row[psi_col]):
-                                quality_col = psi_col + "-Q"
-                                complexity_score = (
-                                    row[quality_col].split("@")[0].split(",")[-1]
-                                )
-                                assert complexity_score in ["S", "C1", "C2", "C3", "na"]
-
-                                if complexity_score == "S":
-                                    # reference intron downstream of the alternative exon
-                                    # add/remove 1 to make sure the coordinates are within the intron
-                                    if strand == ".":
-                                        intron_start = max(Aexon_end) + 1
-                                        intron_end = (
-                                            int(
-                                                row["CO_C2"].split(":")[1].split("-")[0]
-                                            )
-                                            - 1
-                                        )
-                                    else:
-                                        intron_start = (
-                                            int(
-                                                row["CO_C2"].split(":")[1].split("-")[1]
-                                            )
-                                            + 1
-                                        )
-                                        intron_end = min(Aexon_start) - 1
-                                    if intron_start < intron_end:
-                                        introns_around_splicing_events["EVENT"].append(
-                                            row["EVENT"]
-                                        )
-                                        introns_around_splicing_events[
-                                            "EVENT_TYPE"
-                                        ].append(event_type)
-                                        introns_around_splicing_events["SAMPLE"].append(
-                                            psi_col
-                                        )
-                                        introns_around_splicing_events[
-                                            "LOCATION"
-                                        ].append("downstream")
-                                        introns_around_splicing_events["COORD"].append(
-                                            f"{row['CHR']}:{intron_start}-{intron_end}"
-                                        )
-                                        introns_around_splicing_events["STRAND"].append(
-                                            strand
-                                        )
-
                 elif event_type == "ALTA":
                     C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
                     C1donor = [int(i) for i in C1donor.split("+")]
@@ -1781,63 +1434,10 @@ class KnockdownData(LightningDataModule):
                     else:
                         Aexon_end = [int(i) for i in Aexon_end.split("+")]
 
-                    if not pd.isna(
-                        row["CO_C1"]
-                    ):  # only add the introns if the reference coordinates are available
-                        for psi_col in psi_vals_columns:
-                            if not np.isnan(row[psi_col]):
-                                quality_col = psi_col + "-Q"
-                                complexity_score = (
-                                    row[quality_col].split("@")[0].split(",")[-1]
-                                )
-                                assert complexity_score in ["S", "C1", "C2", "C3", "na"]
-
-                                if complexity_score == "S":
-                                    # intron upstream of the alternative exon
-                                    # add/remove 1 to make sure the coordinates are within the intron
-                                    if strand == ".":
-                                        intron_start = (
-                                            int(
-                                                row["CO_C1"].split(":")[1].split("-")[1]
-                                            )
-                                            + 1
-                                        )
-                                        intron_end = min(Aexon_start) - 1
-                                    else:
-                                        intron_start = max(Aexon_end) + 1
-                                        intron_end = (
-                                            int(
-                                                row["CO_C1"].split(":")[1].split("-")[0]
-                                            )
-                                            - 1
-                                        )
-                                    if intron_start < intron_end:
-                                        introns_around_splicing_events["EVENT"].append(
-                                            row["EVENT"]
-                                        )
-                                        introns_around_splicing_events[
-                                            "EVENT_TYPE"
-                                        ].append(event_type)
-                                        introns_around_splicing_events["SAMPLE"].append(
-                                            psi_col
-                                        )
-                                        introns_around_splicing_events[
-                                            "LOCATION"
-                                        ].append("upstream")
-                                        introns_around_splicing_events["COORD"].append(
-                                            f"{row['CHR']}:{intron_start}-{intron_end}"
-                                        )
-                                        introns_around_splicing_events["STRAND"].append(
-                                            strand
-                                        )
-
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
             )
             event_info = pd.DataFrame(event_info)
-            introns_around_splicing_events = pd.DataFrame(
-                introns_around_splicing_events
-            )
 
             flattened_inclusion_levels_full.to_csv(
                 os.path.join(
@@ -1848,23 +1448,15 @@ class KnockdownData(LightningDataModule):
             event_info.to_csv(
                 os.path.join(self.cache_dir, "event_info_filtered.csv"), index=False
             )
-            introns_around_splicing_events.to_csv(
-                os.path.join(self.cache_dir, "intron_around_splicing_events.csv"),
-                index=False,
-            )
 
             print("Total number of PSI values:", len(flattened_inclusion_levels_full))
             print("Total number of events:", len(event_info))
-            print("Total number of introns:", len(introns_around_splicing_events))
 
             print("Number of PSI values of each event type:")
             print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
 
             print("Number of events of each event type:")
             print(event_info["EVENT_TYPE"].value_counts())
-
-            print("Number of introns of each event type:")
-            print(introns_around_splicing_events["EVENT_TYPE"].value_counts())
 
             print("Flattened data cached")
 
@@ -1879,25 +1471,18 @@ class KnockdownData(LightningDataModule):
         self.event_info = pd.read_csv(
             os.path.join(self.cache_dir, "event_info_filtered.csv")
         )
-        self.introns_around_splicing_events = pd.read_csv(
-            os.path.join(self.cache_dir, "intron_around_splicing_events.csv")
-        )
         self.splicing_factor_expression_levels = pd.read_csv(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
         )
 
         print("Total number of PSI values:", len(self.flattened_inclusion_levels_full))
         print("Total number of events:", len(self.event_info))
-        print("Total number of introns:", len(self.introns_around_splicing_events))
 
         print("Number of PSI values of each event type:")
         print(self.flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
 
         print("Number of events of each event type:")
         print(self.event_info["EVENT_TYPE"].value_counts())
-
-        print("Number of introns of each event type:")
-        print(self.introns_around_splicing_events["EVENT_TYPE"].value_counts())
 
         # load the genome
         self.genome = genomepy.Genome(
@@ -1916,11 +1501,6 @@ class KnockdownData(LightningDataModule):
                 )
             ]
         )
-        self.train_introns_around_splicing_events = self.introns_around_splicing_events[
-            self.introns_around_splicing_events["EVENT"].isin(
-                self.train_event_info["EVENT"]
-            )
-        ]
 
         print("Train dataset:")
         print(
@@ -1935,14 +1515,6 @@ class KnockdownData(LightningDataModule):
             "Number of events: {} ({}%)".format(
                 len(self.train_event_info),
                 100 * len(self.train_event_info) / len(self.event_info),
-            )
-        )
-        print(
-            "Number of introns: {} ({}%)".format(
-                len(self.train_introns_around_splicing_events),
-                100
-                * len(self.train_introns_around_splicing_events)
-                / len(self.introns_around_splicing_events),
             )
         )
 
@@ -1968,31 +1540,12 @@ class KnockdownData(LightningDataModule):
                 f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
-        print("Number of introns of each event type:")
-        full_value_counts = self.introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].value_counts()
-        train_value_counts = self.train_introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].value_counts()
-        for event_type in self.train_introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].unique():
-            print(
-                f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
-            )
-
         # val dataset
         self.val_event_info = self.event_info[
             self.event_info["CHR"].isin(self.val_chromosomes)
         ]
         self.val_flattened_inclusion_levels_full = self.flattened_inclusion_levels_full[
             self.flattened_inclusion_levels_full["EVENT"].isin(
-                self.val_event_info["EVENT"]
-            )
-        ]
-        self.val_introns_around_splicing_events = self.introns_around_splicing_events[
-            self.introns_around_splicing_events["EVENT"].isin(
                 self.val_event_info["EVENT"]
             )
         ]
@@ -2010,14 +1563,6 @@ class KnockdownData(LightningDataModule):
             "Number of events: {} ({}%)".format(
                 len(self.val_event_info),
                 100 * len(self.val_event_info) / len(self.event_info),
-            )
-        )
-        print(
-            "Number of introns: {} ({}%)".format(
-                len(self.val_introns_around_splicing_events),
-                100
-                * len(self.val_introns_around_splicing_events)
-                / len(self.introns_around_splicing_events),
             )
         )
 
@@ -2043,20 +1588,6 @@ class KnockdownData(LightningDataModule):
                 f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
-        print("Number of introns of each event type:")
-        full_value_counts = self.introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].value_counts()
-        val_value_counts = self.val_introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].value_counts()
-        for event_type in self.val_introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].unique():
-            print(
-                f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
-            )
-
         # test dataset
         self.test_event_info = self.event_info[
             self.event_info["CHR"].isin(self.test_chromosomes)
@@ -2068,11 +1599,6 @@ class KnockdownData(LightningDataModule):
                 )
             ]
         )
-        self.test_introns_around_splicing_events = self.introns_around_splicing_events[
-            self.introns_around_splicing_events["EVENT"].isin(
-                self.test_event_info["EVENT"]
-            )
-        ]
 
         print("Test dataset:")
         print(
@@ -2087,14 +1613,6 @@ class KnockdownData(LightningDataModule):
             "Number of events: {} ({}%)".format(
                 len(self.test_event_info),
                 100 * len(self.test_event_info) / len(self.event_info),
-            )
-        )
-        print(
-            "Number of introns: {} ({}%)".format(
-                len(self.test_introns_around_splicing_events),
-                100
-                * len(self.test_introns_around_splicing_events)
-                / len(self.introns_around_splicing_events),
             )
         )
 
@@ -2116,20 +1634,6 @@ class KnockdownData(LightningDataModule):
         full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
         test_value_counts = self.test_event_info["EVENT_TYPE"].value_counts()
         for event_type in self.test_event_info["EVENT_TYPE"].unique():
-            print(
-                f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
-            )
-
-        print("Number of introns of each event type:")
-        full_value_counts = self.introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].value_counts()
-        test_value_counts = self.test_introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].value_counts()
-        for event_type in self.test_introns_around_splicing_events[
-            "EVENT_TYPE"
-        ].unique():
             print(
                 f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
