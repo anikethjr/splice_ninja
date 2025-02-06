@@ -1253,10 +1253,21 @@ class KnockdownData(LightningDataModule):
             event_info["CHR"] = []  # chromosome
             event_info["STRAND"] = []  # strand
             event_info[
-                "EVENT_EXTRACTION_COORD"
+                "EVENT_COORD"
             ] = (
                 []
             )  # these are the coordinates for the alternative splicing event extracted from the VastDB output, and the inclusion levels are measured for this genome segment
+            # all segments below are in the 5' to 3' direction and are separated by a comma. they are extracted from VastDB
+            event_info[
+                "SPLICED_IN_EVENT_SEGMENTS"
+            ] = (
+                []
+            )  # genomic segments for the spliced in the event: for exon skipping, this is the upstream exon, the alternate exon, and the downstream exon; for intron retention, this is the upstream exon, the intron being retained, and the downstream exon; for alternative splice site choice, this is the alternate exon and the upstream/downstream exon
+            event_info[
+                "SPLICED_OUT_EVENT_SEGMENTS"
+            ] = (
+                []
+            )  # genomic segments for the spliced out the event: for exon skipping, this is the upstream exon and the downstream exon; for intron retention, this is the upstream exon and the downstream exon; for alternative splice site choice, this is the reference exon and the upstream/downstream exon
 
             all_gene_ids_with_expression_values = set(
                 normalized_gene_expression["gene_id"]
@@ -1318,7 +1329,10 @@ class KnockdownData(LightningDataModule):
                 # - For ALTA: chromosome:C1donor,Aexon. Multiple acceptors of the event are separated by "+".
                 # - For INT: chromosome:C1exon=C2exon:strand.
                 event_info["CHR"].append(row["FullCO"].split(":")[0])
+                spliced_in_event_segments = []
+                spliced_out_event_segments = []
                 if event_type == "EX":
+                    # extract the coordinates of the event
                     C1donor, Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
                     C1donor = [int(i) for i in C1donor.split("+") if i != ""]
                     C2acceptor = [int(i) for i in C2acceptor.split("+") if i != ""]
@@ -1338,17 +1352,91 @@ class KnockdownData(LightningDataModule):
                     assert (
                         extraction_start < extraction_end
                     ), f"Invalid extraction coordinates: {extraction_start}-{extraction_end}"
-                    event_info["EVENT_EXTRACTION_COORD"].append(
+                    event_info["EVENT_COORD"].append(
                         f"{row['CHR']}:{extraction_start}-{extraction_end}"
                     )
+
+                    # extract the genomic segments for the spliced in and spliced out events
+                    if strand == ".":
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_coordinates = row["CO_A"]
+                        assert (
+                            alternate_exon_coordinates == row["COORD"]
+                        ), "CO_A from VastDB != COORD for event"
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        spliced_in_event_segments = [
+                            upstream_exon_coordinates,
+                            alternate_exon_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            upstream_exon_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                    else:
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_coordinates = row["CO_A"]
+                        assert (
+                            alternate_exon_coordinates == row["COORD"]
+                        ), "CO_A from VastDB != COORD for event"
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
+                        spliced_in_event_segments = [
+                            downstream_exon_coordinates,
+                            alternate_exon_coordinates,
+                            upstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            downstream_exon_coordinates,
+                            upstream_exon_coordinates,
+                        ]
 
                 elif event_type == "INT":
                     strand = row["FullCO"].split(":")[-1]
                     strand = "." if strand == "+" else "-"
                     event_info["STRAND"].append(strand)
-                    event_info["EVENT_EXTRACTION_COORD"].append(
+                    event_info["EVENT_COORD"].append(
                         row["COORD"]
                     )  # the coordinates of the intron are the same as the coordinates of the event
+
+                    # extract the genomic segments for the spliced in and spliced out events
+                    if strand == ".":
+                        upstream_exon_coordinates = row["CO_C1"]
+                        retained_intron_coordinates = row["CO_A"]
+                        assert (
+                            retained_intron_coordinates == row["COORD"]
+                        ), "CO_A from VastDB != COORD for event"
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        spliced_in_event_segments = [
+                            upstream_exon_coordinates,
+                            retained_intron_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            upstream_exon_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                    else:
+                        upstream_exon_coordinates = row["CO_C1"]
+                        retained_intron_coordinates = row["CO_A"]
+                        assert (
+                            retained_intron_coordinates == row["COORD"]
+                        ), "CO_A from VastDB != COORD for event"
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
+                        spliced_in_event_segments = [
+                            downstream_exon_coordinates,
+                            retained_intron_coordinates,
+                            upstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            downstream_exon_coordinates,
+                            upstream_exon_coordinates,
+                        ]
 
                 elif event_type == "ALTD":
                     Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
@@ -1363,7 +1451,7 @@ class KnockdownData(LightningDataModule):
                     assert (
                         this_Aexon_start < this_Aexon_end
                     ), f"Invalid coordinates: {this_Aexon_start}-{this_Aexon_end}"
-                    event_info["EVENT_EXTRACTION_COORD"].append(
+                    event_info["EVENT_COORD"].append(
                         f"{row['CHR']}:{this_Aexon_start}-{this_Aexon_end}"
                     )
 
@@ -1375,22 +1463,64 @@ class KnockdownData(LightningDataModule):
                         event_info["STRAND"].append("-")
                         strand = "-"
 
-                    # sometimes the fixed coordinates of the alternative exon are not available
-                    # in this case, use the coordinates from the event
-                    if len(Aexon_start.strip()) == 0:
-                        Aexon_start = this_Aexon_start
-                        assert (
-                            strand == "."
-                        ), "Unfixed coordinates are unavailable for the alternative exon"
+                    # extract the genomic segments for the spliced in and spliced out events
+                    # for ALTD events, the CO_C1 is the reference exon, CO_A is the extra segment added in the event, and CO_C2 is the downstream exon
+                    if strand == ".":
+                        reference_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTD event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                downstream_exon_coordinates,
+                            ]
                     else:
-                        Aexon_start = [int(i) for i in Aexon_start.split("+")]
-                    if len(Aexon_end.strip()) == 0:
-                        Aexon_end = this_Aexon_end
-                        assert (
-                            strand == "-"
-                        ), "Unfixed coordinates are unavailable for the alternative exon"
-                    else:
-                        Aexon_end = [int(i) for i in Aexon_end.split("+")]
+                        reference_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTD event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                downstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                downstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                downstream_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                downstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
 
                 elif event_type == "ALTA":
                     C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
@@ -1405,7 +1535,7 @@ class KnockdownData(LightningDataModule):
                     assert (
                         this_Aexon_start < this_Aexon_end
                     ), f"Invalid coordinates: {this_Aexon_start}-{this_Aexon_end}"
-                    event_info["EVENT_EXTRACTION_COORD"].append(
+                    event_info["EVENT_COORD"].append(
                         f"{row['CHR']}:{this_Aexon_start}-{this_Aexon_end}"
                     )
 
@@ -1417,22 +1547,71 @@ class KnockdownData(LightningDataModule):
                         event_info["STRAND"].append("-")
                         strand = "-"
 
-                    # sometimes the fixed coordinates of the alternative exon are not available
-                    # in this case, use the coordinates from the event
-                    if len(Aexon_start.strip()) == 0:
-                        Aexon_start = this_Aexon_start
-                        assert (
-                            strand == "-"
-                        ), "Unfixed coordinates are unavailable for the alternative exon"
+                    # extract the genomic segments for the spliced in and spliced out events
+                    # for ALTA events, the CO_C1 is the upstream exon, CO_A is the extra segment added in the event, and CO_C2 is the reference exon
+                    if strand == ".":
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        reference_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTA event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                upstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                upstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                upstream_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                upstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
                     else:
-                        Aexon_start = [int(i) for i in Aexon_start.split("+")]
-                    if len(Aexon_end.strip()) == 0:
-                        Aexon_end = this_Aexon_end
-                        assert (
-                            strand == "."
-                        ), "Unfixed coordinates are unavailable for the alternative exon"
-                    else:
-                        Aexon_end = [int(i) for i in Aexon_end.split("+")]
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        reference_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTA event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+
+                event_info["SPLICED_IN_EVENT_SEGMENTS"].append(
+                    ",".join(spliced_in_event_segments)
+                )
+                event_info["SPLICED_OUT_EVENT_SEGMENTS"].append(
+                    ",".join(spliced_out_event_segments)
+                )
 
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
