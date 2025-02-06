@@ -1250,6 +1250,26 @@ class KnockdownData(LightningDataModule):
             event_info["STRAND"] = []  # strand
             # all segments below are in the 5' to 3' direction and are separated by a comma. they are extracted from VastDB
             event_info[
+                "SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"
+            ] = (
+                []
+            )  # length of the genomic segment from the start to the end of the spliced in event
+            event_info[
+                "SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"
+            ] = (
+                []
+            )  # length of the genomic segment from the start to the end of the spliced out event
+            event_info[
+                "SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_COORD"
+            ] = (
+                []
+            )  # genomic coordinates of the genomic segment from the start to the end of the spliced in event
+            event_info[
+                "SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_COORD"
+            ] = (
+                []
+            )  # genomic coordinates of the genomic segment from the start to the end of the spliced out event
+            event_info[
                 "SPLICED_IN_EVENT_SEGMENTS"
             ] = (
                 []
@@ -1511,8 +1531,57 @@ class KnockdownData(LightningDataModule):
                 event_info["SPLICED_IN_EVENT_SEGMENTS"].append(
                     ",".join(spliced_in_event_segments)
                 )
+                spliced_in_event_segments_min_coord = min(
+                    [
+                        int(x.strip().split(":")[1].split("-")[0])
+                        for x in spliced_in_event_segments
+                    ]
+                )
+                spliced_in_event_segments_max_coord = max(
+                    [
+                        int(x.strip().split(":")[1].split("-")[1])
+                        for x in spliced_in_event_segments
+                    ]
+                )
+                spliced_in_event_segments_full_segment_length = (
+                    spliced_in_event_segments_max_coord
+                    - spliced_in_event_segments_min_coord
+                    + 1
+                )
+                spliced_in_event_segments_full_segment_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
+                event_info["SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"].append(
+                    spliced_in_event_segments_full_segment_length
+                )
+                event_info["SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_COORD"].append(
+                    spliced_in_event_segments_full_segment_coord
+                )
+
                 event_info["SPLICED_OUT_EVENT_SEGMENTS"].append(
                     ",".join(spliced_out_event_segments)
+                )
+                spliced_out_event_segments_min_coord = min(
+                    [
+                        int(x.strip().split(":")[1].split("-")[0])
+                        for x in spliced_out_event_segments
+                    ]
+                )
+                spliced_out_event_segments_max_coord = max(
+                    [
+                        int(x.strip().split(":")[1].split("-")[1])
+                        for x in spliced_out_event_segments
+                    ]
+                )
+                spliced_out_event_segments_full_segment_length = (
+                    spliced_out_event_segments_max_coord
+                    - spliced_out_event_segments_min_coord
+                    + 1
+                )
+                spliced_out_event_segments_full_segment_coord = f"{row['CHR']}:{spliced_out_event_segments_min_coord}-{spliced_out_event_segments_max_coord}"
+                event_info["SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"].append(
+                    spliced_out_event_segments_full_segment_length
+                )
+                event_info["SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_COORD"].append(
+                    spliced_out_event_segments_full_segment_coord
                 )
 
             flattened_inclusion_levels_full = pd.DataFrame(
