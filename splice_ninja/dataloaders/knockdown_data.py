@@ -1159,7 +1159,7 @@ class KnockdownData(LightningDataModule):
                 on="EVENT",
                 how="left",
             ).reset_index(drop=True)
-            event_found_mask = inclusion_levels_full["CO_C1"].notnull()
+            event_found_mask = pd.notnull(inclusion_levels_full["REF_CO"])
             print(
                 "Number of events found in VastDB: {} ({}%)".format(
                     event_found_mask.sum(), 100 * event_found_mask.mean()
