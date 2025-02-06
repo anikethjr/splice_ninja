@@ -1192,8 +1192,9 @@ class KnockdownData(LightningDataModule):
                         ].head(),
                     )
                 )
-            inclusion_levels_full = inclusion_levels_full[
-                ~event_found_mask
+            # drop events not found in VastDB
+            inclusion_levels_full = inclusion_levels_full.loc[
+                event_found_mask
             ].reset_index(drop=True)
 
             # join inclusion levels data with gene info to get gene ID
