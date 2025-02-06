@@ -1362,7 +1362,9 @@ class KnockdownData(LightningDataModule):
                         alternate_exon_coordinates = row["CO_A"]
                         assert (
                             alternate_exon_coordinates == row["COORD"]
-                        ), "CO_A from VastDB != COORD for event"
+                        ), "CO_A from VastDB != COORD for event: \n{}".format(
+                            row["EVENT"]
+                        )
                         downstream_exon_coordinates = row["CO_C2"]
 
                         spliced_in_event_segments = [
@@ -1379,7 +1381,9 @@ class KnockdownData(LightningDataModule):
                         alternate_exon_coordinates = row["CO_A"]
                         assert (
                             alternate_exon_coordinates == row["COORD"]
-                        ), "CO_A from VastDB != COORD for event"
+                        ), "CO_A from VastDB != COORD for event: \n{}".format(
+                            row["EVENT"]
+                        )
                         downstream_exon_coordinates = row["CO_C2"]
 
                         # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
@@ -1407,7 +1411,9 @@ class KnockdownData(LightningDataModule):
                         retained_intron_coordinates = row["CO_A"]
                         assert (
                             retained_intron_coordinates == row["COORD"]
-                        ), "CO_A from VastDB != COORD for event"
+                        ), "CO_A from VastDB != COORD for event: \n{}".format(
+                            row["EVENT"]
+                        )
                         downstream_exon_coordinates = row["CO_C2"]
 
                         spliced_in_event_segments = [
