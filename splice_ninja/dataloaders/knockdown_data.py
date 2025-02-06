@@ -1155,16 +1155,11 @@ class KnockdownData(LightningDataModule):
 
             # join inclusion levels data with event info to get reference exon coordinates
             inclusion_levels_full = inclusion_levels_full.merge(
-                event_info_from_vastdb[["EVENT", "COORD_o", "CO_C1", "CO_A", "CO_C2"]],
-                left_on=["EVENT", "COORD"],
-                right_on=["EVENT", "COORD_o"],
+                event_info_from_vastdb[["EVENT", "REF_CO", "CO_C1", "CO_A", "CO_C2"]],
+                on="EVENT",
                 how="left",
             ).reset_index(drop=True)
-            event_found_mask = inclusion_levels_full["COORD_o"].notnull()
-            assert (
-                inclusion_levels_full[event_found_mask]["COORD"]
-                == inclusion_levels_full[event_found_mask]["COORD_o"]
-            ).all(), "Coordinates do not match between inclusion levels data and event info data from VastDB"
+            event_found_mask = inclusion_levels_full["CO_C1"].notnull()
             print(
                 "Number of events found in VastDB: {} ({}%)".format(
                     event_found_mask.sum(), 100 * event_found_mask.mean()
@@ -1182,7 +1177,7 @@ class KnockdownData(LightningDataModule):
             print("Per event type:")
             for event_type in inclusion_levels_full["COMPLEX"].unique():
                 event_found_mask = inclusion_levels_full.loc[
-                    inclusion_levels_full["COMPLEX"] == event_type, "COORD_o"
+                    inclusion_levels_full["COMPLEX"] == event_type, "CO_C1"
                 ].notnull()
                 print(
                     f"{event_type}: {event_found_mask.sum()} ({100 * event_found_mask.mean():.2f}%), not found: {(~event_found_mask).sum()} ({100 * (~event_found_mask).mean():.2f}%)"
@@ -1197,7 +1192,6 @@ class KnockdownData(LightningDataModule):
                         ].head(),
                     )
                 )
-            inclusion_levels_full = inclusion_levels_full.drop(columns=["COORD_o"])
 
             # join inclusion levels data with gene info to get gene ID
             inclusion_levels_full = inclusion_levels_full.merge(
@@ -1246,17 +1240,10 @@ class KnockdownData(LightningDataModule):
             ] = (
                 []
             )  # whether gene expression values are available for the gene in the gene count data
-            event_info["COORD"] = []  # coordinates encompassing the event
-            event_info["LENGTH"] = []  # length of the event
             event_info["FullCO"] = []  # full coordinates of the event
             event_info["COMPLEX"] = []  # fine-grained event type
             event_info["CHR"] = []  # chromosome
             event_info["STRAND"] = []  # strand
-            event_info[
-                "EVENT_COORD"
-            ] = (
-                []
-            )  # these are the coordinates for the alternative splicing event extracted from the VastDB output, and the inclusion levels are measured for this genome segment
             # all segments below are in the 5' to 3' direction and are separated by a comma. they are extracted from VastDB
             event_info[
                 "SPLICED_IN_EVENT_SEGMENTS"
@@ -1316,8 +1303,6 @@ class KnockdownData(LightningDataModule):
                     and row["GENE_ID"] in all_gene_ids_with_expression_values
                 )
 
-                event_info["COORD"].append(row["COORD"])
-                event_info["LENGTH"].append(row["LENGTH"])
                 event_info["FullCO"].append(row["FullCO"])
                 event_info["COMPLEX"].append(row["COMPLEX"])
 
@@ -1329,34 +1314,17 @@ class KnockdownData(LightningDataModule):
                 # - For ALTA: chromosome:C1donor,Aexon. Multiple acceptors of the event are separated by "+".
                 # - For INT: chromosome:C1exon=C2exon:strand.
                 event_info["CHR"].append(row["FullCO"].split(":")[0])
+                # REF_CO column contains reference exon coordinates + the strand
+                strand = row["REF_CO"].split(":")[-1]
+                strand = (
+                    "." if strand == "+" else "-"
+                )  # convert "+" to "." for consistency
+                event_info["STRAND"].append(strand)
+
+                # extract the genomic segments for the spliced in and spliced out events
                 spliced_in_event_segments = []
                 spliced_out_event_segments = []
                 if event_type == "EX":
-                    # extract the coordinates of the event
-                    C1donor, Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
-                    C1donor = [int(i) for i in C1donor.split("+") if i != ""]
-                    C2acceptor = [int(i) for i in C2acceptor.split("+") if i != ""]
-                    Aexon_5p_ends = [int(i) for i in Aexon.split("-")[0].split("+")]
-                    Aexon_3p_ends = [int(i) for i in Aexon.split("-")[1].split("+")]
-
-                    strand = None
-                    if C1donor[0] < C2acceptor[0]:
-                        event_info["STRAND"].append(".")
-                        strand = "."
-                    else:
-                        event_info["STRAND"].append("-")
-                        strand = "-"
-
-                    extraction_start = int(row["COORD"].split(":")[1].split("-")[0])
-                    extraction_end = int(row["COORD"].split(":")[1].split("-")[1])
-                    assert (
-                        extraction_start < extraction_end
-                    ), f"Invalid extraction coordinates: {extraction_start}-{extraction_end}"
-                    event_info["EVENT_COORD"].append(
-                        f"{row['CHR']}:{extraction_start}-{extraction_end}"
-                    )
-
-                    # extract the genomic segments for the spliced in and spliced out events
                     if strand == ".":
                         upstream_exon_coordinates = row["CO_C1"]
                         alternate_exon_coordinates = row["CO_A"]
@@ -1388,14 +1356,6 @@ class KnockdownData(LightningDataModule):
                         ]
 
                 elif event_type == "INT":
-                    strand = row["FullCO"].split(":")[-1]
-                    strand = "." if strand == "+" else "-"
-                    event_info["STRAND"].append(strand)
-                    event_info["EVENT_COORD"].append(
-                        row["COORD"]
-                    )  # the coordinates of the intron are the same as the coordinates of the event
-
-                    # extract the genomic segments for the spliced in and spliced out events
                     if strand == ".":
                         upstream_exon_coordinates = row["CO_C1"]
                         retained_intron_coordinates = row["CO_A"]
@@ -1427,31 +1387,6 @@ class KnockdownData(LightningDataModule):
                         ]
 
                 elif event_type == "ALTD":
-                    Aexon, C2acceptor = row["FullCO"].split(":")[1].split(",")
-                    C2acceptor = [int(i) for i in C2acceptor.split("+")]
-                    Aexon_start, Aexon_end = Aexon.split("-")
-
-                    this_Aexon_start, this_Aexon_end = (
-                        row["COORD"].split(":")[-1].split("-")
-                    )
-                    this_Aexon_start = int(this_Aexon_start)
-                    this_Aexon_end = int(this_Aexon_end)
-                    assert (
-                        this_Aexon_start < this_Aexon_end
-                    ), f"Invalid coordinates: {this_Aexon_start}-{this_Aexon_end}"
-                    event_info["EVENT_COORD"].append(
-                        f"{row['CHR']}:{this_Aexon_start}-{this_Aexon_end}"
-                    )
-
-                    strand = None
-                    if this_Aexon_start < C2acceptor[0]:
-                        event_info["STRAND"].append(".")
-                        strand = "."
-                    else:
-                        event_info["STRAND"].append("-")
-                        strand = "-"
-
-                    # extract the genomic segments for the spliced in and spliced out events
                     # for ALTD events, the CO_C1 is the reference exon, CO_A is the extra segment added in the event, and CO_C2 is the downstream exon
                     if strand == ".":
                         reference_exon_coordinates = row["CO_C1"]
@@ -1511,31 +1446,6 @@ class KnockdownData(LightningDataModule):
                             ]
 
                 elif event_type == "ALTA":
-                    C1donor, Aexon = row["FullCO"].split(":")[1].split(",")
-                    C1donor = [int(i) for i in C1donor.split("+")]
-                    Aexon_start, Aexon_end = Aexon.split("-")
-
-                    this_Aexon_start, this_Aexon_end = (
-                        row["COORD"].split(":")[-1].split("-")
-                    )
-                    this_Aexon_start = int(this_Aexon_start)
-                    this_Aexon_end = int(this_Aexon_end)
-                    assert (
-                        this_Aexon_start < this_Aexon_end
-                    ), f"Invalid coordinates: {this_Aexon_start}-{this_Aexon_end}"
-                    event_info["EVENT_COORD"].append(
-                        f"{row['CHR']}:{this_Aexon_start}-{this_Aexon_end}"
-                    )
-
-                    strand = None
-                    if C1donor[0] < this_Aexon_start:
-                        event_info["STRAND"].append(".")
-                        strand = "."
-                    else:
-                        event_info["STRAND"].append("-")
-                        strand = "-"
-
-                    # extract the genomic segments for the spliced in and spliced out events
                     # for ALTA events, the CO_C1 is the upstream exon, CO_A is the extra segment added in the event, and CO_C2 is the reference exon
                     if strand == ".":
                         upstream_exon_coordinates = row["CO_C1"]
