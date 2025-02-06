@@ -1159,7 +1159,7 @@ class KnockdownData(LightningDataModule):
                 on="EVENT",
                 how="left",
             ).reset_index(drop=True)
-            event_found_mask = pd.notnull(inclusion_levels_full["REF_CO"])
+            event_found_mask = inclusion_levels_full["REF_CO"].notnull()
             print(
                 "Number of events found in VastDB: {} ({}%)".format(
                     event_found_mask.sum(), 100 * event_found_mask.mean()
@@ -1192,6 +1192,9 @@ class KnockdownData(LightningDataModule):
                         ].head(),
                     )
                 )
+            inclusion_levels_full = inclusion_levels_full[
+                ~event_found_mask
+            ].reset_index(drop=True)
 
             # join inclusion levels data with gene info to get gene ID
             inclusion_levels_full = inclusion_levels_full.merge(
