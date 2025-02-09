@@ -1635,7 +1635,8 @@ class KnockdownData(LightningDataModule):
                 if i.endswith(self.gene_expression_metric)
             ]
         self.normalized_gene_expression = self.normalized_gene_expression[
-            self.normalized_gene_expression.columns[:2] + gene_expression_metric_cols
+            self.normalized_gene_expression.columns[:2].to_list()
+            + gene_expression_metric_cols
         ]
         print(
             f"Kept {len(gene_expression_metric_cols)} columns with the gene expression metric '{self.gene_expression_metric}'"
