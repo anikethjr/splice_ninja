@@ -1667,7 +1667,7 @@ class KnockdownData(LightningDataModule):
         )
         assert (
             len(self.unified_data) == original_flattened_inclusion_levels_full_len
-        ), "Number of rows in the unified data is not the same as the flattened inclusion levels data"
+        ), f"Number of rows in the unified data is not the same as the flattened inclusion levels data, {len(self.unified_data)} != {original_flattened_inclusion_levels_full_len}"
         print("Merged event information with flattened inclusion levels data")
         # add gene expression values to the unified data
         original_unified_data_len = len(self.unified_data)
@@ -1701,7 +1701,7 @@ class KnockdownData(LightningDataModule):
         self.unified_data = self.unified_data.merge(temp, on="SAMPLE", how="inner")
         assert (
             len(self.unified_data) == original_unified_data_len
-        ), "Number of rows in the unified data is not the same as before merging splicing factor expression levels"
+        ), f"Number of rows in the unified data is not the same as before merging splicing factor expression levels, {len(self.unified_data)} != {original_unified_data_len}"
         print("Merged splicing factor expression levels with unified data")
 
         # create datasets for training, validation, and testing
