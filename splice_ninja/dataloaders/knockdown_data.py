@@ -52,22 +52,6 @@ class KnockdownDataset(Dataset):
             )
             self.event_info = self.data_module.test_event_info
 
-        # remove events that are larger than the input size
-        original_num_events = len(self.event_info)
-        original_num_flattened_inclusion_levels = len(self.flattened_inclusion_levels)
-        self.event_info = self.event_info[
-            self.event_info["LENGTH"] <= self.input_size
-        ].reset_index(drop=True)
-        self.flattened_inclusion_levels = self.flattened_inclusion_levels[
-            self.flattened_inclusion_levels["EVENT"].isin(self.event_info["EVENT"])
-        ].reset_index(drop=True)
-        print(
-            f"{split} split - Removed {original_num_events - len(self.event_info)} events that are larger than the input size ({(original_num_events - len(self.event_info)) / original_num_events:.2f}%)"
-        )
-        print(
-            f"{split} split - Removed {original_num_flattened_inclusion_levels - len(self.flattened_inclusion_levels)} rows from the flattened inclusion levels dataframe that correspond to events that are larger than the input size ({(original_num_flattened_inclusion_levels - len(self.flattened_inclusion_levels)) / original_num_flattened_inclusion_levels:.2f}%)"
-        )
-
     def __len__(self):
         return len(self.flattened_inclusion_levels)
 
@@ -1639,151 +1623,168 @@ class KnockdownData(LightningDataModule):
             "GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
         )  # only need "GRCh38.p14" since the data is from human cell lines
 
+        # create a flattened version of the gene expression data to make it easier to merge with the PSI values
+        if self.gene_expression_metric == "count":
+            gene_expression_metric_cols = [
+                i for i in self.normalized_gene_expression.columns[2:] if (not "_" in i)
+            ]
+        else:
+            gene_expression_metric_cols = [
+                i
+                for i in self.normalized_gene_expression.columns[2:]
+                if i.endswith(self.gene_expression_metric)
+            ]
+        self.normalized_gene_expression = self.normalized_gene_expression[
+            self.normalized_gene_expression.columns[:2] + gene_expression_metric_cols
+        ]
+        print(
+            f"Kept {len(gene_expression_metric_cols)} columns with the gene expression metric '{self.gene_expression_metric}'"
+        )
+        self.normalized_gene_expression_flattened = (
+            self.normalized_gene_expression.melt(
+                id_vars=["gene_id", "alias"], var_name="sample", value_name="expression"
+            )
+        )
+
+        # create unified dataframe containing PSI values, event information, gene expression values, and splicing factor expression levels
+        print("Creating unified dataframe")
+        # first filter out events without gene expression values if required
+        if self.remove_events_without_gene_expression_data:
+            original_event_info_len = len(self.event_info)
+            self.event_info = self.event_info[
+                self.event_info["HAS_GENE_EXP_VALUES"]
+            ].reset_index(drop=True)
+            print(
+                f"Removed {original_event_info_len - len(self.event_info)} events without host-gene expression data ({100 * (original_event_info_len - len(self.event_info)) / original_event_info_len:.2f}%)"
+            )
+        # add event information to the flattened inclusion levels data
+        original_flattened_inclusion_levels_full_len = len(
+            self.flattened_inclusion_levels_full
+        )
+        self.unified_data = self.flattened_inclusion_levels_full.merge(
+            self.event_info, on=["EVENT", "EVENT_TYPE"], how="inner"
+        )
+        assert (
+            len(self.unified_data) == original_flattened_inclusion_levels_full_len
+        ), "Number of rows in the unified data is not the same as the flattened inclusion levels data"
+        print("Merged event information with flattened inclusion levels data")
+        # add gene expression values to the unified data
+        original_unified_data_len = len(self.unified_data)
+        self.unified_data = self.unified_data.merge(
+            self.normalized_gene_expression_flattened,
+            left_on=["GENE_ID", "SAMPLE"],
+            right_on=["gene_id", "sample"],
+            how="left",
+        )
+        self.unified_data = self.unified_data.drop(
+            columns=["gene_id", "sample", "alias"]
+        )
+        if self.remove_events_without_gene_expression_data:
+            assert (
+                self.unified_data["expression"].notnull().all()
+            ), "Some events without gene expression data are present in the unified data although they should have been removed"
+        print(
+            f"Merged gene expression values with unified data ({100 * (original_unified_data_len - len(self.unified_data)) / original_unified_data_len:.2f}% of events without gene expression data)"
+        )
+        # add splicing factor expression levels to the unified data
+        original_unified_data_len = len(self.unified_data)
+        # transpose the splicing factor expression levels dataframe so that the index is the sample name and each column is a splicing factor
+        temp = self.splicing_factor_expression_levels[
+            self.splicing_factor_expression_levels.columns[2:]
+        ].T  # index is the sample name, each column is a splicing factor
+        temp.columns = self.splicing_factor_expression_levels["gene_id"]
+        # rename columns to start with "splice_factor_" to denote that they are splicing factor expression levels
+        temp.columns = [f"splice_factor_{i}" for i in temp.columns]
+        # reset the index to make the sample name a column
+        temp = temp.reset_index().rename(columns={"index": "SAMPLE"})
+        self.unified_data = self.unified_data.merge(temp, on="SAMPLE", how="inner")
+        assert (
+            len(self.unified_data) == original_unified_data_len
+        ), "Number of rows in the unified data is not the same as before merging splicing factor expression levels"
+        print("Merged splicing factor expression levels with unified data")
+
         # create datasets for training, validation, and testing
         # train dataset
-        self.train_event_info = self.event_info[
-            self.event_info["CHR"].isin(self.train_chromosomes)
-        ]
-        self.train_flattened_inclusion_levels_full = (
-            self.flattened_inclusion_levels_full[
-                self.flattened_inclusion_levels_full["EVENT"].isin(
-                    self.train_event_info["EVENT"]
-                )
-            ]
-        )
+        self.train_data = self.unified_data[
+            self.unified_data["CHR"].isin(self.train_chromosomes)
+        ].reset_index(drop=True)
 
         print("Train dataset:")
         print(
             "Number of PSI values: {} ({}%)".format(
-                len(self.train_flattened_inclusion_levels_full),
-                100
-                * len(self.train_flattened_inclusion_levels_full)
-                / len(self.flattened_inclusion_levels_full),
+                len(self.train_data),
+                100 * len(self.train_data) / len(self.unified_data),
             )
         )
         print(
             "Number of events: {} ({}%)".format(
-                len(self.train_event_info),
-                100 * len(self.train_event_info) / len(self.event_info),
+                len(self.train_data["EVENT"].unique()),
+                100
+                * len(self.train_data["EVENT"].unique())
+                / len(self.unified_data["EVENT"].unique()),
             )
         )
 
         print("Number of PSI values of each event type:")
-        full_value_counts = self.flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].value_counts()
-        train_value_counts = self.train_flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].value_counts()
-        for event_type in self.train_flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].unique():
-            print(
-                f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
-            )
-
-        print("Number of events of each event type:")
-        full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
-        train_value_counts = self.train_event_info["EVENT_TYPE"].value_counts()
-        for event_type in self.train_event_info["EVENT_TYPE"].unique():
+        full_value_counts = self.unified_data["EVENT_TYPE"].value_counts()
+        train_value_counts = self.train_data["EVENT_TYPE"].value_counts()
+        for event_type in self.train_data["EVENT_TYPE"].unique():
             print(
                 f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
         # val dataset
-        self.val_event_info = self.event_info[
-            self.event_info["CHR"].isin(self.val_chromosomes)
-        ]
-        self.val_flattened_inclusion_levels_full = self.flattened_inclusion_levels_full[
-            self.flattened_inclusion_levels_full["EVENT"].isin(
-                self.val_event_info["EVENT"]
-            )
-        ]
+        self.val_data = self.unified_data[
+            self.unified_data["CHR"].isin(self.val_chromosomes)
+        ].reset_index(drop=True)
 
         print("Val dataset:")
         print(
             "Number of PSI values: {} ({}%)".format(
-                len(self.val_flattened_inclusion_levels_full),
-                100
-                * len(self.val_flattened_inclusion_levels_full)
-                / len(self.flattened_inclusion_levels_full),
+                len(self.val_data),
+                100 * len(self.val_data) / len(self.unified_data),
             )
         )
         print(
             "Number of events: {} ({}%)".format(
-                len(self.val_event_info),
-                100 * len(self.val_event_info) / len(self.event_info),
+                len(self.val_data["EVENT"].unique()),
+                100
+                * len(self.val_data["EVENT"].unique())
+                / len(self.unified_data["EVENT"].unique()),
             )
         )
 
         print("Number of PSI values of each event type:")
-        full_value_counts = self.flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].value_counts()
-        val_value_counts = self.val_flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].value_counts()
-        for event_type in self.val_flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].unique():
-            print(
-                f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
-            )
-
-        print("Number of events of each event type:")
-        full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
-        val_value_counts = self.val_event_info["EVENT_TYPE"].value_counts()
-        for event_type in self.val_event_info["EVENT_TYPE"].unique():
+        val_value_counts = self.val_data["EVENT_TYPE"].value_counts()
+        for event_type in self.val_data["EVENT_TYPE"].unique():
             print(
                 f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
         # test dataset
-        self.test_event_info = self.event_info[
-            self.event_info["CHR"].isin(self.test_chromosomes)
-        ]
-        self.test_flattened_inclusion_levels_full = (
-            self.flattened_inclusion_levels_full[
-                self.flattened_inclusion_levels_full["EVENT"].isin(
-                    self.test_event_info["EVENT"]
-                )
-            ]
-        )
+        self.test_data = self.unified_data[
+            self.unified_data["CHR"].isin(self.test_chromosomes)
+        ].reset_index(drop=True)
 
         print("Test dataset:")
         print(
             "Number of PSI values: {} ({}%)".format(
-                len(self.test_flattened_inclusion_levels_full),
-                100
-                * len(self.test_flattened_inclusion_levels_full)
-                / len(self.flattened_inclusion_levels_full),
+                len(self.test_data),
+                100 * len(self.test_data) / len(self.unified_data),
             )
         )
         print(
             "Number of events: {} ({}%)".format(
-                len(self.test_event_info),
-                100 * len(self.test_event_info) / len(self.event_info),
+                len(self.test_data["EVENT"].unique()),
+                100
+                * len(self.test_data["EVENT"].unique())
+                / len(self.unified_data["EVENT"].unique()),
             )
         )
 
         print("Number of PSI values of each event type:")
-        full_value_counts = self.flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].value_counts()
-        test_value_counts = self.test_flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].value_counts()
-        for event_type in self.test_flattened_inclusion_levels_full[
-            "EVENT_TYPE"
-        ].unique():
-            print(
-                f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
-            )
-
-        print("Number of events of each event type:")
-        full_value_counts = self.event_info["EVENT_TYPE"].value_counts()
-        test_value_counts = self.test_event_info["EVENT_TYPE"].value_counts()
-        for event_type in self.test_event_info["EVENT_TYPE"].unique():
+        test_value_counts = self.test_data["EVENT_TYPE"].value_counts()
+        for event_type in self.test_data["EVENT_TYPE"].unique():
             print(
                 f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
@@ -1801,11 +1802,31 @@ class KnockdownData(LightningDataModule):
         else:
             self.config = config
 
+        # data config
+        # cache directory
+        self.cache_dir = self.config["data_config"]["cache_dir"]
+        if not os.path.exists(self.cache_dir):
+            os.makedirs(self.cache_dir, exist_ok=True)
+
+        # training config
         # seed for reproducibility
         self.seed = self.config["train_config"]["seed"]
         L.seed_everything(self.seed)
 
         self.input_size = self.config["train_config"]["input_size"]
+        self.remove_events_without_gene_expression_data = self.config["train_config"][
+            "remove_events_without_gene_expression_data"
+        ]
+        self.gene_expression_metric = self.config["train_config"][
+            "gene_expression_metric"
+        ]
+        assert self.gene_expression_metric in [
+            "count",
+            "RPKM",
+            "log2RPKM",
+            "TPM",
+            "log2TPM",
+        ], "Invalid gene expression metric specified in config, must be one of 'count', 'RPKM', 'log2RPKM', 'TPM', 'log2TPM'"
 
         # default config chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
         # train proportion = 70.61341911926058%
@@ -1815,11 +1836,6 @@ class KnockdownData(LightningDataModule):
         self.train_chromosomes = self.config["train_config"]["train_chromosomes"]
         self.test_chromosomes = self.config["train_config"]["test_chromosomes"]
         self.val_chromosomes = self.config["train_config"]["val_chromosomes"]
-
-        # cache directory
-        self.cache_dir = self.config["data_config"]["cache_dir"]
-        if not os.path.exists(self.cache_dir):
-            os.makedirs(self.cache_dir, exist_ok=True)
 
     def train_dataloader(self):
         return DataLoader(
