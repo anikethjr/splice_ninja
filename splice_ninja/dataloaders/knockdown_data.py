@@ -1658,6 +1658,17 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Removed {original_event_info_len - len(self.event_info)} events without host-gene expression data ({100 * (original_event_info_len - len(self.event_info)) / original_event_info_len:.2f}%)"
             )
+            original_flattened_inclusion_levels_full_len = len(
+                self.flattened_inclusion_levels_full
+            )
+            self.flattened_inclusion_levels_full = self.flattened_inclusion_levels_full[
+                self.flattened_inclusion_levels_full["EVENT"].isin(
+                    self.event_info["EVENT"]
+                )
+            ].reset_index(drop=True)
+            print(
+                f"Removed {original_flattened_inclusion_levels_full_len - len(self.flattened_inclusion_levels_full)} PSI values of events without host-gene expression data ({100 * (original_flattened_inclusion_levels_full_len - len(self.flattened_inclusion_levels_full)) / original_flattened_inclusion_levels_full_len:.2f}%)"
+            )
         # add event information to the flattened inclusion levels data
         original_flattened_inclusion_levels_full_len = len(
             self.flattened_inclusion_levels_full
