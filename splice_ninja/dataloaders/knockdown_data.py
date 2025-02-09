@@ -1112,7 +1112,7 @@ class KnockdownData(LightningDataModule):
             gene_info_from_vastdb = pd.read_csv(
                 os.path.join(self.cache_dir, "VastDB", "hg38", "GENE_INFO-hg38.tab.gz"),
                 sep="\t",
-            )
+            ).drop_duplicates("Gene_name")
             event_id_to_gene_id_from_vastdb = pd.read_csv(
                 os.path.join(
                     self.cache_dir, "VastDB", "hg38", "EVENTID_to_GENEID-hg38.tab.gz"
