@@ -1570,8 +1570,8 @@ class KnockdownData(LightningDataModule):
 
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
-            )
-            event_info = pd.DataFrame(event_info)
+            ).drop_duplicates()
+            event_info = pd.DataFrame(event_info).drop_duplicates()
 
             flattened_inclusion_levels_full.to_csv(
                 os.path.join(
