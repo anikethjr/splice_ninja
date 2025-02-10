@@ -185,9 +185,11 @@ class KnockdownDataset(Dataset):
 
             # account for genes on the negative strand
             if strand == "-":
-                one_hot_sequence = one_hot_sequence[::-1, ::-1]  # reverse complement
-                spliced_in_mask = spliced_in_mask[::-1]  # reverse
-                spliced_out_mask = spliced_out_mask[::-1]  # reverse
+                one_hot_sequence = one_hot_sequence[
+                    ::-1, ::-1
+                ].copy()  # reverse complement
+                spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
+                spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
         else:
             # need to crop the sequence, this is done by removing the middle portions of introns and keeping the ends (segment_length_to_crop_to_if_needed//2 bp on each side) when possible (i.e. when event type not intron retention - IR)
@@ -390,9 +392,11 @@ class KnockdownDataset(Dataset):
 
             # account for genes on the negative strand
             if strand == "-":
-                one_hot_sequence = one_hot_sequence[::-1, ::-1]  # reverse complement
-                spliced_in_mask = spliced_in_mask[::-1]  # reverse
-                spliced_out_mask = spliced_out_mask[::-1]  # reverse
+                one_hot_sequence = one_hot_sequence[
+                    ::-1, ::-1
+                ].copy()  # reverse complement
+                spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
+                spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
         return {
             "sequence": one_hot_sequence,
