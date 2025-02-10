@@ -4,6 +4,27 @@ import requests
 from itertools import combinations
 
 
+def one_hot_encode_dna(sequence, dtype=np.float32):
+    """Efficient one-hot encoding of a DNA sequence.
+
+    Args:
+        sequence (str): A DNA sequence (uppercase, e.g., 'ACGTN').
+
+    Returns:
+        np.ndarray: A 2D array of shape (len(sequence), 4), where each row is a one-hot vector.
+    """
+    mapping = {"A": 0, "C": 1, "G": 2, "T": 3}
+    seq_array = np.array(
+        [mapping.get(base, -1) for base in sequence]
+    )  # Map bases to indices (-1 for unknown bases)
+
+    one_hot = np.zeros((len(sequence), 4), dtype=dtype)
+    valid_idx = seq_array >= 0  # Ignore 'N' or unknown bases
+    one_hot[np.arange(len(sequence))[valid_idx], seq_array[valid_idx]] = 1
+
+    return one_hot
+
+
 def get_ensembl_gene_id_biothings(gene_name):
     mg = get_client("gene")  # Create a MyGene.info gene client
 

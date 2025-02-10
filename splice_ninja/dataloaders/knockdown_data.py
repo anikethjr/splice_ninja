@@ -17,7 +17,7 @@ from torch.utils.data import Dataset, DataLoader
 import lightning as L
 from lightning.pytorch import LightningDataModule
 
-from splice_ninja.utils import get_ensembl_gene_id_hgnc_with_alias
+from splice_ninja.utils import get_ensembl_gene_id_hgnc_with_alias, one_hot_encode_dna
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -54,94 +54,352 @@ class KnockdownDataset(Dataset):
         sample = row["SAMPLE"]
         psi_val = row["PSI"]
 
+        # get expression of host gene
+        has_gene_exp_values = row["HAS_GENE_EXP_VALUES"]
+        gene_exp = row["expression"]
+
+        # get splicing factor expression values
+        if self.data_module.gene_expression_metric == "counts":
+            splicing_factor_exp_values = (
+                self.data_module.splicing_factor_expression_levels[sample].values
+            )
+        else:
+            splicing_factor_exp_values = (
+                self.data_module.splicing_factor_expression_levels[
+                    sample + f"_{self.data_module.gene_expression_metric}"
+                ].values
+            )
+
         # get the event information for sequence construction
         gene_id = row["GENE_ID"]
-        has_gene_exp_values = row["HAS_GENE_EXP_VALUES"]
         chrom = row["CHR"][3:]  # remove "chr" prefix
         strand = row["STRAND"]
 
-        # construct spliced-in sequence
+        # construct sequences
+        spliced_in_event_segments = row["SPLICED_IN_EVENT_SEGMENTS"].split(
+            ","
+        )  # comma-separated list of exon coordinates in the format chr:start-end
+        spliced_out_event_segments = row["SPLICED_OUT_EVENT_SEGMENTS"].split(
+            ","
+        )  # comma-separated list of exon coordinates in the format chr:start-end
+        full_event_coord = row["FULL_EVENT_COORD"]  # chr:start-end format
+        full_event_length = row["FULL_EVENT_LENGTH"]
 
-        # now compute input start and end coordinates based on the input size
-        # we want to have the event in the middle of the input sequence
-        background_sequence_length = self.input_size - (
-            extraction_end - extraction_start + 1
-        )
-        # we have to pad the sequence with background sequence
-        input_start = max(
-            1,
-            extraction_start - np.ceil(background_sequence_length / 2).astype(int),
-        )
-        input_end = min(self.genome.sizes[chrom], input_start + self.input_size - 1)
-        if (input_end - input_start + 1) < self.input_size:
-            input_start = max(
-                1, input_end - self.input_size + 1
-            )  # make sure the input size is exactly self.input_size
-        assert (input_end - input_start + 1) == self.input_size
-        # both idxs below are inclusive
-        spliced_in_sequence_start_idx = extraction_start - input_start
-        spliced_in_sequence_end_idx = spliced_in_sequence_start_idx + (
-            extraction_end - extraction_start
-        )
-        if strand == "-":
-            # need to account for the reverse complement
-            spliced_in_sequence_start_idx, spliced_in_sequence_end_idx = (
-                self.input_size - 1 - spliced_in_sequence_end_idx,
-                self.input_size - 1 - spliced_in_sequence_start_idx,
+        extraction_start = int(full_event_coord.split(":")[-1].split("-")[0])
+        extraction_end = int(full_event_coord.split(":")[-1].split("-")[1])
+
+        if (extraction_end - extraction_start + 1) < self.input_size:
+            # need to pad the sequence with background sequence
+            background_sequence_length = self.input_size - (
+                extraction_end - extraction_start + 1
             )
+            extraction_start = max(
+                1, extraction_start - background_sequence_length // 2
+            )
+            background_sequence_length_still_needed = self.input_size - (
+                extraction_end - extraction_start + 1
+            )
+            extraction_end = min(
+                self.genome.sizes[chrom],
+                extraction_end + background_sequence_length_still_needed,
+            )
+            assert (extraction_end - extraction_start + 1) == self.input_size
 
-        sequence = self.genome.get_seq(
-            chrom, input_start, input_end, rc=(strand == "-")
-        ).seq
-        sequence = sequence.upper()
-        assert (
-            len(sequence) == self.input_size
-        ), f"Sequence is not of the correct length {len(sequence)} vs {self.input_size}"
-        event_sequence = self.genome.get_seq(
-            chrom, extraction_start, extraction_end, rc=(strand == "-")
-        ).seq
-        event_sequence = event_sequence.upper()
-        assert len(event_sequence) == (
-            extraction_end - extraction_start + 1
-        ), f"Event sequence is not of the correct length: {len(event_sequence)} vs {(extraction_end - extraction_start + 1)}"
-        assert (
-            sequence[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1]
-            == event_sequence
-        ), "Event sequence is not at the correct position in the input sequence"
+            # get the sequence
+            sequence = self.genome.get_seq(
+                chrom, extraction_start, extraction_end
+            ).seq.upper()
+            # one-hot encode the sequence
+            one_hot_sequence = one_hot_encode_dna(sequence)
 
-        # construct one-hot encoding
-        one_hot_encoding = np.zeros((self.input_size, 4))
-        base_to_idx = {"A": 0, "C": 1, "G": 2, "T": 3}
-        for i, base in enumerate(sequence):
-            if base in base_to_idx:
-                one_hot_encoding[i, base_to_idx[base]] = 1
+            # compute the spliced-in and spliced-out masks. mask is 1 for an exon, -1 for an intron, and 0 for background sequence
+            # first, we need to compute the indices of the exonic and intronic regions
+            spliced_in_exonic_sequences_inds = []
+            spliced_in_intronic_sequences_inds = []
+            for i, segment in enumerate(spliced_in_event_segments):
+                start, end = segment.split(":")[-1].split("-")
+                start, end = int(start), int(end)
 
-        # construct mask that indicates the positions of the event
-        mask = np.zeros(self.input_size)
-        mask[spliced_in_sequence_start_idx : spliced_in_sequence_end_idx + 1] = 1
+                relative_start = start - extraction_start
+                relative_end = end - extraction_start
 
-        # get the gene expression values if they are available
-        gene_exp_values = -1.0
-        if has_gene_exp_values:
-            gene_exp_values = self.data_module.normalized_gene_expression.loc[
-                self.data_module.normalized_gene_expression["gene_id"] == gene_id,
-                sample + "_log2TPM",
-            ]
+                # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
+                exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                assert (
+                    exon_seq == sequence[relative_start : relative_end + 1]
+                ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
+
+                spliced_in_exonic_sequences_inds.append((relative_start, relative_end))
+                if i < len(spliced_in_event_segments) - 1:
+                    next_segment_start = int(
+                        spliced_in_event_segments[i + 1].split(":")[-1].split("-")[0]
+                    )
+                    relative_next_segment_start = next_segment_start - extraction_start
+                    if (relative_end + 1) <= (
+                        relative_next_segment_start - 1
+                    ):  # check if there is an intronic region between the exons
+                        spliced_in_intronic_sequences_inds.append(
+                            (relative_end + 1, relative_next_segment_start - 1)
+                        )
+
+            spliced_out_exonic_sequences_inds = []
+            spliced_out_intronic_sequences_inds = []
+            for i, segment in enumerate(spliced_out_event_segments):
+                start, end = segment.split(":")[-1].split("-")
+                start, end = int(start), int(end)
+
+                relative_start = start - extraction_start
+                relative_end = end - extraction_start
+
+                # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
+                exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                assert (
+                    exon_seq == sequence[relative_start : relative_end + 1]
+                ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
+
+                spliced_out_exonic_sequences_inds.append((relative_start, relative_end))
+                if i < len(spliced_out_event_segments) - 1:
+                    next_segment_start = int(
+                        spliced_out_event_segments[i + 1].split(":")[-1].split("-")[0]
+                    )
+                    relative_next_segment_start = next_segment_start - extraction_start
+                    if (relative_end + 1) <= (
+                        relative_next_segment_start - 1
+                    ):  # check if there is an intronic region between the exons
+                        spliced_out_intronic_sequences_inds.append(
+                            (relative_end + 1, relative_next_segment_start - 1)
+                        )
+
+            # now we can construct the masks
+            spliced_in_mask = np.zeros(self.input_size)
+            for start, end in spliced_in_exonic_sequences_inds:
+                spliced_in_mask[start : end + 1] = 1
+            for start, end in spliced_in_intronic_sequences_inds:
+                spliced_in_mask[start : end + 1] = -1
+
+            spliced_out_mask = np.zeros(self.input_size)
+            for start, end in spliced_out_exonic_sequences_inds:
+                spliced_out_mask[start : end + 1] = 1
+            for start, end in spliced_out_intronic_sequences_inds:
+                spliced_out_mask[start : end + 1] = -1
+
+            # account for genes on the negative strand
+            if strand == "-":
+                one_hot_sequence = one_hot_sequence[::-1, ::-1]  # reverse complement
+                spliced_in_mask = spliced_in_mask[::-1]  # reverse
+                spliced_out_mask = spliced_out_mask[::-1]  # reverse
+
+        else:
+            # need to crop the sequence, this is done by removing the middle portions of introns and keeping the ends (segment_length_to_crop_to_if_needed//2 bp on each side) when possible (i.e. when event type not intron retention - IR)
+            # if more of the sequence needs to be removed due to long exons, we remove the middle portions of the upstream and downstream exons and keep the ends (while maintaining the length as a multiple of 3 and having segment_length_to_crop_to_if_needed//2 bp on each side)
+            # if we still need to remove more sequence, we remove the middle portions of the alternative exons and keep the ends (while maintaining the length as a multiple of 3 and having segment_length_to_crop_to_if_needed//2 bp on each side)
+
+            # get current segments
+            cur_seq_len = extraction_end - extraction_start + 1
+            length_to_remove = cur_seq_len - self.input_size
+            cur_genome_segments = []
+            for i, segment in enumerate(
+                spliced_in_event_segments
+            ):  # spliced in segments will always be a superset of spliced out segments
+                start, end = segment.split(":")[-1].split("-")
+                start, end = int(start), int(end)
+
+                if i == 1:  # this is the alternative exon
+                    cur_genome_segments.append((start, end, "alt_exon"))
+                else:
+                    cur_genome_segments.append((start, end, "exon"))
+
+                if i < len(spliced_in_event_segments) - 1:
+                    next_segment_start = int(
+                        spliced_in_event_segments[i + 1].split(":")[-1].split("-")[0]
+                    )
+                    if (end + 1) <= (
+                        next_segment_start - 1
+                    ):  # check if there is an intronic region between the exons
+                        cur_genome_segments.append(
+                            (end + 1, next_segment_start - 1, "intron")
+                        )
+            assert cur_seq_len == sum(
+                [end - start + 1 for start, end, _ in cur_genome_segments]
+            ), f"Sequence length is {cur_seq_len} but sum of segment lengths is {sum([end - start + 1 for start, end, _ in cur_genome_segments])}"
+
+            # start off by removing the middle portions of the introns
+            if (
+                event_type != "IR"
+            ):  # having as much of the intron as possible is important for IR events
+                updated_genome_segments = []
+                for i, segment in enumerate(cur_genome_segments):
+                    if segment[2] == "intron":
+                        start, end = segment[0], segment[1]
+                        segment_len = end - start + 1
+                        if (
+                            segment_len
+                            <= self.data_module.segment_length_to_crop_to_if_needed
+                        ):
+                            updated_genome_segments.append(segment)
+                        else:
+                            # remove the middle portion of the intron
+                            updated_genome_segments.append(
+                                (start, start + 500 - 1, "intron")
+                            )
+                            updated_genome_segments.append(
+                                (end - 500 + 1, end, "intron")
+                            )
+                    else:
+                        updated_genome_segments.append(segment)
+                cur_genome_segments = updated_genome_segments
+                cur_seq_len = sum(
+                    [end - start + 1 for start, end, _ in cur_genome_segments]
+                )
+
+            # remove the middle portions of the exons if needed
+            if cur_seq_len > self.input_size:
+                updated_genome_segments = []
+                for i, segment in enumerate(cur_genome_segments):
+                    if segment[2] == "exon":
+                        start, end = segment[0], segment[1]
+                        segment_len = end - start + 1
+                        if (
+                            segment_len
+                            <= self.data_module.segment_length_to_crop_to_if_needed
+                        ):
+                            updated_genome_segments.append(segment)
+                        else:
+                            # remove the middle portion of the exon
+                            updated_genome_segments.append(
+                                (start, start + 500 - 1, "exon")
+                            )
+                            updated_genome_segments.append((end - 500 + 1, end, "exon"))
+                    else:
+                        updated_genome_segments.append(segment)
+                cur_genome_segments = updated_genome_segments
+                cur_seq_len = sum(
+                    [end - start + 1 for start, end, _ in cur_genome_segments]
+                )
+
+            # remove the middle portions of the alternative exons if needed
+            if cur_seq_len > self.input_size:
+                updated_genome_segments = []
+                for i, segment in enumerate(cur_genome_segments):
+                    if segment[2] == "alt_exon":
+                        start, end = segment[0], segment[1]
+                        segment_len = end - start + 1
+                        if (
+                            segment_len
+                            <= self.data_module.segment_length_to_crop_to_if_needed
+                        ):
+                            updated_genome_segments.append(segment)
+                        else:
+                            # remove the middle portion of the alternative exon
+                            updated_genome_segments.append(
+                                (start, start + 500 - 1, "alt_exon")
+                            )
+                            updated_genome_segments.append(
+                                (end - 500 + 1, end, "alt_exon")
+                            )
+                    else:
+                        updated_genome_segments.append(segment)
+                cur_genome_segments = updated_genome_segments
+                cur_seq_len = sum(
+                    [end - start + 1 for start, end, _ in cur_genome_segments]
+                )
+
             assert (
-                len(gene_exp_values) == 1
-            ), f"Gene expression values not found, length of dataframe is {len(gene_exp_values)}: {gene_exp_values}"
-            gene_exp_values = gene_exp_values.iloc[0]
+                cur_seq_len <= self.input_size
+            ), f"Sequence length is {cur_seq_len} which is still greater than the input size {self.input_size}"
 
-        # get splicing factor expression values
-        splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
-            sample + "_log2TPM"
-        ].values.reshape(-1)
+            # extract the segments
+            sequence = ""
+            spliced_in_mask = np.zeros(cur_seq_len)
+            spliced_out_mask = np.zeros(cur_seq_len)
+            for start, end, segment_type in cur_genome_segments:
+                segment_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                if segment_type == "exon":
+                    spliced_in_mask[
+                        len(sequence) : len(sequence) + len(segment_seq)
+                    ] = 1
+                    spliced_out_mask[
+                        len(sequence) : len(sequence) + len(segment_seq)
+                    ] = 1
+                if segment_type == "alt_exon":
+                    spliced_in_mask[
+                        len(sequence) : len(sequence) + len(segment_seq)
+                    ] = 1
+                    spliced_out_mask[
+                        len(sequence) : len(sequence) + len(segment_seq)
+                    ] = -1
+                elif segment_type == "intron":
+                    spliced_in_mask[
+                        len(sequence) : len(sequence) + len(segment_seq)
+                    ] = -1
+                    spliced_out_mask[
+                        len(sequence) : len(sequence) + len(segment_seq)
+                    ] = -1
+                sequence += segment_seq
+            assert (
+                len(sequence) == cur_seq_len
+            ), f"Sequence length is {len(sequence)} but expected length is {cur_seq_len}"
+
+            # pad the sequence with background sequence
+            background_sequence_length = self.input_size - len(sequence)
+            sequence_start = max(1, extraction_start - background_sequence_length // 2)
+            padding_before_length = (
+                extraction_start - sequence_start
+            )  # length of the padding before the sequence
+            if padding_before_length > 0:
+                sequence = (
+                    self.genome.get_seq(
+                        chrom, sequence_start, extraction_start - 1
+                    ).seq.upper()
+                    + sequence
+                )
+                spliced_in_mask = np.concatenate(
+                    [np.zeros(padding_before_length), spliced_in_mask]
+                )
+                spliced_out_mask = np.concatenate(
+                    [np.zeros(padding_before_length), spliced_out_mask]
+                )
+            padding_after_length = self.input_size - len(
+                sequence
+            )  # length of the padding after the sequence
+            if padding_after_length > 0:
+                sequence = (
+                    sequence
+                    + self.genome.get_seq(
+                        chrom, extraction_end + 1, extraction_end + padding_after_length
+                    ).seq.upper()
+                )
+                spliced_in_mask = np.concatenate(
+                    [spliced_in_mask, np.zeros(padding_after_length)]
+                )
+                spliced_out_mask = np.concatenate(
+                    [spliced_out_mask, np.zeros(padding_after_length)]
+                )
+            assert (
+                len(sequence) == self.input_size
+            ), f"Sequence length is {len(sequence)} but expected length is {self.input_size}"
+            assert (
+                len(spliced_in_mask) == self.input_size
+            ), f"Spliced-in mask length is {len(spliced_in_mask)} but expected length is {self.input_size}"
+            assert (
+                len(spliced_out_mask) == self.input_size
+            ), f"Spliced-out mask length is {len(spliced_out_mask)} but expected length is {self.input_size}"
+
+            # one-hot encode the sequence
+            one_hot_sequence = one_hot_encode_dna(sequence)
+
+            # account for genes on the negative strand
+            if strand == "-":
+                one_hot_sequence = one_hot_sequence[::-1, ::-1]  # reverse complement
+                spliced_in_mask = spliced_in_mask[::-1]  # reverse
+                spliced_out_mask = spliced_out_mask[::-1]  # reverse
 
         return {
-            "sequence": one_hot_encoding,
-            "mask": mask,
-            "psi_val": np.array([psi_val]),
-            "gene_exp_values": gene_exp_values,
+            "sequence": one_hot_sequence,
+            "spliced_in_mask": spliced_in_mask,
+            "spliced_out_mask": spliced_out_mask,
+            "psi_val": psi_val,
+            "gene_exp": gene_exp if has_gene_exp_values else -1.0,
             "splicing_factor_exp_values": splicing_factor_exp_values,
         }
 
@@ -1217,25 +1475,15 @@ class KnockdownData(LightningDataModule):
             event_info["STRAND"] = []  # strand
             # all segments below are in the 5' to 3' direction and are separated by a comma. they are extracted from VastDB
             event_info[
-                "SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"
+                "FULL_EVENT_LENGTH"
             ] = (
                 []
-            )  # length of the genomic segment from the start to the end of the spliced in event
+            )  # length of the genomic segment from the start to the end of the event
             event_info[
-                "SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"
+                "FULL_EVENT_COORD"
             ] = (
                 []
-            )  # length of the genomic segment from the start to the end of the spliced out event
-            event_info[
-                "SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_COORD"
-            ] = (
-                []
-            )  # genomic coordinates of the genomic segment from the start to the end of the spliced in event
-            event_info[
-                "SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_COORD"
-            ] = (
-                []
-            )  # genomic coordinates of the genomic segment from the start to the end of the spliced out event
+            )  # genomic coordinates of the genomic segment from the start to the end of the event
             event_info[
                 "SPLICED_IN_EVENT_SEGMENTS"
             ] = (
@@ -1510,45 +1758,17 @@ class KnockdownData(LightningDataModule):
                         for x in spliced_in_event_segments
                     ]
                 )
-                spliced_in_event_segments_full_segment_length = (
+                full_event_length = (
                     spliced_in_event_segments_max_coord
                     - spliced_in_event_segments_min_coord
                     + 1
                 )
-                spliced_in_event_segments_full_segment_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
-                event_info["SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"].append(
-                    spliced_in_event_segments_full_segment_length
-                )
-                event_info["SPLICED_IN_EVENT_SEGMENTS_FULL_SEGMENT_COORD"].append(
-                    spliced_in_event_segments_full_segment_coord
-                )
+                full_event_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
+                event_info["FULL_EVENT_LENGTH"].append(full_event_length)
+                event_info["FULL_EVENT_COORD"].append(full_event_coord)
 
                 event_info["SPLICED_OUT_EVENT_SEGMENTS"].append(
                     ",".join(spliced_out_event_segments)
-                )
-                spliced_out_event_segments_min_coord = min(
-                    [
-                        int(x.strip().split(":")[1].split("-")[0])
-                        for x in spliced_out_event_segments
-                    ]
-                )
-                spliced_out_event_segments_max_coord = max(
-                    [
-                        int(x.strip().split(":")[1].split("-")[1])
-                        for x in spliced_out_event_segments
-                    ]
-                )
-                spliced_out_event_segments_full_segment_length = (
-                    spliced_out_event_segments_max_coord
-                    - spliced_out_event_segments_min_coord
-                    + 1
-                )
-                spliced_out_event_segments_full_segment_coord = f"{row['CHR']}:{spliced_out_event_segments_min_coord}-{spliced_out_event_segments_max_coord}"
-                event_info["SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_LENGTH"].append(
-                    spliced_out_event_segments_full_segment_length
-                )
-                event_info["SPLICED_OUT_EVENT_SEGMENTS_FULL_SEGMENT_COORD"].append(
-                    spliced_out_event_segments_full_segment_coord
                 )
 
             flattened_inclusion_levels_full = pd.DataFrame(
@@ -1684,19 +1904,14 @@ class KnockdownData(LightningDataModule):
         print(
             f"Merged gene expression values with unified data ({100 * (original_unified_data_len - len(self.unified_data)) / original_unified_data_len:.2f}% of events without gene expression data)"
         )
-
-        # reformat splicing factor expression levels dataframe to make it easier for data loading
-        # transpose the splicing factor expression levels dataframe so that the index is the sample name and each column is a splicing factor
-        temp = self.splicing_factor_expression_levels[
-            self.splicing_factor_expression_levels.columns[2:]
-        ].T  # index is the sample name, each column is a splicing factor
-        temp.columns = self.splicing_factor_expression_levels["gene_id"]
-        # rename columns to start with "splice_factor_" to denote that they are splicing factor expression levels
-        temp.columns = [f"splice_factor_{i}" for i in temp.columns]
-        # reset the index to make the sample name a column
-        temp = temp.reset_index().rename(columns={"index": "SAMPLE"})
-        self.splicing_factor_expression_levels = temp.copy()
-        del temp
+        if self.event_types_to_model != "ALL":
+            original_unified_data_len = len(self.unified_data)
+            self.unified_data = self.unified_data[
+                self.unified_data["EVENT_TYPE"].isin(self.event_types_to_model)
+            ].reset_index(drop=True)
+            print(
+                f"Filtered unified data to only include event types {self.event_types_to_model} ({100 * len(self.unified_data) / original_unified_data_len:.2f}% of the original data)"
+            )
 
         # create datasets for training, validation, and testing
         # train dataset
@@ -1822,6 +2037,17 @@ class KnockdownData(LightningDataModule):
             "TPM",
             "log2TPM",
         ], "Invalid gene expression metric specified in config, must be one of 'count', 'RPKM', 'log2RPKM', 'TPM', 'log2TPM'"
+        self.event_types_to_model = self.config["train_config"][
+            "event_type_to_model"
+        ]  # list of event types to model (comma separated), "ALL" to model all event types
+        if self.event_types_to_model != "ALL":
+            self.event_types_to_model = self.event_types_to_model.split(",")
+            assert all(
+                i in ["EX", "INT", "ALTD", "ALTA"] for i in self.event_types_to_model
+            ), "Invalid event types specified in config, must be in {'EX', 'INT', 'ALTD', 'ALTA'}"
+        self.segment_length_to_crop_to_if_needed = self.config["train_config"][
+            "segment_length_to_crop_to_if_needed"
+        ]
 
         # default config chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
         # train proportion = 70.61341911926058%
