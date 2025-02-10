@@ -33,52 +33,35 @@ class KnockdownDataset(Dataset):
 
         if self.split == "train":
             self.chromosomes = self.data_module.train_chromosomes
-            self.flattened_inclusion_levels = (
-                self.data_module.train_flattened_inclusion_levels_full
-            )
-            self.event_info = self.data_module.train_event_info
+            self.data = self.data_module.train_data
 
         elif self.split == "val":
             self.chromosomes = self.data_module.val_chromosomes
-            self.flattened_inclusion_levels = (
-                self.data_module.val_flattened_inclusion_levels_full
-            )
-            self.event_info = self.data_module.val_event_info
+            self.data = self.data_module.val_data
 
         elif self.split == "test":
             self.chromosomes = self.data_module.test_chromosomes
-            self.flattened_inclusion_levels = (
-                self.data_module.test_flattened_inclusion_levels_full
-            )
-            self.event_info = self.data_module.test_event_info
+            self.data = self.data_module.test_data
 
     def __len__(self):
-        return len(self.flattened_inclusion_levels)
+        return len(self.data)
 
     def get_psi_val(self, idx):
-        # get the PSI value for the idx-th row in the flattened_inclusion_levels dataframe
-        psi_row = self.flattened_inclusion_levels.iloc[idx]
-        event_id = psi_row["EVENT"]
-        event_type = psi_row["EVENT_TYPE"]
-        sample = psi_row["SAMPLE"]
-        psi_val = psi_row["PSI"]
+        # get the PSI value for the idx-th row
+        row = self.data.iloc[idx]
+        event_id = row["EVENT"]
+        event_type = row["EVENT_TYPE"]
+        sample = row["SAMPLE"]
+        psi_val = row["PSI"]
 
         # get the event information for sequence construction
-        event_row = self.event_info[
-            (self.event_info["EVENT"] == event_id)
-            & (self.event_info["EVENT_TYPE"] == event_type)
-        ]
-        assert len(event_row) == 1
-        event_row = event_row.iloc[0]
-        gene_id = event_row["GENE_ID"]
-        has_gene_exp_values = event_row["HAS_GENE_EXP_VALUES"]
-        chrom = event_row["CHR"][3:]  # remove "chr" prefix
-        strand = event_row["STRAND"]
-        extraction_coordinates = event_row["EVENT_EXTRACTION_COORD"]
-        extraction_start = int(extraction_coordinates.split(":")[-1].split("-")[0])
-        extraction_end = int(extraction_coordinates.split(":")[-1].split("-")[1])
+        gene_id = row["GENE_ID"]
+        has_gene_exp_values = row["HAS_GENE_EXP_VALUES"]
+        chrom = row["CHR"][3:]  # remove "chr" prefix
+        strand = row["STRAND"]
 
-        # construct sequence
+        # construct spliced-in sequence
+
         # now compute input start and end coordinates based on the input size
         # we want to have the event in the middle of the input sequence
         background_sequence_length = self.input_size - (
@@ -1650,7 +1633,7 @@ class KnockdownData(LightningDataModule):
             )
         )
 
-        # create unified dataframe containing PSI values, event information, gene expression values, and splicing factor expression levels
+        # create unified dataframe containing PSI values, event information, and host-gene expression values
         print("Creating unified dataframe")
         # first filter out events without gene expression values if required
         if self.remove_events_without_gene_expression_data:
@@ -1701,8 +1684,8 @@ class KnockdownData(LightningDataModule):
         print(
             f"Merged gene expression values with unified data ({100 * (original_unified_data_len - len(self.unified_data)) / original_unified_data_len:.2f}% of events without gene expression data)"
         )
-        # add splicing factor expression levels to the unified data
-        original_unified_data_len = len(self.unified_data)
+
+        # reformat splicing factor expression levels dataframe to make it easier for data loading
         # transpose the splicing factor expression levels dataframe so that the index is the sample name and each column is a splicing factor
         temp = self.splicing_factor_expression_levels[
             self.splicing_factor_expression_levels.columns[2:]
@@ -1712,11 +1695,8 @@ class KnockdownData(LightningDataModule):
         temp.columns = [f"splice_factor_{i}" for i in temp.columns]
         # reset the index to make the sample name a column
         temp = temp.reset_index().rename(columns={"index": "SAMPLE"})
-        self.unified_data = self.unified_data.merge(temp, on="SAMPLE", how="inner")
-        assert (
-            len(self.unified_data) == original_unified_data_len
-        ), f"Number of rows in the unified data is not the same as before merging splicing factor expression levels, {len(self.unified_data)} != {original_unified_data_len}"
-        print("Merged splicing factor expression levels with unified data")
+        self.splicing_factor_expression_levels = temp.copy()
+        del temp
 
         # create datasets for training, validation, and testing
         # train dataset
