@@ -2038,7 +2038,7 @@ class KnockdownData(LightningDataModule):
             "log2TPM",
         ], "Invalid gene expression metric specified in config, must be one of 'count', 'RPKM', 'log2RPKM', 'TPM', 'log2TPM'"
         self.event_types_to_model = self.config["train_config"][
-            "event_type_to_model"
+            "event_types_to_model"
         ]  # list of event types to model (comma separated), "ALL" to model all event types
         if self.event_types_to_model != "ALL":
             self.event_types_to_model = self.event_types_to_model.split(",")
