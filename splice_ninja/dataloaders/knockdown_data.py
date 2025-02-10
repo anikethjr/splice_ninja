@@ -1638,6 +1638,9 @@ class KnockdownData(LightningDataModule):
             self.normalized_gene_expression.columns[:2].to_list()
             + gene_expression_metric_cols
         ]
+        self.normalized_gene_expression = self.normalized_gene_expression.rename(
+            columns={i: i.split("_")[0] for i in gene_expression_metric_cols}
+        )  # remove the metric suffix from the column names
         print(
             f"Kept {len(gene_expression_metric_cols)} columns with the gene expression metric '{self.gene_expression_metric}'"
         )
