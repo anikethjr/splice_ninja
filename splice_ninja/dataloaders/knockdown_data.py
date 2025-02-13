@@ -123,11 +123,11 @@ class KnockdownDataset(Dataset):
                 relative_start = start - extraction_start
                 relative_end = end - extraction_start
 
-                # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
-                exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
-                assert (
-                    exon_seq == sequence[relative_start : relative_end + 1]
-                ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
+                # # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
+                # exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                # assert (
+                #     exon_seq == sequence[relative_start : relative_end + 1]
+                # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
 
                 spliced_in_exonic_sequences_inds.append((relative_start, relative_end))
                 if i < len(spliced_in_event_segments) - 1:
@@ -151,11 +151,11 @@ class KnockdownDataset(Dataset):
                 relative_start = start - extraction_start
                 relative_end = end - extraction_start
 
-                # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
-                exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
-                assert (
-                    exon_seq == sequence[relative_start : relative_end + 1]
-                ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
+                # # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
+                # exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                # assert (
+                #     exon_seq == sequence[relative_start : relative_end + 1]
+                # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
 
                 spliced_out_exonic_sequences_inds.append((relative_start, relative_end))
                 if i < len(spliced_out_event_segments) - 1:
@@ -2068,6 +2068,7 @@ class KnockdownData(LightningDataModule):
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=True,
             pin_memory=True,
+            num_workers=self.config["train_config"]["num_workers"],
         )
 
     def val_dataloader(self):
@@ -2076,6 +2077,7 @@ class KnockdownData(LightningDataModule):
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
+            num_workers=self.config["train_config"]["num_workers"],
         )
 
     def test_dataloader(self):
@@ -2084,4 +2086,5 @@ class KnockdownData(LightningDataModule):
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
+            num_workers=self.config["train_config"]["num_workers"],
         )
