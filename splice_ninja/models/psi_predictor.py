@@ -109,10 +109,10 @@ class PSIPredictor(LightningModule):
 
     def training_step(self, batch, batch_idx):
         pred_psi_val = self(batch)
-        loss = self.loss_fn(pred_psi_val, batch["psi_values"])
+        loss = self.loss_fn(pred_psi_val, batch["psi_val"])
         self.log("train/loss", loss, on_step=True, on_epoch=True)
         self.log_dict(
-            self.train_metrics(pred_psi_val, batch["psi_values"]),
+            self.train_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,
             on_epoch=True,
         )
@@ -120,10 +120,10 @@ class PSIPredictor(LightningModule):
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pred_psi_val = self(batch)
-        loss = self.loss_fn(pred_psi_val, batch["psi_values"])
+        loss = self.loss_fn(pred_psi_val, batch["psi_val"])
         self.log("val/loss", loss, on_step=False, on_epoch=True)
         self.log_dict(
-            self.val_metrics(pred_psi_val, batch["psi_values"]),
+            self.val_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,
             on_epoch=True,
         )
@@ -133,5 +133,5 @@ class PSIPredictor(LightningModule):
         pred_psi_val = self(batch)
         return {
             "pred_psi_val": pred_psi_val,
-            "psi_val": batch["psi_values"],
+            "psi_val": batch["psi_val"],
         }
