@@ -6,8 +6,8 @@
     "train_config": {
         "seed": 97,
         "input_size": 10000,
-        "batch_size": 64,
-        "num_workers": 4,
+        "batch_size": 512,
+        "num_workers": 0,
         "remove_events_without_gene_expression_data": true,
         "gene_expression_metric": "log2TPM",
         "event_types_to_model": "ALL",
