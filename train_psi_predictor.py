@@ -61,13 +61,14 @@ def main():
     if os.path.exists(
         os.path.join(config["train_config"]["saved_models_dir"], run_name)
     ):
-        run_suffix = f"-{np.random.randint(1000)}"
-        run_name = run_name + run_suffix
+        base_run_name = run_name
+        run_suffix = str(1)
+        run_name = base_run_name + "_" + run_suffix
         while os.path.exists(
             os.path.join(config["train_config"]["saved_models_dir"], run_name)
         ):
-            run_suffix = f"{np.random.randint(1000)}"
-            run_name = run_name + run_suffix
+            run_suffix = str(int(run_suffix) + 1)
+            run_name = base_run_name + "_" + run_suffix
     run_save_dir = os.path.join(
         config["train_config"]["saved_models_dir"],
         run_name,
