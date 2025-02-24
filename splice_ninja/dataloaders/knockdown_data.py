@@ -319,6 +319,9 @@ class KnockdownDataset(Dataset):
             spliced_out_mask = np.zeros(cur_seq_len)
             for start, end, segment_type in cur_genome_segments:
                 segment_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                assert len(segment_seq) == (
+                    end - start + 1
+                ), f"Segment length mismatch, idx: {idx}, length: {len(segment_seq)}, expected length: {(end - start + 1)}"
                 if segment_type == "exon":
                     spliced_in_mask[
                         len(sequence) : len(sequence) + len(segment_seq)
@@ -326,7 +329,7 @@ class KnockdownDataset(Dataset):
                     spliced_out_mask[
                         len(sequence) : len(sequence) + len(segment_seq)
                     ] = 1
-                if segment_type == "alt_exon":
+                elif segment_type == "alt_exon":
                     spliced_in_mask[
                         len(sequence) : len(sequence) + len(segment_seq)
                     ] = 1
