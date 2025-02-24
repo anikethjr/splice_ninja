@@ -402,7 +402,7 @@ class KnockdownDataset(Dataset):
             "sequence": one_hot_sequence,
             "spliced_in_mask": spliced_in_mask,
             "spliced_out_mask": spliced_out_mask,
-            "psi_val": psi_val,
+            "psi_val": psi_val / 100.0,
             "gene_exp": gene_exp if has_gene_exp_values else -1.0,
             "splicing_factor_exp_values": splicing_factor_exp_values,
         }
@@ -1815,6 +1815,8 @@ class KnockdownData(LightningDataModule):
         self.splicing_factor_expression_levels = pd.read_csv(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
         )
+        self.num_splicing_factors = self.splicing_factor_expression_levels.shape[0]
+        self.has_gene_exp_values = True
 
         print("Total number of PSI values:", len(self.flattened_inclusion_levels_full))
         print("Total number of events:", len(self.event_info))

@@ -21,6 +21,14 @@
         "weight_decay": 0.001,
         "max_epochs": 100,
         "patience": 10,
+        "use_scheduler": false,
+        "scheduler": "LinearWarmupCosineAnnealingLR",
+        "scheduler_params": {
+            "warmup_epochs": 10,
+            "max_epochs": 100
+        },
+        "early_stopping_metric": "val/r2",
+        "early_stopping_mode": "max",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/clusterfs/nilah/aniketh/splice_ninja/saved_models/"
     }
