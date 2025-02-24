@@ -83,7 +83,7 @@ def main():
     # setup callbacks + trainer
     logger = WandbLogger(
         project="splice_ninja",
-        name=run_name + run_suffix,
+        name=run_name,
         save_dir=logs_dir,
     )
 
