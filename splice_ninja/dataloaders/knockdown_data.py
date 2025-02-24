@@ -402,8 +402,10 @@ class KnockdownDataset(Dataset):
             "sequence": one_hot_sequence.astype(np.float32),
             "spliced_in_mask": spliced_in_mask.astype(np.float32),
             "spliced_out_mask": spliced_out_mask.astype(np.float32),
-            "psi_val": psi_val / 100.0,
-            "gene_exp": gene_exp if has_gene_exp_values else -1.0,
+            "psi_val": (psi_val / 100.0).astype(np.float32),
+            "gene_exp": gene_exp.astype(np.float32)
+            if has_gene_exp_values
+            else (-1.0).astype(np.float32),
             "splicing_factor_exp_values": splicing_factor_exp_values.astype(np.float32),
         }
 
