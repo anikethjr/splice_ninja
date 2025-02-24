@@ -28,12 +28,12 @@ class FiLM(nn.Module):
 
     def forward(self, x, conditioning):
         """
-        x: Input feature map (B, C, H, W)
+        x: Input feature map (B, C, L)
         conditioning: Conditioning vector (B, conditioning_dim)
         """
-        gamma = self.scale(conditioning).unsqueeze(-1).unsqueeze(-1)  # (B, C, 1, 1)
-        beta = self.shift(conditioning).unsqueeze(-1).unsqueeze(-1)  # (B, C, 1, 1)
-        return gamma * x + beta
+        gamma = self.scale(conditioning).unsqueeze(-1)  # (B, C, 1)
+        beta = self.shift(conditioning).unsqueeze(-1)  # (B, C, 1)
+        return (x * gamma) + beta
 
 
 class ResidualBlock(nn.Module):
