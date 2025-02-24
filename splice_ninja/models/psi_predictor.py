@@ -33,7 +33,7 @@ class PSIPredictor(LightningModule):
         self.config = config
 
         # define model
-        self.name_to_model = {"SpliceAI-10k": SpliceAI10k}
+        self.name_to_model = {"SpliceAI10k": SpliceAI10k}
         assert (
             config["train_config"]["model_name"] in self.name_to_model
         ), f"Model {config['train_config']['model_name']} not found. Available models: {self.name_to_model.keys()}"
