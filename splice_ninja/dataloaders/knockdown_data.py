@@ -321,7 +321,7 @@ class KnockdownDataset(Dataset):
                 segment_seq = self.genome.get_seq(chrom, start, end).seq.upper()
                 assert len(segment_seq) == (
                     end - start + 1
-                ), f"Segment length mismatch, idx: {idx}, length: {len(segment_seq)}, expected length: {(end - start + 1)}"
+                ), f"Segment length mismatch, idx: {idx}, length: {len(segment_seq)}, expected length: {(end - start + 1)}, segment: {segment_seq}"
                 if segment_type == "exon":
                     spliced_in_mask[
                         len(sequence) : len(sequence) + len(segment_seq)
