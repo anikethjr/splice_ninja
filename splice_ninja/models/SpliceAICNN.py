@@ -303,6 +303,6 @@ class SpliceAI10k(nn.Module):
 
         x = torch.cat([x, conditioning], dim=1)
         x = self.output_layer(x)
-        x = F.sigmoid(x)
+        x = F.sigmoid(x).reshape(-1)
 
         return x
