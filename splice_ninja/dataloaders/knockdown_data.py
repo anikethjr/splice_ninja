@@ -399,12 +399,12 @@ class KnockdownDataset(Dataset):
                 spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
         return {
-            "sequence": one_hot_sequence,
-            "spliced_in_mask": spliced_in_mask,
-            "spliced_out_mask": spliced_out_mask,
+            "sequence": one_hot_sequence.astype(np.float32),
+            "spliced_in_mask": spliced_in_mask.astype(np.float32),
+            "spliced_out_mask": spliced_out_mask.astype(np.float32),
             "psi_val": psi_val / 100.0,
             "gene_exp": gene_exp if has_gene_exp_values else -1.0,
-            "splicing_factor_exp_values": splicing_factor_exp_values,
+            "splicing_factor_exp_values": splicing_factor_exp_values.astype(np.float32),
         }
 
     def __getitem__(self, idx):
