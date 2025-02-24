@@ -43,15 +43,17 @@ class PSIPredictor(LightningModule):
 
         # define loss function
         self.loss_fn = nn.MSELoss()
-        
+
         # define metrics
-        self.metrics_dict = torchmetrics.MetricCollection({
-            "mse": torchmetrics.MeanSquaredError(),
-            "mae": torchmetrics.MeanAbsoluteError(),
-            "r2": torchmetrics.R2Score(),
-            "pearsonR": torchmetrics.PearsonCorrCoef(),
-            "spearmanR": torchmetrics.SpearmanCorrCoef(),
-        })
+        self.metrics_dict = torchmetrics.MetricCollection(
+            {
+                "mse": torchmetrics.MeanSquaredError(),
+                "mae": torchmetrics.MeanAbsoluteError(),
+                "r2": torchmetrics.R2Score(),
+                "pearsonR": torchmetrics.PearsonCorrCoef(),
+                "spearmanR": torchmetrics.SpearmanCorrCoef(),
+            }
+        )
         self.train_metrics = self.metrics_dict.clone(prefix="train/")
         self.val_metrics = self.metrics_dict.clone(prefix="val/")
 
@@ -64,8 +66,12 @@ class PSIPredictor(LightningModule):
         self.learning_rate = config["train_config"]["learning_rate"]
         self.weight_decay = config["train_config"]["weight_decay"]
         self.use_scheduler = config["train_config"]["use_scheduler"]
-        self.scheduler_name = "" if not self.use_scheduler else config["train_config"]["scheduler"]
-        self.name_to_scheduler = {"LinearWarmupCosineAnnealingLR": LinearWarmupCosineAnnealingLR}
+        self.scheduler_name = (
+            "" if not self.use_scheduler else config["train_config"]["scheduler"]
+        )
+        self.name_to_scheduler = {
+            "LinearWarmupCosineAnnealingLR": LinearWarmupCosineAnnealingLR
+        }
         if self.use_scheduler:
             assert (
                 self.scheduler_name in self.name_to_scheduler
@@ -73,14 +79,20 @@ class PSIPredictor(LightningModule):
 
     def configure_optimizers(self):
         optimizer = self.name_to_optimizer[self.optimizer_name](
-            filter(lambda p: p.requires_grad, self.parameters()), lr=self.learning_rate, weight_decay=self.weight_decay,
+            filter(lambda p: p.requires_grad, self.parameters()),
+            lr=self.learning_rate,
+            weight_decay=self.weight_decay,
         )
         if self.use_scheduler:
             if self.scheduler_name == "LinearWarmupCosineAnnealingLR":
                 scheduler = self.name_to_scheduler[self.scheduler_name](
                     optimizer,
-                    warmup_epochs=self.config["train_config"]["scheduler_params"]["warmup_epochs"],
-                    max_epochs=self.config["train_config"]["scheduler_params"]["max_epochs"],
+                    warmup_epochs=self.config["train_config"]["scheduler_params"][
+                        "warmup_epochs"
+                    ],
+                    max_epochs=self.config["train_config"]["scheduler_params"][
+                        "max_epochs"
+                    ],
                 )
                 scheduler_config = {
                     "scheduler": scheduler,
@@ -89,26 +101,34 @@ class PSIPredictor(LightningModule):
                 }
                 return [optimizer], [scheduler_config]
 
-        return optimizer    
-        
+        return optimizer
+
     def forward(self, batch):
         pred_psi_val = self.model(batch)
         return pred_psi_val
-    
+
     def training_step(self, batch, batch_idx):
         pred_psi_val = self(batch)
         loss = self.loss_fn(pred_psi_val, batch["psi_values"])
         self.log("train/loss", loss, on_step=True, on_epoch=True)
-        self.log_dict(self.train_metrics(pred_psi_val, batch["psi_values"]), on_step=False, on_epoch=True)
+        self.log_dict(
+            self.train_metrics(pred_psi_val, batch["psi_values"]),
+            on_step=False,
+            on_epoch=True,
+        )
         return loss
-    
+
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pred_psi_val = self(batch)
         loss = self.loss_fn(pred_psi_val, batch["psi_values"])
         self.log("val/loss", loss, on_step=False, on_epoch=True)
-        self.log_dict(self.val_metrics(pred_psi_val, batch["psi_values"]), on_step=False, on_epoch=True)
+        self.log_dict(
+            self.val_metrics(pred_psi_val, batch["psi_values"]),
+            on_step=False,
+            on_epoch=True,
+        )
         return loss
-    
+
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         pred_psi_val = self(batch)
         return {

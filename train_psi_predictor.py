@@ -26,8 +26,15 @@ torch.set_float32_matmul_precision("medium")
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument("--config", type=str, required=True, help="Path to the config file.")    
-    parser.add_argument("--resume_from_checkpoint", BooleanOptionalAction, default=False, help="Resume training from a checkpoint.")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to the config file."
+    )
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        BooleanOptionalAction,
+        default=False,
+        help="Resume training from a checkpoint.",
+    )
     return parser.parse_args()
 
 
@@ -51,10 +58,14 @@ def main():
 
     # setup file storage
     run_name = "psi_predictor_test"
-    if os.path.exists(os.path.join(config["train_config"]["saved_models_dir"], run_name)):
+    if os.path.exists(
+        os.path.join(config["train_config"]["saved_models_dir"], run_name)
+    ):
         run_suffix = f"-{np.random.randint(1000)}"
         run_name = run_name + run_suffix
-        while os.path.exists(os.path.join(config["train_config"]["saved_models_dir"], run_name)):
+        while os.path.exists(
+            os.path.join(config["train_config"]["saved_models_dir"], run_name)
+        ):
             run_suffix = f"{np.random.randint(1000)}"
             run_name = run_name + run_suffix
     run_save_dir = os.path.join(
@@ -75,7 +86,7 @@ def main():
         name=run_name + run_suffix,
         save_dir=logs_dir,
     )
-    
+
     early_stopping_metric = config["train_config"]["early_stopping_metric"]
     early_stopping_mode = config["train_config"]["early_stopping_mode"]
     patience = config["train_config"]["patience"]
@@ -83,7 +94,8 @@ def main():
     # checkpoint based on metric
     checkpointing_cb = ModelCheckpoint(
         dirpath=ckpts_dir,
-        filename="epoch={epoch}-step={step}-" + f"{early_stopping_metric}={early_stopping_metric:.6f}",
+        filename="epoch={epoch}-step={step}-"
+        + f"{early_stopping_metric}={early_stopping_metric:.6f}",
         monitor=early_stopping_metric,
         mode=early_stopping_mode,
         save_top_k=1,
@@ -92,7 +104,8 @@ def main():
     # checkpoint based on epoch so that training can be resumed easily
     checkpointing_cb_based_on_epoch = ModelCheckpoint(
         dirpath=ckpts_dir,
-        filename="epoch={epoch}-" + f"{early_stopping_metric}={early_stopping_metric:.6f}",
+        filename="epoch={epoch}-"
+        + f"{early_stopping_metric}={early_stopping_metric:.6f}",
         monitor=None,
         save_top_k=1,
         auto_insert_metric_name=False,
@@ -117,7 +130,11 @@ def main():
         gradient_clip_val=0.2,
         logger=logger,
         default_root_dir=args.save_dir,
-        callbacks=[checkpointing_cb_based_on_epoch, checkpointing_cb, early_stopping_cb],
+        callbacks=[
+            checkpointing_cb_based_on_epoch,
+            checkpointing_cb,
+            early_stopping_cb,
+        ],
         precision="32-true",
         strategy="ddp",
     )
