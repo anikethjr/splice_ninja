@@ -131,7 +131,9 @@ def main():
         max_epochs=max_epochs,
         gradient_clip_val=0.2,
         logger=logger,
-        default_root_dir=args.save_dir,
+        default_root_dir=os.path.join(
+            config["train_config"]["saved_models_dir"], run_name
+        ),
         callbacks=[
             checkpointing_cb_based_on_epoch,
             checkpointing_cb,
