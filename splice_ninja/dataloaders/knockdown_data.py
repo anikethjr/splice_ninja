@@ -103,7 +103,9 @@ class KnockdownDataset(Dataset):
                 self.genome.sizes[chrom],
                 extraction_end + background_sequence_length_still_needed,
             )
-            assert (extraction_end - extraction_start + 1) == self.input_size
+            assert (
+                extraction_end - extraction_start + 1
+            ) == self.input_size, f"Sequence length is {(extraction_end - extraction_start + 1)} but expected length is {self.input_size}, idx: {idx}"
 
             # get the sequence
             sequence = self.genome.get_seq(
@@ -127,7 +129,7 @@ class KnockdownDataset(Dataset):
                 # exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
                 # assert (
                 #     exon_seq == sequence[relative_start : relative_end + 1]
-                # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
+                # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}, idx: {idx}"
 
                 spliced_in_exonic_sequences_inds.append((relative_start, relative_end))
                 if i < len(spliced_in_event_segments) - 1:
@@ -155,7 +157,7 @@ class KnockdownDataset(Dataset):
                 # exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
                 # assert (
                 #     exon_seq == sequence[relative_start : relative_end + 1]
-                # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}"
+                # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}, idx: {idx}"
 
                 spliced_out_exonic_sequences_inds.append((relative_start, relative_end))
                 if i < len(spliced_out_event_segments) - 1:
@@ -205,6 +207,7 @@ class KnockdownDataset(Dataset):
             ):  # spliced in segments will always be a superset of spliced out segments
                 start, end = segment.split(":")[-1].split("-")
                 start, end = int(start), int(end)
+                assert start <= end, f"Start is greater than end, idx: {idx}"
 
                 if i == 1:  # this is the alternative exon
                     cur_genome_segments.append((start, end, "alt_exon"))
@@ -223,7 +226,7 @@ class KnockdownDataset(Dataset):
                         )
             assert cur_seq_len == sum(
                 [end - start + 1 for start, end, _ in cur_genome_segments]
-            ), f"Sequence length is {cur_seq_len} but sum of segment lengths is {sum([end - start + 1 for start, end, _ in cur_genome_segments])}"
+            ), f"Sequence length is {cur_seq_len} but sum of segment lengths is {sum([end - start + 1 for start, end, _ in cur_genome_segments])}, idx: {idx}"
 
             # start off by removing the middle portions of the introns
             if (
@@ -308,7 +311,7 @@ class KnockdownDataset(Dataset):
 
             assert (
                 cur_seq_len <= self.input_size
-            ), f"Sequence length is {cur_seq_len} which is still greater than the input size {self.input_size}"
+            ), f"Sequence length is {cur_seq_len} which is still greater than the input size {self.input_size}, idx: {idx}"
 
             # extract the segments
             sequence = ""
@@ -337,10 +340,10 @@ class KnockdownDataset(Dataset):
                     spliced_out_mask[
                         len(sequence) : len(sequence) + len(segment_seq)
                     ] = -1
-                sequence += segment_seq
+                sequence = sequence + segment_seq
             assert (
                 len(sequence) == cur_seq_len
-            ), f"Sequence length is {len(sequence)} but expected length is {cur_seq_len}"
+            ), f"Sequence length is {len(sequence)} but expected length is {cur_seq_len}, idx: {idx}, genome segments: {cur_genome_segments}"
 
             # pad the sequence with background sequence
             background_sequence_length = self.input_size - len(sequence)
@@ -379,13 +382,13 @@ class KnockdownDataset(Dataset):
                 )
             assert (
                 len(sequence) == self.input_size
-            ), f"Sequence length is {len(sequence)} but expected length is {self.input_size}"
+            ), f"Sequence length is {len(sequence)} but expected length is {self.input_size}, idx: {idx}"
             assert (
                 len(spliced_in_mask) == self.input_size
-            ), f"Spliced-in mask length is {len(spliced_in_mask)} but expected length is {self.input_size}"
+            ), f"Spliced-in mask length is {len(spliced_in_mask)} but expected length is {self.input_size}, idx: {idx}"
             assert (
                 len(spliced_out_mask) == self.input_size
-            ), f"Spliced-out mask length is {len(spliced_out_mask)} but expected length is {self.input_size}"
+            ), f"Spliced-out mask length is {len(spliced_out_mask)} but expected length is {self.input_size}, idx: {idx}"
 
             # one-hot encode the sequence
             one_hot_sequence = one_hot_encode_dna(sequence)
