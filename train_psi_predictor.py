@@ -104,8 +104,7 @@ def main():
     # checkpoint based on epoch so that training can be resumed easily
     checkpointing_cb_based_on_epoch = ModelCheckpoint(
         dirpath=ckpts_dir,
-        filename="epoch={epoch}-"
-        + f"{early_stopping_metric}={early_stopping_metric:.6f}",
+        filename="epoch={epoch}-" + "metric={" + f"{early_stopping_metric}" + ":.6f}",
         monitor=None,
         save_top_k=1,
         auto_insert_metric_name=False,
