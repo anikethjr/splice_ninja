@@ -135,7 +135,7 @@ class SpliceAI10k(nn.Module):
             with open(config, "r") as f:
                 config = json.load(f)
         self.config = config
-        self.input_size = config["input_size"]
+        self.input_size = config["train_config"]["input_size"]
         assert (
             self.input_size == 10000
         ), "The input size should be 10000 for SpliceAI-10k model."
