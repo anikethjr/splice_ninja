@@ -155,7 +155,7 @@ class SpliceAI10k(nn.Module):
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
         self.film1 = FiLM(self.conditioning_dim, 32)
         self.side_conv1 = nn.Conv1d(
-            in_channels=1,
+            in_channels=32,
             out_channels=32,
             kernel_size=1,
             stride=1,
