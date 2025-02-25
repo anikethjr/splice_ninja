@@ -121,11 +121,12 @@ class PSIPredictor(LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pred_psi_val = self(batch)
         loss = self.loss_fn(pred_psi_val, batch["psi_val"])
-        self.log("val/loss", loss, on_step=False, on_epoch=True)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log_dict(
             self.val_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,
             on_epoch=True,
+            sync_dist=True,
         )
         return loss
 
