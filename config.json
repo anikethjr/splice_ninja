@@ -30,6 +30,6 @@
         "early_stopping_metric": "val/r2",
         "early_stopping_mode": "max",
         "wandb_project": "splice_ninja",
-        "saved_models_dir": "/clusterfs/nilah/aniketh/splice_ninja/saved_models/"
+        "saved_models_dir": "/global/scratch/aniketh/splice_ninja/saved_models/"
     }
 }
