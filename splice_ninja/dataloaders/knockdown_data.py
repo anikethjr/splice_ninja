@@ -2088,6 +2088,7 @@ class KnockdownData(LightningDataModule):
             shuffle=True,
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
+            worker_init_fn=worker_init_fn,
         )
 
     def val_dataloader(self):
@@ -2097,6 +2098,7 @@ class KnockdownData(LightningDataModule):
             shuffle=False,
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
+            worker_init_fn=worker_init_fn,
         )
 
     def test_dataloader(self):
@@ -2106,4 +2108,5 @@ class KnockdownData(LightningDataModule):
             shuffle=False,
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
+            worker_init_fn=worker_init_fn,
         )
