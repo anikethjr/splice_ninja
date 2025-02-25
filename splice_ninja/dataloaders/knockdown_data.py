@@ -38,6 +38,7 @@ class KnockdownDataset(Dataset):
         self.input_size = self.data_module.config["train_config"]["input_size"]
         self.genome_name = "GRCh38.p14"
         self.genomes_dir = os.path.join(self.data_module.cache_dir, "genomes")
+        self.genome = None  # Will be initialized per worker
 
         if self.split == "train":
             self.chromosomes = self.data_module.train_chromosomes
