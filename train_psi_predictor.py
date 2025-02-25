@@ -57,18 +57,11 @@ def main():
     model = PSIPredictor(config, num_splicing_factors, has_gene_exp_values)
 
     # setup file storage
-    run_name = "psi_predictor_test"
-    if os.path.exists(
-        os.path.join(config["train_config"]["saved_models_dir"], run_name)
-    ):
-        base_run_name = run_name
-        run_suffix = str(1)
-        run_name = base_run_name + "_" + run_suffix
-        while os.path.exists(
-            os.path.join(config["train_config"]["saved_models_dir"], run_name)
-        ):
-            run_suffix = str(int(run_suffix) + 1)
-            run_name = base_run_name + "_" + run_suffix
+    run_name = (
+        "psi_predictor_test"
+        if "run_name" not in config["train_config"]
+        else config["train_config"]["run_name"]
+    )
     run_save_dir = os.path.join(
         config["train_config"]["saved_models_dir"],
         run_name,
