@@ -23,13 +23,21 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+def worker_init_fn(worker_id):
+    worker_info = torch.utils.data.get_worker_info()
+    worker_info.dataset.genome = genomepy.Genome(
+        worker_info.dataset.genome_name, genomes_dir=worker_info.dataset.genomes_dir
+    )
+
+
 # Datast for the knockdown data
 class KnockdownDataset(Dataset):
     def __init__(self, data_module, split="train"):
         self.data_module = data_module
         self.split = split
         self.input_size = self.data_module.config["train_config"]["input_size"]
-        self.genome: genomepy.Genome = self.data_module.genome
+        self.genome_name = "GRCh38.p14"
+        self.genomes_dir = os.path.join(self.data_module.cache_dir, "genomes")
 
         if self.split == "train":
             self.chromosomes = self.data_module.train_chromosomes
