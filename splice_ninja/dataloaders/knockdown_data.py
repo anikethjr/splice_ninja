@@ -1516,6 +1516,7 @@ class KnockdownData(LightningDataModule):
                 gene_id = row["GENE_ID"]
                 chrom = row["CHR"][3:]  # remove "chr" prefix
                 strand = row["STRAND"]
+                event_type = row["EVENT_TYPE"]
 
                 # construct sequences
                 spliced_in_event_segments = row["SPLICED_IN_EVENT_SEGMENTS"].split(
