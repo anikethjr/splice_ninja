@@ -1686,7 +1686,7 @@ class KnockdownData(LightningDataModule):
                                 segment_len = end - start + 1
                                 if (
                                     segment_len
-                                    <= self.data_module.segment_length_to_crop_to_if_needed
+                                    <= self.segment_length_to_crop_to_if_needed
                                 ):
                                     updated_genome_segments.append(segment)
                                 else:
@@ -1713,7 +1713,7 @@ class KnockdownData(LightningDataModule):
                                 segment_len = end - start + 1
                                 if (
                                     segment_len
-                                    <= self.data_module.segment_length_to_crop_to_if_needed
+                                    <= self.segment_length_to_crop_to_if_needed
                                 ):
                                     updated_genome_segments.append(segment)
                                 else:
@@ -1740,7 +1740,7 @@ class KnockdownData(LightningDataModule):
                                 segment_len = end - start + 1
                                 if (
                                     segment_len
-                                    <= self.data_module.segment_length_to_crop_to_if_needed
+                                    <= self.segment_length_to_crop_to_if_needed
                                 ):
                                     updated_genome_segments.append(segment)
                                 else:
