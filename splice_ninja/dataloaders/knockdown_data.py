@@ -48,8 +48,9 @@ class KnockdownDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.data.iloc[idx]
-        event_id = row["EVENT"]
-        event_type = row["EVENT_TYPE"]
+        event_row = self.data_module.event_sequences.iloc[row["idx"]]
+        event_id = event_row["EVENT"]
+        event_type = event_row["EVENT_TYPE"]
         sample = row["SAMPLE"]
         psi_val = row["PSI"]
         strand = row["STRAND"]
@@ -64,7 +65,7 @@ class KnockdownDataset(Dataset):
         ].values
 
         # get sequence and masks
-        sequence_inds = row["SEQUENCE_BASE_INDS"]  # (input_size,)
+        sequence_inds = event_row["SEQUENCE_BASE_INDS"]  # (input_size,)
         valid_mask = sequence_inds < 4  # Mask to exclude 'N' bases (encoded as 4)
 
         one_hot_sequence = np.zeros((self.input_size, 4), dtype=np.float32)
@@ -72,8 +73,8 @@ class KnockdownDataset(Dataset):
             np.arange(self.input_size)[valid_mask], sequence_inds[valid_mask]
         ] = 1
 
-        spliced_in_mask = row["SPLICED_IN_MASK"]
-        spliced_out_mask = row["SPLICED_OUT_MASK"]
+        spliced_in_mask = event_row["SPLICED_IN_MASK"]
+        spliced_out_mask = event_row["SPLICED_OUT_MASK"]
 
         # account for genes on the negative strand
         if strand == "-":
@@ -1963,8 +1964,11 @@ class KnockdownData(LightningDataModule):
         original_flattened_inclusion_levels_full_len = len(
             self.flattened_inclusion_levels_full
         )
+        self.event_sequences["idx"] = self.event_sequences.index
         self.unified_data = self.flattened_inclusion_levels_full.merge(
-            self.event_sequences, on=["EVENT", "EVENT_TYPE"], how="inner"
+            self.event_sequences[["EVENT", "EVENT_TYPE", "STRAND", "idx"]],
+            on=["EVENT", "EVENT_TYPE"],
+            how="inner",
         )
         assert (
             len(self.unified_data) == original_flattened_inclusion_levels_full_len
