@@ -68,16 +68,9 @@ class KnockdownDataset(Dataset):
         gene_exp = row["expression"]
 
         # get splicing factor expression values
-        if self.data_module.gene_expression_metric == "counts":
-            splicing_factor_exp_values = (
-                self.data_module.splicing_factor_expression_levels[sample].values
-            )
-        else:
-            splicing_factor_exp_values = (
-                self.data_module.splicing_factor_expression_levels[
-                    sample + f"_{self.data_module.gene_expression_metric}"
-                ].values
-            )
+        splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
+            sample + "_log2TPM_rel_norm"
+        ].values
 
         # get the event information for sequence construction
         gene_id = row["GENE_ID"]
@@ -1297,6 +1290,14 @@ class KnockdownData(LightningDataModule):
             splicing_factor_expression_levels = normalized_gene_expression.loc[
                 normalized_gene_expression["gene_id"].isin(splicing_factor_gene_ids)
             ]
+
+            # compute normalized splicing factor expression levels so that they sum to 1 across all splicing factors in each sample
+            for sample in splicing_factor_gene_ids:
+                splicing_factor_expression_levels[sample + "_log2TPM_rel_norm"] = (
+                    splicing_factor_expression_levels[sample + "_log2TPM"]
+                    / splicing_factor_expression_levels[sample + "_log2TPM"].sum()
+                )
+
             splicing_factor_expression_levels.to_parquet(
                 os.path.join(
                     self.cache_dir, "splicing_factor_expression_levels.parquet"
