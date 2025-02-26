@@ -1542,7 +1542,7 @@ class KnockdownData(LightningDataModule):
                         extraction_end - extraction_start + 1
                     )
                     extraction_end = min(
-                        self.genome.sizes[chrom],
+                        genome.sizes[chrom],
                         extraction_end + background_sequence_length_still_needed,
                     )
                     assert (
@@ -1550,7 +1550,7 @@ class KnockdownData(LightningDataModule):
                     ) == self.input_size, f"Sequence length is {(extraction_end - extraction_start + 1)} but expected length is {self.input_size}, idx: {idx}"
 
                     # get the sequence
-                    sequence = self.genome.get_seq(
+                    sequence = genome.get_seq(
                         chrom, extraction_start, extraction_end
                     ).seq.upper()
 
@@ -1566,7 +1566,7 @@ class KnockdownData(LightningDataModule):
                         relative_end = end - extraction_start
 
                         # # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
-                        # exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                        # exon_seq = genome.get_seq(chrom, start, end).seq.upper()
                         # assert (
                         #     exon_seq == sequence[relative_start : relative_end + 1]
                         # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}, idx: {idx}"
@@ -1600,7 +1600,7 @@ class KnockdownData(LightningDataModule):
                         relative_end = end - extraction_start
 
                         # # check if sequence matches the event sequence - uncomment only during debugging to avoid performance hit
-                        # exon_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                        # exon_seq = genome.get_seq(chrom, start, end).seq.upper()
                         # assert (
                         #     exon_seq == sequence[relative_start : relative_end + 1]
                         # ), f"Exon sequence does not match the event sequence: {exon_seq} vs {sequence[relative_start:relative_end + 1]}, idx: {idx}"
@@ -1766,7 +1766,7 @@ class KnockdownData(LightningDataModule):
                     spliced_in_mask = np.zeros(cur_seq_len)
                     spliced_out_mask = np.zeros(cur_seq_len)
                     for start, end, segment_type in cur_genome_segments:
-                        segment_seq = self.genome.get_seq(chrom, start, end).seq.upper()
+                        segment_seq = genome.get_seq(chrom, start, end).seq.upper()
                         assert len(segment_seq) == (
                             end - start + 1
                         ), f"Segment length mismatch, idx: {idx}, length: {len(segment_seq)}, expected length: {(end - start + 1)}, segment: {segment_seq}, start: {start}, end: {end}, chrom: {chrom}"
@@ -1806,7 +1806,7 @@ class KnockdownData(LightningDataModule):
                     )  # length of the padding before the sequence
                     if padding_before_length > 0:
                         sequence = (
-                            self.genome.get_seq(
+                            genome.get_seq(
                                 chrom, sequence_start, extraction_start - 1
                             ).seq.upper()
                             + sequence
@@ -1823,7 +1823,7 @@ class KnockdownData(LightningDataModule):
                     if padding_after_length > 0:
                         sequence = (
                             sequence
-                            + self.genome.get_seq(
+                            + genome.get_seq(
                                 chrom,
                                 extraction_end + 1,
                                 extraction_end + padding_after_length,
