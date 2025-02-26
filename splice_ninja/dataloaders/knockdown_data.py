@@ -59,16 +59,9 @@ class KnockdownDataset(Dataset):
         gene_exp = row["expression"]
 
         # get splicing factor expression values
-        if self.data_module.gene_expression_metric == "counts":
-            splicing_factor_exp_values = (
-                self.data_module.splicing_factor_expression_levels[sample].values
-            )
-        else:
-            splicing_factor_exp_values = (
-                self.data_module.splicing_factor_expression_levels[
-                    sample + f"_{self.data_module.gene_expression_metric}"
-                ].values
-            )
+        splicing_factor_exp_values = self.data_module.splicing_factor_expression_levels[
+            sample + "_log2TPM_rel_norm"
+        ].values
 
         # get sequence and masks
         sequence_inds = row["SEQUENCE_BASE_INDS"]
