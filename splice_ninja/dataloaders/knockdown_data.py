@@ -64,9 +64,14 @@ class KnockdownDataset(Dataset):
         ].values
 
         # get sequence and masks
-        sequence_inds = row["SEQUENCE_BASE_INDS"]
+        sequence_inds = row["SEQUENCE_BASE_INDS"]  # (input_size,)
+        valid_mask = sequence_inds < 4  # Mask to exclude 'N' bases (encoded as 4)
+
         one_hot_sequence = np.zeros((self.input_size, 4), dtype=np.float32)
-        one_hot_sequence[sequence_inds] = 1.0
+        one_hot_sequence[
+            np.arange(self.input_size)[valid_mask], sequence_inds[valid_mask]
+        ] = 1
+
         spliced_in_mask = row["SPLICED_IN_MASK"]
         spliced_out_mask = row["SPLICED_OUT_MASK"]
 
@@ -1511,7 +1516,7 @@ class KnockdownData(LightningDataModule):
             spliced_out_masks = []
             strands = []
 
-            base_to_inds = {"A": 0, "C": 1, "G": 2, "T": 3}
+            base_to_inds = {"A": 0, "C": 1, "G": 2, "T": 3, "N": 4}
             for idx, row in tqdm(event_info.iterrows(), total=event_info.shape[0]):
                 gene_id = row["GENE_ID"]
                 chrom = row["CHR"][3:]  # remove "chr" prefix
