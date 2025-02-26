@@ -434,10 +434,10 @@ class KnockdownData(LightningDataModule):
         # load/create the filtered splicing data
         if (
             not os.path.exists(
-                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
+                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
             )
             or not os.path.exists(
-                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+                os.path.join(self.cache_dir, "gene_counts_filtered.parquet")
             )
             or not os.path.exists(
                 os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json")
@@ -1174,14 +1174,15 @@ class KnockdownData(LightningDataModule):
             )
 
             # cache the filtered data
-            inclusion_levels_full.to_csv(
-                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv"),
+            inclusion_levels_full.to_parquet(
+                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet"),
                 index=False,
             )
 
             # cache the gene counts
-            gene_counts.to_csv(
-                os.path.join(self.cache_dir, "gene_counts_filtered.csv"), index=False
+            gene_counts.to_parquet(
+                os.path.join(self.cache_dir, "gene_counts_filtered.parquet"),
+                index=False,
             )
 
             print("Filtered data cached")
@@ -1200,15 +1201,15 @@ class KnockdownData(LightningDataModule):
             print("Genome downloaded")
 
         if not os.path.exists(
-            os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+            os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
         ):
             # from the gene counts data, calculate the normalized gene expression values - TPM and RPKM
             print(
                 "Calculating normalized gene expression values from gene counts (TPM and RPKM)"
             )
 
-            gene_counts = pd.read_csv(
-                os.path.join(self.cache_dir, "gene_counts_filtered.csv")
+            gene_counts = pd.read_parquet(
+                os.path.join(self.cache_dir, "gene_counts_filtered.parquet")
             )
 
             genome_annotation = genomepy.Annotation(
@@ -1269,20 +1270,20 @@ class KnockdownData(LightningDataModule):
                     normalized_gene_expression[sample + "_RPKM"] + 1
                 )
 
-            normalized_gene_expression.to_csv(
-                os.path.join(self.cache_dir, "normalized_gene_expression.csv"),
+            normalized_gene_expression.to_parquet(
+                os.path.join(self.cache_dir, "normalized_gene_expression.parquet"),
                 index=False,
             )
 
         if not os.path.exists(
-            os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
+            os.path.join(self.cache_dir, "splicing_factor_expression_levels.parquet")
         ):
             # from the normalized gene expression data, extract the expression levels of the splicing factors in each sample
             # the splicing factor gene IDs are the same as the sample names
             print("Extracting splicing factor expression levels")
 
-            normalized_gene_expression = pd.read_csv(
-                os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+            normalized_gene_expression = pd.read_parquet(
+                os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
             )
 
             all_gene_ids = normalized_gene_expression["gene_id"].values
@@ -1296,8 +1297,10 @@ class KnockdownData(LightningDataModule):
             splicing_factor_expression_levels = normalized_gene_expression.loc[
                 normalized_gene_expression["gene_id"].isin(splicing_factor_gene_ids)
             ]
-            splicing_factor_expression_levels.to_csv(
-                os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv"),
+            splicing_factor_expression_levels.to_parquet(
+                os.path.join(
+                    self.cache_dir, "splicing_factor_expression_levels.parquet"
+                ),
                 index=False,
             )
             print(
@@ -1306,9 +1309,11 @@ class KnockdownData(LightningDataModule):
             )
 
         if not os.path.exists(
-            os.path.join(self.cache_dir, "flattened_inclusion_levels_full_filtered.csv")
+            os.path.join(
+                self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+            )
         ) or not os.path.exists(
-            os.path.join(self.cache_dir, "event_info_filtered.csv")
+            os.path.join(self.cache_dir, "event_info_filtered.parquet")
         ):
             # flatten the filtered data - make a row for each sample for each event and remove NaN values
             # this makes it to create a dataset for training
@@ -1383,11 +1388,11 @@ class KnockdownData(LightningDataModule):
             )
 
             # load the filtered data
-            normalized_gene_expression = pd.read_csv(
-                os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+            normalized_gene_expression = pd.read_parquet(
+                os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
             )
-            inclusion_levels_full = pd.read_csv(
-                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.csv")
+            inclusion_levels_full = pd.read_parquet(
+                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
             )
 
             psi_vals_columns = [
@@ -1797,14 +1802,14 @@ class KnockdownData(LightningDataModule):
             ).drop_duplicates()
             event_info = pd.DataFrame(event_info).drop_duplicates()
 
-            flattened_inclusion_levels_full.to_csv(
+            flattened_inclusion_levels_full.to_parquet(
                 os.path.join(
-                    self.cache_dir, "flattened_inclusion_levels_full_filtered.csv"
+                    self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
                 ),
                 index=False,
             )
-            event_info.to_csv(
-                os.path.join(self.cache_dir, "event_info_filtered.csv"), index=False
+            event_info.to_parquet(
+                os.path.join(self.cache_dir, "event_info_filtered.parquet"), index=False
             )
 
             print("Total number of PSI values:", len(flattened_inclusion_levels_full))
@@ -1820,17 +1825,19 @@ class KnockdownData(LightningDataModule):
 
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
-        self.normalized_gene_expression = pd.read_csv(
-            os.path.join(self.cache_dir, "normalized_gene_expression.csv")
+        self.normalized_gene_expression = pd.read_parquet(
+            os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
         )
-        self.flattened_inclusion_levels_full = pd.read_csv(
-            os.path.join(self.cache_dir, "flattened_inclusion_levels_full_filtered.csv")
+        self.flattened_inclusion_levels_full = pd.read_parquet(
+            os.path.join(
+                self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+            )
         )
-        self.event_info = pd.read_csv(
-            os.path.join(self.cache_dir, "event_info_filtered.csv")
+        self.event_info = pd.read_parquet(
+            os.path.join(self.cache_dir, "event_info_filtered.parquet")
         )
-        self.splicing_factor_expression_levels = pd.read_csv(
-            os.path.join(self.cache_dir, "splicing_factor_expression_levels.csv")
+        self.splicing_factor_expression_levels = pd.read_parquet(
+            os.path.join(self.cache_dir, "splicing_factor_expression_levels.parquet")
         )
         self.num_splicing_factors = self.splicing_factor_expression_levels.shape[0]
         self.has_gene_exp_values = True
