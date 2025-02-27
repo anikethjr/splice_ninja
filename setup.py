@@ -25,5 +25,8 @@ setuptools.setup(
         "joblib",
         "einsum",
         "rotary-embedding-torch",
+        "pyarrow",
+        "torchmetrics",
+        "pytorch-lightning-bolts",
     ],
 )
