@@ -258,7 +258,7 @@ class SpliceAI10k(nn.Module):
         self.output_layer = nn.Linear(32 + self.conditioning_dim, 1)
 
     def forward(self, batch):
-        sequence = F.one_hot(batch["sequence"], 5)  # (B, 10000, 5)
+        sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
         sequence = sequence[:, :, :4].float()  # (B, 10000, 4) - remove N
         spliced_in_mask = batch["spliced_in_mask"]  # (B, 10000)
         spliced_out_mask = batch["spliced_out_mask"]  # (B, 10000)
@@ -267,7 +267,7 @@ class SpliceAI10k(nn.Module):
             "splicing_factor_exp_values"
         ]  # (B, num_splicing_factors)
         event_type = batch["event_type"]
-        event_type_one_hot = F.one_hot(event_type, 4)  # (B, 4)
+        event_type_one_hot = F.one_hot(event_type.long(), 4)  # (B, 4)
 
         spliced_in_mask = spliced_in_mask.unsqueeze(-1)  # (B, 10000, 1)
         spliced_out_mask = spliced_out_mask.unsqueeze(-1)  # (B, 10000, 1)
