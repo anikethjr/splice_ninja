@@ -415,7 +415,7 @@ class KnockdownDataset(Dataset):
             if has_gene_exp_values
             else (-1.0).astype(np.float32),
             "splicing_factor_exp_values": splicing_factor_exp_values.astype(np.float32),
-            "event_type": self.data_module.event_type_to_ind[event_type].astype(int),
+            "event_type": self.data_module.event_type_to_ind[event_type],
         }
 
     def __getitem__(self, idx):
