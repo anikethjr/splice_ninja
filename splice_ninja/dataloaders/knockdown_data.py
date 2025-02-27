@@ -113,8 +113,6 @@ class KnockdownDataset(Dataset):
             sequence = self.genome.get_seq(
                 chrom, extraction_start, extraction_end
             ).seq.upper()
-            # one-hot encode the sequence
-            one_hot_sequence = one_hot_encode_dna(sequence)
 
             # compute the spliced-in and spliced-out masks. mask is 1 for an exon, -1 for an intron, and 0 for background sequence
             # first, we need to compute the indices of the exonic and intronic regions
@@ -186,14 +184,6 @@ class KnockdownDataset(Dataset):
                 spliced_out_mask[start : end + 1] = 1
             for start, end in spliced_out_intronic_sequences_inds:
                 spliced_out_mask[start : end + 1] = -1
-
-            # account for genes on the negative strand
-            if strand == "-":
-                one_hot_sequence = one_hot_sequence[
-                    ::-1, ::-1
-                ].copy()  # reverse complement
-                spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
-                spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
         else:
             # need to crop the sequence, this is done by removing the middle portions of introns and keeping the ends (segment_length_to_crop_to_if_needed//2 bp on each side) when possible (i.e. when event type not intron retention - IR)
@@ -395,19 +385,29 @@ class KnockdownDataset(Dataset):
                 len(spliced_out_mask) == self.input_size
             ), f"Spliced-out mask length is {len(spliced_out_mask)} but expected length is {self.input_size}, idx: {idx}"
 
-            # one-hot encode the sequence
-            one_hot_sequence = one_hot_encode_dna(sequence)
+        # convert sequence to indices
+        sequence_inds = np.array(
+            [self.data_module.base_to_ind[base] for base in sequence]
+        )
 
-            # account for genes on the negative strand
-            if strand == "-":
-                one_hot_sequence = one_hot_sequence[
-                    ::-1, ::-1
-                ].copy()  # reverse complement
-                spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
-                spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
+        # account for genes on the negative strand
+        if strand == "-":
+            rc_sequence_inds = sequence_inds.copy()  # first copy the array
+            A_ind = self.data_module.base_to_ind["A"]
+            C_ind = self.data_module.base_to_ind["C"]
+            G_ind = self.data_module.base_to_ind["G"]
+            T_ind = self.data_module.base_to_ind["T"]
+            rc_sequence_inds[sequence_inds == A_ind] = T_ind  # replace A with T
+            rc_sequence_inds[sequence_inds == C_ind] = G_ind  # replace C with G
+            rc_sequence_inds[sequence_inds == G_ind] = C_ind  # replace G with C
+            rc_sequence_inds[sequence_inds == T_ind] = A_ind  # replace T with A
+            sequence_inds = rc_sequence_inds[::-1].copy()  # reverse
+
+            spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
+            spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
         return {
-            "sequence": one_hot_sequence.astype(np.float32),
+            "sequence": sequence_inds.astype(np.int8),
             "spliced_in_mask": spliced_in_mask.astype(np.float32),
             "spliced_out_mask": spliced_out_mask.astype(np.float32),
             "psi_val": (psi_val / 100.0).astype(np.float32),
@@ -415,6 +415,7 @@ class KnockdownDataset(Dataset):
             if has_gene_exp_values
             else (-1.0).astype(np.float32),
             "splicing_factor_exp_values": splicing_factor_exp_values.astype(np.float32),
+            "event_type": self.data_module.event_type_to_int[event_type].astype(int),
         }
 
     def __getitem__(self, idx):
@@ -2079,6 +2080,21 @@ class KnockdownData(LightningDataModule):
         self.segment_length_to_crop_to_if_needed = self.config["train_config"][
             "segment_length_to_crop_to_if_needed"
         ]
+
+        self.base_to_ind = {
+            "A": 0,
+            "C": 1,
+            "G": 2,
+            "T": 3,
+            "N": 4,
+        }
+
+        self.event_type_to_ind = {
+            "EX": 0,
+            "INT": 1,
+            "ALTD": 2,
+            "ALTA": 3,
+        }
 
         # default config chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
         # train proportion = 70.61341911926058%

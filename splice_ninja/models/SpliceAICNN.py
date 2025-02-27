@@ -142,7 +142,9 @@ class SpliceAI10k(nn.Module):
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
-        self.conditioning_dim = num_splicing_factors + (1 if has_gene_exp_values else 0)
+        self.conditioning_dim = (
+            num_splicing_factors + (1 if has_gene_exp_values else 0) + 4
+        )  # +4 for event type one-hot encoding
 
         self.conv1 = nn.Conv1d(
             in_channels=6,
@@ -256,13 +258,16 @@ class SpliceAI10k(nn.Module):
         self.output_layer = nn.Linear(32 + self.conditioning_dim, 1)
 
     def forward(self, batch):
-        sequence = batch["sequence"]  # (B, 10000, 4)
+        sequence = F.one_hot(batch["sequence"], 5)  # (B, 10000, 5)
+        sequence = sequence[:, :, :4].float()  # (B, 10000, 4) - remove N
         spliced_in_mask = batch["spliced_in_mask"]  # (B, 10000)
         spliced_out_mask = batch["spliced_out_mask"]  # (B, 10000)
         gene_exp = batch["gene_exp"]  # (B,)
         splicing_factor_exp_values = batch[
             "splicing_factor_exp_values"
         ]  # (B, num_splicing_factors)
+        event_type = batch["event_type"]
+        event_type_one_hot = F.one_hot(event_type, 4)  # (B, 4)
 
         spliced_in_mask = spliced_in_mask.unsqueeze(-1)  # (B, 10000, 1)
         spliced_out_mask = spliced_out_mask.unsqueeze(-1)  # (B, 10000, 1)
@@ -273,9 +278,9 @@ class SpliceAI10k(nn.Module):
 
         gene_exp = gene_exp.unsqueeze(-1)  # (B, 1)
         conditioning = (
-            torch.cat([splicing_factor_exp_values, gene_exp], dim=1)
+            torch.cat([splicing_factor_exp_values, gene_exp, event_type_one_hot], dim=1)
             if self.has_gene_exp_values
-            else splicing_factor_exp_values
+            else torch.cat([splicing_factor_exp_values, event_type_one_hot], dim=1)
         )  # (B, conditioning_dim)
 
         x = self.conv1(x)
