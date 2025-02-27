@@ -260,8 +260,8 @@ class SpliceAI10k(nn.Module):
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
         sequence = sequence[:, :, :4].float()  # (B, 10000, 4) - remove N
-        spliced_in_mask = batch["spliced_in_mask"]  # (B, 10000)
-        spliced_out_mask = batch["spliced_out_mask"]  # (B, 10000)
+        spliced_in_mask = batch["spliced_in_mask"].float()  # (B, 10000)
+        spliced_out_mask = batch["spliced_out_mask"].float()  # (B, 10000)
         gene_exp = batch["gene_exp"]  # (B,)
         splicing_factor_exp_values = batch[
             "splicing_factor_exp_values"

@@ -408,8 +408,8 @@ class KnockdownDataset(Dataset):
 
         return {
             "sequence": sequence_inds.astype(np.int8),
-            "spliced_in_mask": spliced_in_mask.astype(np.float32),
-            "spliced_out_mask": spliced_out_mask.astype(np.float32),
+            "spliced_in_mask": spliced_in_mask.astype(np.int8),
+            "spliced_out_mask": spliced_out_mask.astype(np.int8),
             "psi_val": (psi_val / 100.0).astype(np.float32),
             "gene_exp": gene_exp.astype(np.float32)
             if has_gene_exp_values
