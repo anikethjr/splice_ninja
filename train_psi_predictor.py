@@ -31,7 +31,7 @@ def parse_args():
     )
     parser.add_argument(
         "--resume_from_checkpoint",
-        type=BooleanOptionalAction,
+        action=BooleanOptionalAction,
         default=False,
         help="Resume training from a checkpoint.",
     )
