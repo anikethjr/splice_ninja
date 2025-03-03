@@ -55,6 +55,8 @@ class PSIPredictor(LightningModule):
             }
         )
         self.train_metrics = self.metrics_dict.clone(prefix="train/")
+        # remove spearmanR from train metrics to avoid memory issues
+        self.train_metrics.remove("train/spearmanR")
         self.val_metrics = self.metrics_dict.clone(prefix="val/")
 
         # optimizer params
