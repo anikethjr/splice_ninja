@@ -45,7 +45,16 @@ class PSIPredictor(LightningModule):
         self.loss_fn = nn.MSELoss()
 
         # define metrics
-        self.metrics_dict = torchmetrics.MetricCollection(
+        # no spearmanR for train metrics to avoid memory issues
+        self.train_metrics_dict = torchmetrics.MetricCollection(
+            {
+                "mse": torchmetrics.MeanSquaredError(),
+                "mae": torchmetrics.MeanAbsoluteError(),
+                "r2": torchmetrics.R2Score(),
+                "pearsonR": torchmetrics.PearsonCorrCoef(),
+            }
+        )
+        self.eval_metrics_dict = torchmetrics.MetricCollection(
             {
                 "mse": torchmetrics.MeanSquaredError(),
                 "mae": torchmetrics.MeanAbsoluteError(),
@@ -54,10 +63,8 @@ class PSIPredictor(LightningModule):
                 "spearmanR": torchmetrics.SpearmanCorrCoef(),
             }
         )
-        self.train_metrics = self.metrics_dict.clone(prefix="train/")
-        # remove spearmanR from train metrics to avoid memory issues
-        self.train_metrics.remove("train/spearmanR")
-        self.val_metrics = self.metrics_dict.clone(prefix="val/")
+        self.train_metrics = self.train_metrics_dict.clone(prefix="train/")
+        self.val_metrics = self.eval_metrics_dict.clone(prefix="val/")
 
         # optimizer params
         self.optimizer_name = config["train_config"]["optimizer"]
