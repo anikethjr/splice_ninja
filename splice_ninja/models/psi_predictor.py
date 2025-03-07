@@ -205,11 +205,13 @@ class PSIPredictor(LightningModule):
             val_psi_vals = val_psi_vals.view(-1)
             val_pred_psi_vals = val_pred_psi_vals.view(-1)
 
-            # remove padding
-            val_event_ids = val_event_ids[~torch.isnan(val_event_ids)].numpy()
-            val_event_types = val_event_types[~torch.isnan(val_event_types)].numpy()
-            val_samples = val_samples[~torch.isnan(val_samples)].numpy()
-            val_psi_vals = val_psi_vals[~torch.isnan(val_psi_vals)].numpy()
+            # remove padding and convert to numpy
+            val_event_ids = val_event_ids[~torch.isnan(val_event_ids)].cpu().numpy()
+            val_event_types = (
+                val_event_types[~torch.isnan(val_event_types)].cpu().numpy()
+            )
+            val_samples = val_samples[~torch.isnan(val_samples)].cpu().numpy()
+            val_psi_vals = val_psi_vals[~torch.isnan(val_psi_vals)].cpu().numpy()
             val_pred_psi_vals = val_pred_psi_vals[
                 ~torch.isnan(val_pred_psi_vals)
             ].numpy()
