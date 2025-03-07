@@ -226,6 +226,16 @@ class PSIPredictor(LightningModule):
                     "pred_psi_val": val_pred_psi_vals,
                 }
             )
+            preds_df.to_csv(
+                os.path.join(
+                    self.config["train_config"]["saved_models_dir"],
+                    "psi_predictor_test"
+                    if "run_name" not in self.config["train_config"]
+                    else self.config["train_config"]["run_name"],
+                    "latest_val_preds.csv",
+                ),
+                index=False,
+            )
             print(
                 f"Gathered predictions across all processes. Total number of predictions: {preds_df.shape[0]}"
             )
