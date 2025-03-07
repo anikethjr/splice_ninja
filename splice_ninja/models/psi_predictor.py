@@ -155,7 +155,7 @@ class PSIPredictor(LightningModule):
 
         return loss
 
-    def on_validation_epoch_end(self, outputs):
+    def on_validation_epoch_end(self):
         """
         Gather predictions across all GPUs and compute the final correlation metrics.
         """
