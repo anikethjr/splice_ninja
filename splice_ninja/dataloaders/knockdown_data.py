@@ -2046,11 +2046,9 @@ class KnockdownData(LightningDataModule):
         # get sample ID to index mapping
         all_samples = self.unified_data["SAMPLE"].unique().tolist()
         all_samples.sort()
-        self.sample_id_to_ind = {
-            sample_id: i for i, sample_id in enumerate(all_samples)
-        }
+        self.sample_to_ind = {sample: i for i, sample in enumerate(all_samples)}
         print("All samples:", all_samples)
-        print("Sample ID to index mapping:", self.sample_id_to_ind)
+        print("Sample ID to index mapping:", self.sample_to_ind)
 
     def __init__(self, config: dict | str):
         super().__init__()
