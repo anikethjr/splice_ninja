@@ -30,6 +30,7 @@
         "early_stopping_metric": "val/r2",
         "early_stopping_mode": "max",
         "wandb_project": "splice_ninja",
-        "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/"
+        "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
+        "run_name": "SpliceAI10k_ALL_bs=384"
     }
 }
