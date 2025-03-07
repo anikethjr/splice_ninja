@@ -160,12 +160,12 @@ class PSIPredictor(LightningModule):
         Gather predictions across all GPUs and compute the final correlation metrics.
         """
         print("Computing final validation metrics...")
-        # first concatenate all predictions
-        val_event_ids = torch.cat(self.val_event_ids, dim=0).view(-1)
-        val_event_types = torch.cat(self.val_event_types, dim=0).view(-1)
-        val_samples = torch.cat(self.val_samples, dim=0).view(-1)
-        val_psi_vals = torch.cat(self.val_psi_vals, dim=0).view(-1)
-        val_pred_psi_vals = torch.cat(self.val_pred_psi_vals, dim=0).view(-1)
+        # convert lists to torch tensors
+        val_event_ids = torch.tensor(self.val_event_ids)
+        val_event_types = torch.tensor(self.val_event_types)
+        val_samples = torch.tensor(self.val_samples)
+        val_psi_vals = torch.tensor(self.val_psi_vals)
+        val_pred_psi_vals = torch.tensor(self.val_pred_psi_vals)
 
         # determine the max length across all processes
         local_size = val_pred_psi_vals.shape[0]
