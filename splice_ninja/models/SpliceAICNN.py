@@ -17,22 +17,24 @@ class FiLM(nn.Module):
     Layer that applies feature-wise linear modulation to the input tensor. Used for conditioning the network on the splicing factor expression levels and gene expression values.
     """
 
-    def __init__(self, conditioning_dim, num_features):
+    def __init__(self, conditioning_dim, num_features, dropout=0.1):
         """
         conditioning_dim: Dimensionality of the conditioning vector
         num_features: Number of channels in the feature map (C)
+        dropout: Dropout probability
         """
         super().__init__()
         self.scale = nn.Linear(conditioning_dim, num_features)
         self.shift = nn.Linear(conditioning_dim, num_features)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, conditioning):
         """
         x: Input feature map (B, C, L)
         conditioning: Conditioning vector (B, conditioning_dim)
         """
-        gamma = self.scale(conditioning).unsqueeze(-1)  # (B, C, 1)
-        beta = self.shift(conditioning).unsqueeze(-1)  # (B, C, 1)
+        gamma = self.dropout(self.scale(conditioning)).unsqueeze(-1)  # (B, C, 1)
+        beta = self.dropout(self.shift(conditioning)).unsqueeze(-1)  # (B, C, 1)
         return (x * gamma) + beta
 
 
@@ -146,6 +148,7 @@ class SpliceAI10k(nn.Module):
             num_splicing_factors + (1 if has_gene_exp_values else 0) + 4
         )  # +4 for event type one-hot encoding
 
+        self.condition_dropout = nn.Dropout(0.1)
         self.conv1 = nn.Conv1d(
             in_channels=6,
             out_channels=32,
@@ -282,6 +285,7 @@ class SpliceAI10k(nn.Module):
             if self.has_gene_exp_values
             else torch.cat([splicing_factor_exp_values, event_type_one_hot], dim=1)
         )  # (B, conditioning_dim)
+        conditioning = self.condition_dropout(conditioning)
 
         x = self.conv1(x)
         x = self.film1(x, conditioning)

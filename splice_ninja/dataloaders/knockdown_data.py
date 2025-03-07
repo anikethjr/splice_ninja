@@ -416,6 +416,8 @@ class KnockdownDataset(Dataset):
             else (-1.0).astype(np.float32),
             "splicing_factor_exp_values": splicing_factor_exp_values.astype(np.float32),
             "event_type": self.data_module.event_type_to_ind[event_type],
+            "event_id": self.data_module.event_id_to_ind[event_id],
+            "sample": self.data_module.sample_to_ind[sample],
         }
 
     def __getitem__(self, idx):
@@ -2035,6 +2037,20 @@ class KnockdownData(LightningDataModule):
         self.train_dataset = KnockdownDataset(self, split="train")
         self.val_dataset = KnockdownDataset(self, split="val")
         self.test_dataset = KnockdownDataset(self, split="test")
+
+        # get event ID to index mapping
+        self.event_id_to_ind = {
+            event_id: i for i, event_id in enumerate(self.event_info["EVENT"])
+        }
+
+        # get sample ID to index mapping
+        all_samples = self.unified_data["SAMPLE"].unique().tolist()
+        all_samples.sort()
+        self.sample_id_to_ind = {
+            sample_id: i for i, sample_id in enumerate(all_samples)
+        }
+        print("All samples:", all_samples)
+        print("Sample ID to index mapping:", self.sample_id_to_ind)
 
     def __init__(self, config: dict | str):
         super().__init__()
