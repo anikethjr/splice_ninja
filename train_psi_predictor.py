@@ -157,6 +157,12 @@ def main():
 
             previous_ckpt_path = os.path.join(ckpts_dir, previous_ckpt_path)
             print(f"Resuming from checkpoint: {previous_ckpt_path}")
+            trainer.validate(
+                model,
+                datamodule=data_module,
+                ckpt_path=previous_ckpt_path,
+                verbose=True,
+            )
             trainer.fit(model, datamodule=data_module, ckpt_path=previous_ckpt_path)
 
     if not resume_flag:
