@@ -283,8 +283,12 @@ class PSIPredictor(LightningModule):
             sample_wise_pearsonR = []
             for event_id in tqdm(sample_counts):
                 event_df = preds_df[preds_df["event_id"] == event_id]
-                spearmanR = spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
-                pearsonR = pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                spearmanR = np.nan_to_num(
+                    spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                )
+                pearsonR = np.nan_to_num(
+                    pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                )
                 sample_wise_spearmanR.append(spearmanR)
                 sample_wise_pearsonR.append(pearsonR)
             avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
