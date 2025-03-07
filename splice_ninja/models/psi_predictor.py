@@ -241,79 +241,90 @@ class PSIPredictor(LightningModule):
             )
 
             # compute correlation metrics
-            # first compute average PSI prediction per event and compare with the ground truth
-            avg_per_event = (
-                preds_df[["event_id", "psi_val", "pred_psi_val"]]
-                .groupby("event_id")
-                .mean()
-            )
-            avg_per_event = avg_per_event.reset_index()
-            avg_per_event_spearmanR = spearmanr(
-                avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
-            )[0]
-            avg_per_event_pearsonR = pearsonr(
-                avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
-            )[0]
-            self.log(
-                "val/avg_per_event_spearmanR",
-                avg_per_event_spearmanR,
-                on_step=False,
-                on_epoch=True,
-            )
-            self.log(
-                "val/avg_per_event_pearsonR",
-                avg_per_event_pearsonR,
-                on_step=False,
-                on_epoch=True,
-            )
-            print(
-                f"SpearmanR between avg predicted PSI of an event across samples and the average ground truth: {avg_per_event_spearmanR}"
-            )
-            print(
-                f"PearsonR between avg predicted PSI of an event across samples and the average ground truth: {avg_per_event_pearsonR}"
-            )
+            unique_event_types = preds_df["event_type"].unique().tolist()
+            if len(unique_event_types) > 1:
+                unique_event_types.append("ALL")
+            for event_type in unique_event_types:
+                print(f"Computing metrics for event type: {event_type}")
+                if event_type == "ALL":
+                    event_type_df = preds_df
+                else:
+                    event_type_df = preds_df[
+                        preds_df["event_type"] == event_type
+                    ].reset_index(drop=True)
+                # first compute average PSI prediction per event and compare with the ground truth
+                avg_per_event = (
+                    event_type_df[["event_id", "psi_val", "pred_psi_val"]]
+                    .groupby("event_id")
+                    .mean()
+                )
+                avg_per_event = avg_per_event.reset_index()
+                avg_per_event_spearmanR = spearmanr(
+                    avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
+                )[0]
+                avg_per_event_pearsonR = pearsonr(
+                    avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
+                )[0]
+                self.log(
+                    f"val/avg_per_{event_type}_event_spearmanR",
+                    avg_per_event_spearmanR,
+                    on_step=False,
+                    on_epoch=True,
+                )
+                self.log(
+                    f"val/avg_per_{event_type}_event_pearsonR",
+                    avg_per_event_pearsonR,
+                    on_step=False,
+                    on_epoch=True,
+                )
+                print(
+                    f"SpearmanR between avg predicted PSI of an event across samples and the average ground truth: {avg_per_event_spearmanR}"
+                )
+                print(
+                    f"PearsonR between avg predicted PSI of an event across samples and the average ground truth: {avg_per_event_pearsonR}"
+                )
 
-            # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
-            # if an event is observed in less than 10 samples, we skip it
-            # then log the average of these metrics
-            sample_counts = preds_df["event_id"].value_counts()
-            sample_counts = sample_counts[sample_counts >= 10]
-            sample_counts = sample_counts.index
-            sample_wise_spearmanR = []
-            sample_wise_pearsonR = []
-            for event_id in tqdm(sample_counts):
-                event_df = preds_df[preds_df["event_id"] == event_id]
-                spearmanR = np.nan_to_num(
-                    spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
+                # if an event is observed in less than 10 samples, we skip it
+                # then log the average of these metrics
+                sample_counts = event_type_df["event_id"].value_counts()
+                sample_counts = sample_counts[sample_counts >= 10]
+                sample_counts = sample_counts.index
+                sample_wise_spearmanR = []
+                sample_wise_pearsonR = []
+                for event_id in tqdm(sample_counts):
+                    event_df = event_type_df[event_type_df["event_id"] == event_id]
+                    spearmanR = np.nan_to_num(
+                        spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                    )
+                    pearsonR = np.nan_to_num(
+                        pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                    )
+                    sample_wise_spearmanR.append(spearmanR)
+                    sample_wise_pearsonR.append(pearsonR)
+                avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
+                avg_sample_wise_pearsonR = np.mean(sample_wise_pearsonR)
+                self.log(
+                    f"val/avg_{event_type}_sample_wise_spearmanR",
+                    avg_sample_wise_spearmanR,
+                    on_step=False,
+                    on_epoch=True,
                 )
-                pearsonR = np.nan_to_num(
-                    pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                self.log(
+                    f"val/avg_{event_type}_sample_wise_pearsonR",
+                    avg_sample_wise_pearsonR,
+                    on_step=False,
+                    on_epoch=True,
                 )
-                sample_wise_spearmanR.append(spearmanR)
-                sample_wise_pearsonR.append(pearsonR)
-            avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
-            avg_sample_wise_pearsonR = np.mean(sample_wise_pearsonR)
-            self.log(
-                "val/avg_sample_wise_spearmanR",
-                avg_sample_wise_spearmanR,
-                on_step=False,
-                on_epoch=True,
-            )
-            self.log(
-                "val/avg_sample_wise_pearsonR",
-                avg_sample_wise_pearsonR,
-                on_step=False,
-                on_epoch=True,
-            )
-            print(
-                f"Number of events observed in at least 10 samples: {len(sample_counts)}"
-            )
-            print(
-                f"Average SpearmanR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_spearmanR}"
-            )
-            print(
-                f"Average PearsonR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_pearsonR}"
-            )
+                print(
+                    f"Number of events observed in at least 10 samples: {len(sample_counts)}"
+                )
+                print(
+                    f"Average SpearmanR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_spearmanR}"
+                )
+                print(
+                    f"Average PearsonR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_pearsonR}"
+                )
 
         # clear the stored predictions
         self.val_event_ids.clear()
