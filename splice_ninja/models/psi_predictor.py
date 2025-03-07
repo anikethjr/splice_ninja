@@ -212,9 +212,9 @@ class PSIPredictor(LightningModule):
             )
             val_samples = val_samples[~torch.isnan(val_samples)].cpu().numpy()
             val_psi_vals = val_psi_vals[~torch.isnan(val_psi_vals)].cpu().numpy()
-            val_pred_psi_vals = val_pred_psi_vals[
-                ~torch.isnan(val_pred_psi_vals)
-            ].numpy()
+            val_pred_psi_vals = (
+                val_pred_psi_vals[~torch.isnan(val_pred_psi_vals)].cpu().numpy()
+            )
 
             # create a dataframe to store all predictions
             preds_df = pd.DataFrame(
