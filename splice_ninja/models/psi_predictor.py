@@ -23,7 +23,11 @@ torch.manual_seed(0)
 
 class PSIPredictor(LightningModule):
     def __init__(
-        self, config: dict | str, num_splicing_factors: int, has_gene_exp_values: bool
+        self,
+        config: dict | str,
+        num_splicing_factors: int,
+        has_gene_exp_values: bool,
+        event_type_to_ind: dict,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -32,6 +36,12 @@ class PSIPredictor(LightningModule):
             with open(config, "r") as f:
                 config = json.load(f)
         self.config = config
+        self.num_splicing_factors = num_splicing_factors
+        self.has_gene_exp_values = has_gene_exp_values
+        self.event_type_to_ind = event_type_to_ind
+        self.event_ind_to_type = {v: k for k, v in event_type_to_ind.items()}
+        print(f"Event type to index mapping: {self.event_type_to_ind}")
+        print(f"Event index to type mapping: {self.event_ind_to_type}")
 
         # define model
         self.name_to_model = {"SpliceAI10k": SpliceAI10k}
@@ -246,6 +256,7 @@ class PSIPredictor(LightningModule):
                 unique_event_types.append("ALL")
             for event_type in unique_event_types:
                 print(f"Computing metrics for event type: {event_type}")
+                event_type_name = self.event_ind_to_type[event_type]
                 if event_type == "ALL":
                     event_type_df = preds_df
                 else:
@@ -266,13 +277,13 @@ class PSIPredictor(LightningModule):
                     avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
                 )[0]
                 self.log(
-                    f"val/avg_per_{event_type}_event_spearmanR",
+                    f"val/avg_per_{event_type_name}_event_spearmanR",
                     avg_per_event_spearmanR,
                     on_step=False,
                     on_epoch=True,
                 )
                 self.log(
-                    f"val/avg_per_{event_type}_event_pearsonR",
+                    f"val/avg_per_{event_type_name}_event_pearsonR",
                     avg_per_event_pearsonR,
                     on_step=False,
                     on_epoch=True,
@@ -305,13 +316,13 @@ class PSIPredictor(LightningModule):
                 avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
                 avg_sample_wise_pearsonR = np.mean(sample_wise_pearsonR)
                 self.log(
-                    f"val/avg_{event_type}_sample_wise_spearmanR",
+                    f"val/avg_{event_type_name}_sample_wise_spearmanR",
                     avg_sample_wise_spearmanR,
                     on_step=False,
                     on_epoch=True,
                 )
                 self.log(
-                    f"val/avg_{event_type}_sample_wise_pearsonR",
+                    f"val/avg_{event_type_name}_sample_wise_pearsonR",
                     avg_sample_wise_pearsonR,
                     on_step=False,
                     on_epoch=True,

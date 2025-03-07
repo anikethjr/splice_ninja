@@ -54,7 +54,10 @@ def main():
     # setup model
     num_splicing_factors = data_module.num_splicing_factors
     has_gene_exp_values = data_module.has_gene_exp_values
-    model = PSIPredictor(config, num_splicing_factors, has_gene_exp_values)
+    event_type_to_ind = data_module.event_type_to_ind
+    model = PSIPredictor(
+        config, num_splicing_factors, has_gene_exp_values, event_type_to_ind
+    )
 
     # setup file storage
     run_name = (
