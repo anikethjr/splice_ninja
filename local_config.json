@@ -16,6 +16,7 @@
         "val_chromosomes": ["chr10", "chr22", "chrX", "chrY"],
         "test_chromosomes": ["chr4", "chr5", "chr7", "chr8", "chr20", "chr21"],
         "model_name": "SpliceAI10k",
+        "loss_fn": "MSELoss",
         "optimizer": "AdamW",
         "learning_rate": 0.001,
         "weight_decay": 0.001,

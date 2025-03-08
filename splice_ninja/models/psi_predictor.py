@@ -21,6 +21,26 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+class BiasedMSELoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_psi_val, psi_val):
+        psi_val = psi_val.view(-1, 1)
+        pred_psi_val = pred_psi_val.view(-1, 1)
+        loss = (
+            psi_val - pred_psi_val
+        ) ** 2  # compute the mean squared error per sample
+        # bias the loss towards intermediate PSI values
+        deviation_from_half = torch.abs(psi_val - 0.5)
+        # we want to increase the loss for PSI values that are closer to 0.5
+        # so we divide by the deviation from 0.5 + 1 to make the loss larger
+        # for values closer to 0.5
+        loss = loss / (deviation_from_half + 1)
+        loss = loss.mean()
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -53,7 +73,16 @@ class PSIPredictor(LightningModule):
         )
 
         # define loss function
-        self.loss_fn = nn.MSELoss()
+        if self.config["train_config"]["loss_fn"] == "MSELoss":
+            self.loss_fn = nn.MSELoss()
+        elif (
+            self.config["train_config"]["loss_fn"] == "BiasedMSELoss"
+        ):  # BiasedMSELoss is a custom loss function that makes the model concentrate more on events with intermediate PSI values i.e. 0.2 < PSI < 0.8
+            self.loss_fn = BiasedMSELoss()
+        else:
+            raise ValueError(
+                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss"
+            )
 
         # define metrics
         # no spearmanR for train metrics to avoid memory issues
