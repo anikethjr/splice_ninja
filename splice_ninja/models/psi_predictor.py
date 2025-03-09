@@ -26,7 +26,7 @@ class BiasedMSELoss(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, pred_psi_val, psi_val):
+    def forward(self, pred_psi_val, psi_val, **kwargs):
         psi_val = psi_val.view(-1, 1)
         pred_psi_val = pred_psi_val.view(-1, 1)
         loss = (
@@ -38,6 +38,27 @@ class BiasedMSELoss(nn.Module):
         # so we divide by the deviation from 0.5 + 1 to make the loss larger
         # for values closer to 0.5
         loss = loss / (deviation_from_half + 1)
+        loss = loss.mean()
+        return loss
+
+
+class BiasedMSELossBasedOnEventStd(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        event_std_psi = kwargs["event_std_psi"]
+        psi_val = psi_val.view(-1, 1)
+        pred_psi_val = pred_psi_val.view(-1, 1)
+        event_std_psi = event_std_psi.view(-1, 1)
+        loss = (
+            psi_val - pred_psi_val
+        ) ** 2  # compute the mean squared error per sample
+        # bias the loss towards events with high standard deviation across samples
+        # we want to increase the loss for events with high standard deviation
+        # so we multiply the loss by the standard deviation + 1 to make the loss larger
+        # for events with high standard deviation
+        loss = loss * (event_std_psi + 1)
         loss = loss.mean()
         return loss
 
@@ -80,9 +101,11 @@ class PSIPredictor(LightningModule):
             self.config["train_config"]["loss_fn"] == "BiasedMSELoss"
         ):  # BiasedMSELoss is a custom loss function that makes the model concentrate more on events with intermediate PSI values i.e. 0.2 < PSI < 0.8
             self.loss_fn = BiasedMSELoss()
+        elif self.config["train_config"]["loss_fn"] == "BiasedMSELossBasedOnEventStd":
+            self.loss_fn = BiasedMSELossBasedOnEventStd()
         else:
             raise ValueError(
-                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss"
+                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd"
             )
 
         # define metrics
@@ -166,7 +189,9 @@ class PSIPredictor(LightningModule):
 
     def training_step(self, batch, batch_idx):
         pred_psi_val = self(batch)
-        loss = self.loss_fn(pred_psi_val, batch["psi_val"])
+        loss = self.loss_fn(
+            pred_psi_val, batch["psi_val"], event_std_psi=batch["event_std_psi"]
+        )
         self.log("train/loss", loss, on_step=True, on_epoch=True)
         self.log_dict(
             self.train_metrics(pred_psi_val, batch["psi_val"]),
@@ -177,7 +202,9 @@ class PSIPredictor(LightningModule):
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pred_psi_val = self(batch)
-        loss = self.loss_fn(pred_psi_val, batch["psi_val"])
+        loss = self.loss_fn(
+            pred_psi_val, batch["psi_val"], event_std_psi=batch["event_std_psi"]
+        )
         self.log("val/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log_dict(
             self.val_metrics(pred_psi_val, batch["psi_val"]),

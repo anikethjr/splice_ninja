@@ -418,6 +418,11 @@ class KnockdownDataset(Dataset):
             "event_type": self.data_module.event_type_to_ind[event_type],
             "event_id": self.data_module.event_id_to_ind[event_id],
             "sample": self.data_module.sample_to_ind[sample],
+            "event_num_samples_observed": row["NUM_SAMPLES_OBSERVED"],
+            "event_mean_psi": row["MEAN_PSI"],
+            "event_std_psi": row["STD_PSI"],
+            "event_min_psi": row["MIN_PSI"],
+            "event_max_psi": row["MAX_PSI"],
         }
 
     def __getitem__(self, idx):
@@ -1499,6 +1504,17 @@ class KnockdownData(LightningDataModule):
             ] = (
                 []
             )  # whether gene expression values are available for the gene in the gene count data
+
+            event_info[
+                "NUM_SAMPLES_OBSERVED"
+            ] = []  # number of samples in which the event was observed
+            event_info["MEAN_PSI"] = []  # mean of the PSI values across samples
+            event_info[
+                "STD_PSI"
+            ] = []  # standard deviation of the PSI values across samples
+            event_info["MIN_PSI"] = []  # minimum of the PSI values across samples
+            event_info["MAX_PSI"] = []  # maximum of the PSI values across samples
+
             event_info["FullCO"] = []  # full coordinates of the event
             event_info["COMPLEX"] = []  # fine-grained event type
             event_info["CHR"] = []  # chromosome
@@ -1571,6 +1587,15 @@ class KnockdownData(LightningDataModule):
                     (not pd.isna(row["GENE_ID"]))
                     and row["GENE_ID"] in all_gene_ids_with_expression_values
                 )
+
+                # stats about the PSI values
+                psi_vals = row[psi_vals_columns].values.reshape(-1)
+                psi_vals = psi_vals[~np.isnan(psi_vals)]
+                event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
+                event_info["MEAN_PSI"].append(psi_vals.mean())
+                event_info["STD_PSI"].append(psi_vals.std())
+                event_info["MIN_PSI"].append(psi_vals.min())
+                event_info["MAX_PSI"].append(psi_vals.max())
 
                 event_info["FullCO"].append(row["FullCO"])
                 event_info["COMPLEX"].append(row["COMPLEX"])
