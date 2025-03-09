@@ -1579,7 +1579,9 @@ class KnockdownData(LightningDataModule):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
                         flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
                         flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
-                        flattened_inclusion_levels_full["PSI"].append(row[psi_col])
+                        flattened_inclusion_levels_full["PSI"].append(
+                            row[psi_col].astype(float)
+                        )
 
                 event_info["GENE"].append(row["GENE"])
                 event_info["GENE_ID"].append(row["GENE_ID"])
@@ -1589,7 +1591,7 @@ class KnockdownData(LightningDataModule):
                 )
 
                 # stats about the PSI values
-                psi_vals = row[psi_vals_columns].values.reshape(-1)
+                psi_vals = row[psi_vals_columns].values.reshape(-1).astype(float)
                 psi_vals = psi_vals[~np.isnan(psi_vals)]
                 event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
                 event_info["MEAN_PSI"].append(psi_vals.mean())
