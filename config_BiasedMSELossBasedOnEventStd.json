@@ -32,6 +32,6 @@
         "early_stopping_mode": "max",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
-        "run_name": "SpliceAI10k_EX_bs=384_lr=0.001_wd=0.001_BiasedMSELoss"
+        "run_name": "SpliceAI10k_EX_bs=384_lr=0.001_wd=0.001_BiasedMSELossBasedOnEventStd"
     }
 }
