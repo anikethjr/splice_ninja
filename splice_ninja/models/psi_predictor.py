@@ -63,6 +63,27 @@ class BiasedMSELossBasedOnEventStd(nn.Module):
         return loss
 
 
+class BiasedMSELossBasedOnNumSamplesEventObserved(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        num_samples_event_observed = kwargs["event_num_samples_observed"]
+        psi_val = psi_val.view(-1, 1)
+        pred_psi_val = pred_psi_val.view(-1, 1)
+        num_samples_event_observed = num_samples_event_observed.view(-1, 1)
+        loss = (
+            psi_val - pred_psi_val
+        ) ** 2  # compute the mean squared error per sample
+        # bias the loss towards events that are observed in more samples
+        # we want to increase the loss for events that are observed in more samples
+        # so we multiply the loss by the log of the number of samples + 1 to make the loss larger
+        # for events that are observed in more samples
+        loss = loss * torch.log2(num_samples_event_observed + 1)
+        loss = loss.mean()
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -103,9 +124,14 @@ class PSIPredictor(LightningModule):
             self.loss_fn = BiasedMSELoss()
         elif self.config["train_config"]["loss_fn"] == "BiasedMSELossBasedOnEventStd":
             self.loss_fn = BiasedMSELossBasedOnEventStd()
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "BiasedMSELossBasedOnNumSamplesEventObserved"
+        ):
+            self.loss_fn = BiasedMSELossBasedOnNumSamplesEventObserved()
         else:
             raise ValueError(
-                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd"
+                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved"
             )
 
         # define metrics
@@ -190,7 +216,13 @@ class PSIPredictor(LightningModule):
     def training_step(self, batch, batch_idx):
         pred_psi_val = self(batch)
         loss = self.loss_fn(
-            pred_psi_val, batch["psi_val"], event_std_psi=batch["event_std_psi"]
+            pred_psi_val,
+            batch["psi_val"],
+            event_num_samples_observed=batch["event_num_samples_observed"],
+            event_mean_psi=batch["event_mean_psi"],
+            event_std_psi=batch["event_std_psi"],
+            event_min_psi=batch["event_min_psi"],
+            event_max_psi=batch["event_max_psi"],
         )
         self.log("train/loss", loss, on_step=True, on_epoch=True)
         self.log_dict(
@@ -203,7 +235,13 @@ class PSIPredictor(LightningModule):
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
         pred_psi_val = self(batch)
         loss = self.loss_fn(
-            pred_psi_val, batch["psi_val"], event_std_psi=batch["event_std_psi"]
+            pred_psi_val,
+            batch["psi_val"],
+            event_num_samples_observed=batch["event_num_samples_observed"],
+            event_mean_psi=batch["event_mean_psi"],
+            event_std_psi=batch["event_std_psi"],
+            event_min_psi=batch["event_min_psi"],
+            event_max_psi=batch["event_max_psi"],
         )
         self.log("val/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log_dict(
