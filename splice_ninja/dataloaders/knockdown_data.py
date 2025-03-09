@@ -1579,9 +1579,7 @@ class KnockdownData(LightningDataModule):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
                         flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
                         flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
-                        flattened_inclusion_levels_full["PSI"].append(
-                            row[psi_col].astype(float)
-                        )
+                        flattened_inclusion_levels_full["PSI"].append(row[psi_col])
 
                 event_info["GENE"].append(row["GENE"])
                 event_info["GENE_ID"].append(row["GENE_ID"])
