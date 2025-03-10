@@ -22,6 +22,17 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+class MSELoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        psi_val = psi_val.view(-1, 1)
+        pred_psi_val = pred_psi_val.view(-1, 1)
+        loss = F.mse_loss(pred_psi_val, psi_val)
+        return loss
+
+
 class BiasedMSELoss(nn.Module):
     def __init__(self):
         super().__init__()
@@ -117,7 +128,7 @@ class PSIPredictor(LightningModule):
 
         # define loss function
         if self.config["train_config"]["loss_fn"] == "MSELoss":
-            self.loss_fn = nn.MSELoss()
+            self.loss_fn = MSELoss()
         elif (
             self.config["train_config"]["loss_fn"] == "BiasedMSELoss"
         ):  # BiasedMSELoss is a custom loss function that makes the model concentrate more on events with intermediate PSI values i.e. 0.2 < PSI < 0.8
