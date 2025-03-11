@@ -280,11 +280,16 @@ class SpliceAI10k(nn.Module):
         x = x.permute(0, 2, 1)  # (B, 6, 10000)
 
         gene_exp = gene_exp.unsqueeze(-1)  # (B, 1)
-        conditioning = (
-            torch.cat([splicing_factor_exp_values, gene_exp, event_type_one_hot], dim=1)
-            if self.has_gene_exp_values
-            else torch.cat([splicing_factor_exp_values, event_type_one_hot], dim=1)
-        )  # (B, conditioning_dim)
+        conditioning = []
+        if self.num_splicing_factors > 0:
+            conditioning.append(splicing_factor_exp_values)
+        if self.has_gene_exp_values:
+            conditioning.append(gene_exp)
+        conditioning.append(event_type_one_hot)
+        if len(conditioning) > 1:  # (B, conditioning_dim)
+            conditioning = torch.cat(conditioning, dim=1)
+        else:
+            conditioning = conditioning[0]
         conditioning = self.condition_dropout(conditioning)
 
         x = self.conv1(x)

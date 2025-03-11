@@ -110,13 +110,21 @@ class PSIPredictor(LightningModule):
             with open(config, "r") as f:
                 config = json.load(f)
         self.config = config
+
         self.num_splicing_factors = num_splicing_factors
+        if (
+            "do_not_use_splicing_factor_expression_data" in config["train_config"]
+        ) and (config["train_config"]["do_not_use_splicing_factor_expression_data"]):
+            self.num_splicing_factors = 0
+            print("Ignoring splicing factor expression data.")
+
         self.has_gene_exp_values = has_gene_exp_values
         if ("do_not_use_gene_expression_data" in config["train_config"]) and (
             config["train_config"]["do_not_use_gene_expression_data"]
         ):
             self.has_gene_exp_values = False
             print("Ignoring gene expression data.")
+
         self.event_type_to_ind = event_type_to_ind
         self.event_ind_to_type = {v: k for k, v in event_type_to_ind.items()}
         print(f"Event type to index mapping: {self.event_type_to_ind}")
