@@ -289,7 +289,7 @@ class SpliceAI10k(nn.Module):
         if len(conditioning) > 1:  # (B, conditioning_dim)
             conditioning = torch.cat(conditioning, dim=1)
         else:
-            conditioning = conditioning[0]
+            conditioning = conditioning[0].float()
         conditioning = self.condition_dropout(conditioning)
 
         x = self.conv1(x)
