@@ -136,7 +136,7 @@ class PSIPredictor(LightningModule):
             config["train_config"]["model_name"] in self.name_to_model
         ), f"Model {config['train_config']['model_name']} not found. Available models: {self.name_to_model.keys()}"
         self.model = self.name_to_model[config["train_config"]["model_name"]](
-            config, num_splicing_factors, has_gene_exp_values
+            self.config, self.num_splicing_factors, self.has_gene_exp_values
         )
 
         # define loss function
