@@ -1852,19 +1852,86 @@ class KnockdownData(LightningDataModule):
 
             print("Flattened data cached")
 
+        if "min_samples_for_event_to_be_considered" in self.config["data_config"]:
+            min_samples_for_event_to_be_considered = self.config["data_config"][
+                "min_samples_for_event_to_be_considered"
+            ]
+            if not os.path.exists(
+                f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+            ) or not os.path.exists(
+                f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+            ):
+                # filter out events that are not observed in the minimum number of samples
+                print(
+                    f"Filtering out events that are not observed in at least {min_samples_for_event_to_be_considered} samples"
+                )
+                flattened_inclusion_levels_full = pd.read_parquet(
+                    os.path.join(
+                        self.cache_dir,
+                        "flattened_inclusion_levels_full_filtered.parquet",
+                    )
+                )
+                event_info = pd.read_parquet(
+                    os.path.join(self.cache_dir, "event_info_filtered.parquet")
+                )
+
+                print("Number of events of each type before filtering:")
+                print(event_info["EVENT_TYPE"].value_counts())
+
+                print("Number of PSI values of each type before filtering:")
+                print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+                event_info = event_info.loc[
+                    event_info["NUM_SAMPLES_OBSERVED"]
+                    >= min_samples_for_event_to_be_considered
+                ].reset_index(drop=True)
+                flattened_inclusion_levels_full = flattened_inclusion_levels_full.loc[
+                    flattened_inclusion_levels_full["EVENT"].isin(event_info["EVENT"])
+                ].reset_index(drop=True)
+
+                print("Number of events of each type after filtering:")
+                print(event_info["EVENT_TYPE"].value_counts())
+
+                print("Number of PSI values of each type after filtering:")
+                print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+                event_info.to_parquet(
+                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    index=False,
+                )
+                flattened_inclusion_levels_full.to_parquet(
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    index=False,
+                )
+
+                print("Filtered data cached")
+
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
         self.normalized_gene_expression = pd.read_parquet(
             os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
         )
-        self.flattened_inclusion_levels_full = pd.read_parquet(
-            os.path.join(
-                self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+
+        if "min_samples_for_event_to_be_considered" in self.config["data_config"]:
+            min_samples_for_event_to_be_considered = self.config["data_config"][
+                "min_samples_for_event_to_be_considered"
+            ]
+            self.flattened_inclusion_levels_full = pd.read_parquet(
+                f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
             )
-        )
-        self.event_info = pd.read_parquet(
-            os.path.join(self.cache_dir, "event_info_filtered.parquet")
-        )
+            self.event_info = pd.read_parquet(
+                f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+            )
+        else:
+            self.flattened_inclusion_levels_full = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+                )
+            )
+            self.event_info = pd.read_parquet(
+                os.path.join(self.cache_dir, "event_info_filtered.parquet")
+            )
+
         self.splicing_factor_expression_levels = pd.read_parquet(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.parquet")
         )
