@@ -41,15 +41,12 @@ class KnockdownDataset(Dataset):
         self.genome = None  # Will be initialized per worker
 
         if self.split == "train":
-            self.chromosomes = self.data_module.train_chromosomes
             self.data = self.data_module.train_data
 
         elif self.split == "val":
-            self.chromosomes = self.data_module.val_chromosomes
             self.data = self.data_module.val_data
 
         elif self.split == "test":
-            self.chromosomes = self.data_module.test_chromosomes
             self.data = self.data_module.test_data
 
     def __len__(self):
@@ -2041,9 +2038,18 @@ class KnockdownData(LightningDataModule):
 
         # create datasets for training, validation, and testing
         # train dataset
-        self.train_data = self.unified_data[
-            self.unified_data["CHR"].isin(self.train_chromosomes)
-        ].reset_index(drop=True)
+        if "train_chromosomes" in self.config["train_config"]:
+            self.train_data = self.unified_data[
+                self.unified_data["CHR"].isin(self.train_chromosomes)
+            ].reset_index(drop=True)
+        elif "train_samples" in self.config["train_config"]:
+            self.train_data = self.unified_data[
+                self.unified_data["SAMPLE"].isin(self.train_samples)
+            ].reset_index(drop=True)
+        else:
+            raise Exception(
+                "Either 'train_chromosomes' or 'train_samples' must be specified in the train config"
+            )
 
         print("Train dataset:")
         print(
@@ -2070,9 +2076,18 @@ class KnockdownData(LightningDataModule):
             )
 
         # val dataset
-        self.val_data = self.unified_data[
-            self.unified_data["CHR"].isin(self.val_chromosomes)
-        ].reset_index(drop=True)
+        if "val_chromosomes" in self.config["train_config"]:
+            self.val_data = self.unified_data[
+                self.unified_data["CHR"].isin(self.val_chromosomes)
+            ].reset_index(drop=True)
+        elif "val_samples" in self.config["train_config"]:
+            self.val_data = self.unified_data[
+                self.unified_data["SAMPLE"].isin(self.val_samples)
+            ].reset_index(drop=True)
+        else:
+            raise Exception(
+                "Either 'val_chromosomes' or 'val_samples' must be specified in the train config"
+            )
 
         print("Val dataset:")
         print(
@@ -2098,9 +2113,18 @@ class KnockdownData(LightningDataModule):
             )
 
         # test dataset
-        self.test_data = self.unified_data[
-            self.unified_data["CHR"].isin(self.test_chromosomes)
-        ].reset_index(drop=True)
+        if "test_chromosomes" in self.config["train_config"]:
+            self.test_data = self.unified_data[
+                self.unified_data["CHR"].isin(self.test_chromosomes)
+            ].reset_index(drop=True)
+        elif "test_samples" in self.config["train_config"]:
+            self.test_data = self.unified_data[
+                self.unified_data["SAMPLE"].isin(self.test_samples)
+            ].reset_index(drop=True)
+        else:
+            raise Exception(
+                "Either 'test_chromosomes' or 'test_samples' must be specified in the train config"
+            )
 
         print("Test dataset:")
         print(
@@ -2202,14 +2226,23 @@ class KnockdownData(LightningDataModule):
             "ALTA": 3,
         }
 
-        # default config chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
+        # default config is chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
         # train proportion = 70.61341911926058%
         # val proportion = 9.178465157513145%
         # test proportion = 20.20811572322628%
         # split was computed using the utils.chromosome_split function
-        self.train_chromosomes = self.config["train_config"]["train_chromosomes"]
-        self.test_chromosomes = self.config["train_config"]["test_chromosomes"]
-        self.val_chromosomes = self.config["train_config"]["val_chromosomes"]
+        if "train_chromosomes" in self.config["train_config"]:
+            self.train_chromosomes = self.config["train_config"]["train_chromosomes"]
+            self.test_chromosomes = self.config["train_config"]["test_chromosomes"]
+            self.val_chromosomes = self.config["train_config"]["val_chromosomes"]
+        elif "train_samples" in self.config["train_config"]:
+            self.train_samples = self.config["train_config"]["train_samples"]
+            self.test_samples = self.config["train_config"]["test_samples"]
+            self.val_samples = self.config["train_config"]["val_samples"]
+        else:
+            raise Exception(
+                "Either 'train_chromosomes', 'test_chromosomes', and 'val_chromosomes' or 'train_samples', 'test_samples', and 'val_samples' must be specified in the train config"
+            )
 
     def train_dataloader(self):
         return DataLoader(
