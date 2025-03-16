@@ -331,6 +331,6 @@ class SpliceAI10k(nn.Module):
 
         if self.predict_mean_std_psi_and_delta:
             x = torch.cat(
-                [x, x_mean_std], dim=1
+                [x.unsqueeze(1), x_mean_std], dim=1
             )  # (B, 3) - first value is delta psi, second value is mean, third value is std
         return x
