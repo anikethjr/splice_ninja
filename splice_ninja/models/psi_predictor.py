@@ -113,14 +113,16 @@ class PSIPredictor(LightningModule):
 
         self.num_splicing_factors = num_splicing_factors
         if (
-            "do_not_use_splicing_factor_expression_data" in config["train_config"]
-        ) and (config["train_config"]["do_not_use_splicing_factor_expression_data"]):
+            "do_not_use_splicing_factor_expression_data" in self.config["train_config"]
+        ) and (
+            self.config["train_config"]["do_not_use_splicing_factor_expression_data"]
+        ):
             self.num_splicing_factors = 0
             print("Ignoring splicing factor expression data.")
 
         self.has_gene_exp_values = has_gene_exp_values
-        if ("do_not_use_gene_expression_data" in config["train_config"]) and (
-            config["train_config"]["do_not_use_gene_expression_data"]
+        if ("do_not_use_gene_expression_data" in self.config["train_config"]) and (
+            self.config["train_config"]["do_not_use_gene_expression_data"]
         ):
             self.has_gene_exp_values = False
             print("Ignoring gene expression data.")
@@ -133,9 +135,14 @@ class PSIPredictor(LightningModule):
         # define model
         self.name_to_model = {"SpliceAI10k": SpliceAI10k}
         assert (
-            config["train_config"]["model_name"] in self.name_to_model
-        ), f"Model {config['train_config']['model_name']} not found. Available models: {self.name_to_model.keys()}"
-        self.model = self.name_to_model[config["train_config"]["model_name"]](
+            self.config["train_config"]["model_name"] in self.name_to_model
+        ), f"Model {self.config['train_config']['model_name']} not found. Available models: {self.name_to_model.keys()}"
+        if "predict_mean_std_psi_and_delta" not in self.config["train_config"]:
+            self.config["train_config"]["predict_mean_std_psi_and_delta"] = False
+        self.predict_mean_std_psi_and_delta = self.config["train_config"][
+            "predict_mean_std_psi_and_delta"
+        ]
+        self.model = self.name_to_model[self.config["train_config"]["model_name"]](
             self.config, self.num_splicing_factors, self.has_gene_exp_values
         )
 
@@ -157,6 +164,9 @@ class PSIPredictor(LightningModule):
             raise ValueError(
                 f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved"
             )
+
+        if self.predict_mean_std_psi_and_delta:
+            self.mean_delta_psi_loss_fn = MSELoss()
 
         # define metrics
         # no spearmanR for train metrics to avoid memory issues
@@ -234,11 +244,19 @@ class PSIPredictor(LightningModule):
         return optimizer
 
     def forward(self, batch):
-        pred_psi_val = self.model(batch)
-        return pred_psi_val
+        preds = self.model(batch)
+        return preds
 
     def training_step(self, batch, batch_idx):
-        pred_psi_val = self(batch)
+        if self.predict_mean_std_psi_and_delta:
+            preds = self(batch)
+            pred_delta_psi_val = preds[:, 0]
+            pred_mean_psi_val = preds[:, 1]
+            pred_std_psi_val = preds[:, 2]
+            pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
+        else:
+            pred_psi_val = self(batch)
+
         loss = self.loss_fn(
             pred_psi_val,
             batch["psi_val"],
@@ -248,7 +266,18 @@ class PSIPredictor(LightningModule):
             event_min_psi=batch["event_min_psi"],
             event_max_psi=batch["event_max_psi"],
         )
+        if self.predict_mean_std_psi_and_delta:
+            mean_psi_loss = self.mean_delta_psi_loss_fn(
+                pred_mean_psi_val, batch["event_mean_psi"]
+            )
+            std_psi_loss = self.mean_delta_psi_loss_fn(
+                pred_std_psi_val, batch["event_std_psi"]
+            )
+            loss = loss + mean_psi_loss + std_psi_loss
+            self.log("train/mean_psi_loss", mean_psi_loss, on_step=True, on_epoch=True)
+            self.log("train/std_psi_loss", std_psi_loss, on_step=True, on_epoch=True)
         self.log("train/loss", loss, on_step=True, on_epoch=True)
+
         self.log_dict(
             self.train_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,
@@ -257,7 +286,15 @@ class PSIPredictor(LightningModule):
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
-        pred_psi_val = self(batch)
+        if self.predict_mean_std_psi_and_delta:
+            preds = self(batch)
+            pred_delta_psi_val = preds[:, 0]
+            pred_mean_psi_val = preds[:, 1]
+            pred_std_psi_val = preds[:, 2]
+            pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
+        else:
+            pred_psi_val = self(batch)
+
         loss = self.loss_fn(
             pred_psi_val,
             batch["psi_val"],
@@ -267,7 +304,30 @@ class PSIPredictor(LightningModule):
             event_min_psi=batch["event_min_psi"],
             event_max_psi=batch["event_max_psi"],
         )
+        if self.predict_mean_std_psi_and_delta:
+            mean_psi_loss = self.mean_delta_psi_loss_fn(
+                pred_mean_psi_val, batch["event_mean_psi"]
+            )
+            std_psi_loss = self.mean_delta_psi_loss_fn(
+                pred_std_psi_val, batch["event_std_psi"]
+            )
+            loss = loss + mean_psi_loss + std_psi_loss
+            self.log(
+                "train/mean_psi_loss",
+                mean_psi_loss,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+            self.log(
+                "train/std_psi_loss",
+                std_psi_loss,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
         self.log("val/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
+
         self.log_dict(
             self.val_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,

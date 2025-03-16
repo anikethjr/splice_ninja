@@ -141,6 +141,9 @@ class SpliceAI10k(nn.Module):
         assert (
             self.input_size == 10000
         ), "The input size should be 10000 for SpliceAI-10k model."
+        self.predict_mean_std_psi_and_delta = self.config["train_config"][
+            "predict_mean_std_psi_and_delta"
+        ]
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
@@ -258,6 +261,8 @@ class SpliceAI10k(nn.Module):
         )
 
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        if self.predict_mean_std_psi_and_delta:
+            self.mean_std_output_layer = nn.Linear(32, 2)
         self.output_layer = nn.Linear(32 + self.conditioning_dim, 1)
 
     def forward(self, batch):
@@ -315,8 +320,17 @@ class SpliceAI10k(nn.Module):
         x = x + side
         x = self.global_avg_pool(x).reshape(x.shape[0], -1)
 
+        if self.predict_mean_std_psi_and_delta:
+            x_mean_std = self.mean_std_output_layer(x)
+            x_mean_std = F.sigmoid(
+                x_mean_std
+            )  # (B, 2) - first value is mean, second value is std
         x = torch.cat([x, conditioning], dim=1)
         x = self.output_layer(x)
         x = F.sigmoid(x).reshape(-1)
 
+        if self.predict_mean_std_psi_and_delta:
+            x = torch.cat(
+                [x, x_mean_std], dim=1
+            )  # (B, 3) - first value is delta psi, second value is mean, third value is std
         return x
