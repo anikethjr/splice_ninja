@@ -416,10 +416,10 @@ class KnockdownDataset(Dataset):
             "event_id": self.data_module.event_id_to_ind[event_id],
             "sample": self.data_module.sample_to_ind[sample],
             "event_num_samples_observed": row["NUM_SAMPLES_OBSERVED"],
-            "event_mean_psi": row["MEAN_PSI"],
-            "event_std_psi": row["STD_PSI"],
-            "event_min_psi": row["MIN_PSI"],
-            "event_max_psi": row["MAX_PSI"],
+            "event_mean_psi": row["MEAN_PSI"].astype(np.float32),
+            "event_std_psi": row["STD_PSI"].astype(np.float32),
+            "event_min_psi": row["MIN_PSI"].astype(np.float32),
+            "event_max_psi": row["MAX_PSI"].astype(np.float32),
         }
 
     def __getitem__(self, idx):
