@@ -1898,14 +1898,14 @@ class KnockdownData(LightningDataModule):
                 print("Number of PSI values of each type after filtering:")
                 print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
 
-                event_info.to_parquet(
+                flattened_inclusion_levels_full.to_parquet(
                     os.path.join(
                         self.cache_dir,
                         f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
                     ),
                     index=False,
                 )
-                flattened_inclusion_levels_full.to_parquet(
+                event_info.to_parquet(
                     os.path.join(
                         self.cache_dir,
                         f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
