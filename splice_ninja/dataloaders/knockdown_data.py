@@ -1854,9 +1854,15 @@ class KnockdownData(LightningDataModule):
                 "min_samples_for_event_to_be_considered"
             ]
             if not os.path.exists(
-                f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+                os.path.join(
+                    self.cache_dir,
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                )
             ) or not os.path.exists(
-                f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+                os.path.join(
+                    self.cache_dir,
+                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                )
             ):
                 # filter out events that are not observed in the minimum number of samples
                 print(
@@ -1893,11 +1899,17 @@ class KnockdownData(LightningDataModule):
                 print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
 
                 event_info.to_parquet(
-                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    os.path.join(
+                        self.cache_dir,
+                        f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    ),
                     index=False,
                 )
                 flattened_inclusion_levels_full.to_parquet(
-                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    os.path.join(
+                        self.cache_dir,
+                        f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    ),
                     index=False,
                 )
 
