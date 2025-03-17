@@ -1926,10 +1926,16 @@ class KnockdownData(LightningDataModule):
                 "min_samples_for_event_to_be_considered"
             ]
             self.flattened_inclusion_levels_full = pd.read_parquet(
-                f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+                os.path.join(
+                    self.cache_dir,
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                )
             )
             self.event_info = pd.read_parquet(
-                f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet"
+                os.path.join(
+                    self.cache_dir,
+                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                )
             )
         else:
             self.flattened_inclusion_levels_full = pd.read_parquet(
