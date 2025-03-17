@@ -268,7 +268,7 @@ class PSIPredictor(LightningModule):
         )
         if self.predict_mean_std_psi_and_delta:
             self.log(
-                "train/psi_val_loss", loss, on_step=False, on_epoch=True, sync_dist=True
+                "train/psi_val_loss", loss, on_step=True, on_epoch=True, sync_dist=True
             )
             mean_psi_loss = self.mean_delta_psi_loss_fn(
                 pred_mean_psi_val, batch["event_mean_psi"]
