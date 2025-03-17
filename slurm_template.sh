@@ -3,10 +3,10 @@
 #SBATCH --job-name=splice_ninja
 #
 # Account:
-#SBATCH --account=co_nilah
+#SBATCH --account=fc_nilah
 #
 # Partition:
-#SBATCH --partition=savio3_gpu
+#SBATCH --partition=savio4_gpu
 #
 # QoS:
 #SBATCH --qos=savio_lowprio
@@ -15,10 +15,13 @@
 #SBATCH --ntasks=1
 #
 # Processors per task (please always specify the total number of processors twice the number of GPUs):
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=32
+#
+# Memory
+#SBATCH --mem=0
 #
 # Request one GPU:
-#SBATCH --gres=gpu:A40:2
+#SBATCH --gres=gpu:A5000:8
 #
 # Wall clock limit:
 #SBATCH --time=72:00:00
