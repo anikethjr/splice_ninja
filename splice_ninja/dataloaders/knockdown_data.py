@@ -416,11 +416,12 @@ class KnockdownDataset(Dataset):
             "event_id": self.data_module.event_id_to_ind[event_id],
             "sample": self.data_module.sample_to_ind[sample],
             "event_num_samples_observed": row["NUM_SAMPLES_OBSERVED"],
-            "event_mean_psi": row["MEAN_PSI"].astype(np.float32) / 100.0,
-            "event_std_psi": row["STD_PSI"].astype(np.float32)
-            / 100.0,  # if you convert PSI from 0-100 to 0-1, the variance will be divided by 100^2 and the standard deviation will be divided by 100
-            "event_min_psi": row["MIN_PSI"].astype(np.float32) / 100.0,
-            "event_max_psi": row["MAX_PSI"].astype(np.float32) / 100.0,
+            "event_mean_psi": (row["MEAN_PSI"] / 100.0).astype(np.float32),
+            "event_std_psi": (row["STD_PSI"] / 100.0).astype(
+                np.float32
+            ),  # if you convert PSI from 0-100 to 0-1, the variance will be divided by 100^2 and the standard deviation will be divided by 100
+            "event_min_psi": (row["MIN_PSI"] / 100.0).astype(np.float32),
+            "event_max_psi": (row["MAX_PSI"] / 100.0).astype(np.float32),
         }
 
     def __getitem__(self, idx):
