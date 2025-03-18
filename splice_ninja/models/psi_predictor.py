@@ -58,7 +58,7 @@ class BiasedMSELossBasedOnEventStd(nn.Module):
         super().__init__()
 
     def forward(self, pred_psi_val, psi_val, **kwargs):
-        event_std_psi = kwargs["event_std_psi"]
+        event_std_psi = kwargs["event_std_psi"] * 100.0
         psi_val = psi_val.view(-1, 1)
         pred_psi_val = pred_psi_val.view(-1, 1)
         event_std_psi = event_std_psi.view(-1, 1)
