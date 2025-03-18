@@ -286,89 +286,48 @@ class SpliceAI10k(nn.Module):
 
         gene_exp = gene_exp.unsqueeze(-1)  # (B, 1)
         conditioning = []
-        if self.predict_mean_std_psi_and_delta:
-            mean_std_conditioning = []
         if self.num_splicing_factors > 0:
             conditioning.append(splicing_factor_exp_values)
-            if self.predict_mean_std_psi_and_delta:
-                mean_std_conditioning.append(
-                    torch.zeros_like(splicing_factor_exp_values)
-                )
         if self.has_gene_exp_values:
             conditioning.append(gene_exp)
-            if self.predict_mean_std_psi_and_delta:
-                mean_std_conditioning.append(torch.zeros_like(gene_exp))
         conditioning.append(event_type_one_hot)
-        if self.predict_mean_std_psi_and_delta:
-            mean_std_conditioning.append(
-                event_type_one_hot
-            )  # only event type is used for mean and std conditioning
         if len(conditioning) > 1:  # (B, conditioning_dim)
             conditioning = torch.cat(conditioning, dim=1)
-            if self.predict_mean_std_psi_and_delta:
-                mean_std_conditioning = torch.cat(mean_std_conditioning, dim=1)
         else:
             conditioning = conditioning[0].float()
-            if self.predict_mean_std_psi_and_delta:
-                mean_std_conditioning = mean_std_conditioning[0].float()
-        conditioning = self.condition_dropout(
-            conditioning
-        )  # maybe modify this later to apply dropout only on splice factor and gene expression values
+        conditioning = self.condition_dropout(conditioning)
 
         x = self.conv1(x)
-        if self.predict_mean_std_psi_and_delta:
-            x_mean_std = self.film1(x, mean_std_conditioning)
         x = self.film1(x, conditioning)
         side = self.side_conv1(x)
-        if self.predict_mean_std_psi_and_delta:
-            side_mean_std = self.side_conv1(x_mean_std)
 
         for resblock in self.resblocks1:
             x = resblock(x, conditioning)
-            if self.predict_mean_std_psi_and_delta:
-                x_mean_std = resblock(x_mean_std, mean_std_conditioning)
         side = side + self.side_conv2(x)
-        if self.predict_mean_std_psi_and_delta:
-            side_mean_std = side_mean_std + self.side_conv2(x_mean_std)
 
         for resblock in self.resblocks2:
             x = resblock(x, conditioning)
-            if self.predict_mean_std_psi_and_delta:
-                x_mean_std = resblock(x_mean_std, mean_std_conditioning)
         side = side + self.side_conv3(x)
-        if self.predict_mean_std_psi_and_delta:
-            side_mean_std = side_mean_std + self.side_conv3(x_mean_std)
 
         for resblock in self.resblocks3:
             x = resblock(x, conditioning)
-            if self.predict_mean_std_psi_and_delta:
-                x_mean_std = resblock(x_mean_std, mean_std_conditioning)
         side = side + self.side_conv4(x)
-        if self.predict_mean_std_psi_and_delta:
-            side_mean_std = side_mean_std + self.side_conv4(x_mean_std)
 
         for resblock in self.resblocks4:
             x = resblock(x, conditioning)
-            if self.predict_mean_std_psi_and_delta:
-                x_mean_std = resblock(x_mean_std, mean_std_conditioning)
 
         x = self.conv2(x)
         x = x + side
         x = self.global_avg_pool(x).reshape(x.shape[0], -1)
-        x = torch.cat([x, conditioning], dim=1)
-        x = self.output_layer(x)
-        x = F.sigmoid(x).reshape(-1)
 
         if self.predict_mean_std_psi_and_delta:
-            x_mean_std = self.conv2(x_mean_std)
-            x_mean_std = x_mean_std + side_mean_std
-            x_mean_std = self.global_avg_pool(x_mean_std).reshape(
-                x_mean_std.shape[0], -1
-            )
-            x_mean_std = self.mean_std_output_layer(x_mean_std)
+            x_mean_std = self.mean_std_output_layer(x)
             x_mean_std = F.sigmoid(
                 x_mean_std
             )  # (B, 2) - first value is mean, second value is std
+        x = torch.cat([x, conditioning], dim=1)
+        x = self.output_layer(x)
+        x = F.sigmoid(x).reshape(-1)
 
         if self.predict_mean_std_psi_and_delta:
             x = torch.cat(

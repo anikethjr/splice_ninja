@@ -7,7 +7,7 @@
     "train_config": {
         "seed": 97,
         "input_size": 10000,
-        "batch_size": 192,
+        "batch_size": 384,
         "num_workers": 4,
         "remove_events_without_gene_expression_data": true,
         "gene_expression_metric": "log2TPM",
@@ -131,6 +131,6 @@
         "early_stopping_mode": "max",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
-        "run_name": "SpliceAI10k_EX_bs=192_lr=0.001_wd=0.001_sample_split_MSELoss_use_events_observed_in_min_100_samples_predict_mean_std_psi_and_delta"
+        "run_name": "SpliceAI10k_EX_bs=384_lr=0.001_wd=0.001_sample_split_MSELoss_use_events_observed_in_min_100_samples_predict_mean_std_psi_and_delta"
     }
 }
