@@ -24,8 +24,16 @@ class FiLM(nn.Module):
         dropout: Dropout probability
         """
         super().__init__()
-        self.scale = nn.Linear(conditioning_dim, num_features)
-        self.shift = nn.Linear(conditioning_dim, num_features)
+        self.scale = nn.Sequential(
+            nn.Linear(conditioning_dim, conditioning_dim * 2),
+            nn.ReLU(),
+            nn.Linear(conditioning_dim * 2, num_features),
+        )
+        self.shift = nn.Sequential(
+            nn.Linear(conditioning_dim, conditioning_dim * 2),
+            nn.ReLU(),
+            nn.Linear(conditioning_dim * 2, num_features),
+        )
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, conditioning):
@@ -287,15 +295,14 @@ class SpliceAI10k(nn.Module):
         gene_exp = gene_exp.unsqueeze(-1)  # (B, 1)
         conditioning = []
         if self.num_splicing_factors > 0:
-            conditioning.append(splicing_factor_exp_values)
+            conditioning.append(self.condition_dropout(splicing_factor_exp_values))
         if self.has_gene_exp_values:
-            conditioning.append(gene_exp)
+            conditioning.append(self.condition_dropout(gene_exp))
         conditioning.append(event_type_one_hot)
         if len(conditioning) > 1:  # (B, conditioning_dim)
             conditioning = torch.cat(conditioning, dim=1)
         else:
             conditioning = conditioning[0].float()
-        conditioning = self.condition_dropout(conditioning)
 
         x = self.conv1(x)
         x = self.film1(x, conditioning)

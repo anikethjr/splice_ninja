@@ -102,6 +102,8 @@ class PSIPredictor(LightningModule):
         num_splicing_factors: int,
         has_gene_exp_values: bool,
         event_type_to_ind: dict,
+        example_type_to_ind: dict,
+        example_types_in_this_split_type: list,
     ):
         super().__init__()
         self.save_hyperparameters()
@@ -131,6 +133,15 @@ class PSIPredictor(LightningModule):
         self.event_ind_to_type = {v: k for k, v in event_type_to_ind.items()}
         print(f"Event type to index mapping: {self.event_type_to_ind}")
         print(f"Event index to type mapping: {self.event_ind_to_type}")
+
+        self.example_type_to_ind = example_type_to_ind
+        self.example_ind_to_type = {v: k for k, v in example_type_to_ind.items()}
+        print(f"Example type to index mapping: {self.example_type_to_ind}")
+        print(f"Example index to type mapping: {self.example_ind_to_type}")
+        self.example_types_in_this_split_type = example_types_in_this_split_type
+        print(
+            f"Example types in this split type: {self.example_types_in_this_split_type}"
+        )
 
         # define model
         self.name_to_model = {"SpliceAI10k": SpliceAI10k}
@@ -193,6 +204,7 @@ class PSIPredictor(LightningModule):
         # store val set predictions to compute more complex metrics
         self.val_event_ids = []
         self.val_event_types = []
+        self.val_example_types = []
         self.val_samples = []
         self.val_psi_vals = []
         self.val_pred_psi_vals = []
@@ -286,6 +298,15 @@ class PSIPredictor(LightningModule):
             on_step=False,
             on_epoch=True,
         )
+        self.log(
+            "train/lr", self.trainer.optimizers[0].param_groups[0]["lr"], on_step=True
+        )
+        if "weight_decay" in self.trainer.optimizers[0].param_groups[0]:
+            self.log(
+                "train/weight_decay",
+                self.trainer.optimizers[0].param_groups[0]["weight_decay"],
+                on_step=True,
+            )
         return loss
 
     def validation_step(self, batch, batch_idx, dataloader_idx=0):
@@ -344,6 +365,7 @@ class PSIPredictor(LightningModule):
         # store predictions for more complex metrics
         self.val_event_ids.extend(batch["event_id"].detach().cpu())
         self.val_event_types.extend(batch["event_type"].detach().cpu())
+        self.val_example_types.extend(batch["example_type"].detach().cpu())
         self.val_samples.extend(batch["sample"].detach().cpu())
         self.val_psi_vals.extend(batch["psi_val"].detach().cpu())
         self.val_pred_psi_vals.extend(pred_psi_val.detach().cpu())
@@ -358,6 +380,7 @@ class PSIPredictor(LightningModule):
         # convert lists to torch tensors
         val_event_ids = torch.tensor(self.val_event_ids)
         val_event_types = torch.tensor(self.val_event_types)
+        val_examples_types = torch.tensor(self.val_example_types)
         val_samples = torch.tensor(self.val_samples)
         val_psi_vals = torch.tensor(self.val_psi_vals)
         val_pred_psi_vals = torch.tensor(self.val_pred_psi_vals)
@@ -378,6 +401,9 @@ class PSIPredictor(LightningModule):
         val_event_types = F.pad(
             val_event_types, (0, max_size - local_size), value=pad_value
         )
+        val_examples_types = F.pad(
+            val_examples_types, (0, max_size - local_size), value=pad_value
+        )
         val_samples = F.pad(val_samples, (0, max_size - local_size), value=pad_value)
         val_psi_vals = F.pad(val_psi_vals, (0, max_size - local_size), value=pad_value)
         val_pred_psi_vals = F.pad(
@@ -387,6 +413,7 @@ class PSIPredictor(LightningModule):
         # gather all predictions across all processes
         val_event_ids = self.all_gather(val_event_ids)
         val_event_types = self.all_gather(val_event_types)
+        val_examples_types = self.all_gather(val_examples_types)
         val_samples = self.all_gather(val_samples)
         val_psi_vals = self.all_gather(val_psi_vals)
         val_pred_psi_vals = self.all_gather(val_pred_psi_vals)
@@ -396,6 +423,7 @@ class PSIPredictor(LightningModule):
             # flatten all tensors
             val_event_ids = val_event_ids.view(-1)
             val_event_types = val_event_types.view(-1)
+            val_examples_types = val_examples_types.view(-1)
             val_samples = val_samples.view(-1)
             val_psi_vals = val_psi_vals.view(-1)
             val_pred_psi_vals = val_pred_psi_vals.view(-1)
@@ -404,6 +432,9 @@ class PSIPredictor(LightningModule):
             val_event_ids = val_event_ids[~torch.isnan(val_event_ids)].cpu().numpy()
             val_event_types = (
                 val_event_types[~torch.isnan(val_event_types)].cpu().numpy()
+            )
+            val_examples_types = (
+                val_examples_types[~torch.isnan(val_examples_types)].cpu().numpy()
             )
             val_samples = val_samples[~torch.isnan(val_samples)].cpu().numpy()
             val_psi_vals = val_psi_vals[~torch.isnan(val_psi_vals)].cpu().numpy()
@@ -416,6 +447,7 @@ class PSIPredictor(LightningModule):
                 {
                     "event_id": val_event_ids,
                     "event_type": val_event_types,
+                    "example_type": val_examples_types,
                     "sample": val_samples,
                     "psi_val": val_psi_vals,
                     "pred_psi_val": val_pred_psi_vals,
@@ -439,8 +471,10 @@ class PSIPredictor(LightningModule):
             unique_event_types = preds_df["event_type"].unique().tolist()
             if len(unique_event_types) > 1:
                 unique_event_types.append("ALL")
+            unique_example_types = preds_df["example_type"].unique().tolist()
+            if len(unique_example_types) > 1:
+                unique_example_types.append("ALL")
             for event_type in unique_event_types:
-                print(f"Computing metrics for event type: {event_type}")
                 event_type_name = self.event_ind_to_type[event_type]
                 if event_type == "ALL":
                     event_type_df = preds_df
@@ -448,185 +482,197 @@ class PSIPredictor(LightningModule):
                     event_type_df = preds_df[
                         preds_df["event_type"] == event_type
                     ].reset_index(drop=True)
-                # first compute average PSI prediction per event and compare with the ground truth
-                avg_per_event = (
-                    event_type_df[["event_id", "psi_val", "pred_psi_val"]]
-                    .groupby("event_id")
-                    .mean()
-                )
-                avg_per_event = avg_per_event.reset_index()
-                avg_per_event_spearmanR = spearmanr(
-                    avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
-                )[0]
-                avg_per_event_pearsonR = pearsonr(
-                    avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
-                )[0]
-                self.log(
-                    f"val/avg_per_{event_type_name}_event_spearmanR",
-                    avg_per_event_spearmanR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_per_{event_type_name}_event_pearsonR",
-                    avg_per_event_pearsonR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                print(
-                    f"SpearmanR between avg predicted PSI of an event across samples and the average ground truth: {avg_per_event_spearmanR}"
-                )
-                print(
-                    f"PearsonR between avg predicted PSI of an event across samples and the average ground truth: {avg_per_event_pearsonR}"
-                )
-
-                # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
-                # if an event is observed in less than 10 samples, we skip it
-                # then log the average of these metrics
-                sample_counts = event_type_df["event_id"].value_counts()
-                sample_counts = sample_counts[sample_counts >= 10]
-                sample_counts = sample_counts.index
-                std_across_samples = []
-                sample_wise_spearmanR = []
-                sample_wise_pearsonR = []
-                sample_wise_r2 = []
-                for event_id in tqdm(sample_counts):
-                    event_df = event_type_df[event_type_df["event_id"] == event_id]
-                    std_across_samples.append(np.std(event_df["psi_val"].values))
-                    spearmanR = np.nan_to_num(
-                        spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                for example_type in self.example_types_in_this_split_type:
+                    print(
+                        f"Computing metrics for event type: {event_type}, example type: {example_type}"
                     )
-                    pearsonR = np.nan_to_num(
-                        pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
-                    )
-                    r2 = np.nan_to_num(
-                        r2_score(event_df["psi_val"], event_df["pred_psi_val"])
-                    )
-                    sample_wise_spearmanR.append(spearmanR)
-                    sample_wise_pearsonR.append(pearsonR)
-                    sample_wise_r2.append(r2)
-                sample_wise_spearmanR = np.array(sample_wise_spearmanR)
-                sample_wise_pearsonR = np.array(sample_wise_pearsonR)
-                sample_wise_r2 = np.array(sample_wise_r2)
-                avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
-                avg_sample_wise_pearsonR = np.mean(sample_wise_pearsonR)
-                avg_sample_wise_r2 = np.mean(sample_wise_r2)
-                self.log(
-                    f"val/avg_{event_type_name}_sample_wise_spearmanR",
-                    avg_sample_wise_spearmanR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_sample_wise_pearsonR",
-                    avg_sample_wise_pearsonR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_sample_wise_r2",
-                    avg_sample_wise_r2,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                print(
-                    f"Number of events observed in at least 10 samples: {len(sample_counts)}"
-                )
-                print(
-                    f"Average SpearmanR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_spearmanR}"
-                )
-                print(
-                    f"Average PearsonR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_pearsonR}"
-                )
-                print(
-                    f"Average R2 score across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_r2}"
-                )
+                    example_type_name = self.example_ind_to_type[example_type]
+                    if example_type == "ALL":
+                        subset_df = event_type_df
+                    else:
+                        subset_df = event_type_df[
+                            preds_df["example_type"] == example_type
+                        ].reset_index(drop=True)
 
-                # compute metrics for events with high standard deviation across samples (std > 0.2)
-                high_std_events_mask = np.array(std_across_samples) > 0.2
-                high_std_events_avg_spearmanR = np.mean(
-                    np.array(sample_wise_spearmanR)[high_std_events_mask]
-                )
-                high_std_events_avg_pearsonR = np.mean(
-                    np.array(sample_wise_pearsonR)[high_std_events_mask]
-                )
-                high_std_events_avg_r2 = np.mean(
-                    np.array(sample_wise_r2)[high_std_events_mask]
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_high_std_events_spearmanR",
-                    high_std_events_avg_spearmanR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_high_std_events_pearsonR",
-                    high_std_events_avg_pearsonR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_high_std_events_r2",
-                    high_std_events_avg_r2,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                print(
-                    f"Number of events with high standard deviation across samples (std > 0.2): {np.sum(high_std_events_mask)}"
-                )
-                print(
-                    f"Average SpearmanR across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_spearmanR}"
-                )
-                print(
-                    f"Average PearsonR across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_pearsonR}"
-                )
-                print(
-                    f"Average R2 score across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_r2}"
-                )
+                    # first compute average PSI prediction per event and compare with the ground truth
+                    avg_per_event = (
+                        subset_df[["event_id", "psi_val", "pred_psi_val"]]
+                        .groupby("event_id")
+                        .mean()
+                    )
+                    avg_per_event = avg_per_event.reset_index()
+                    avg_per_event_spearmanR = spearmanr(
+                        avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
+                    )[0]
+                    avg_per_event_pearsonR = pearsonr(
+                        avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
+                    )[0]
+                    self.log(
+                        f"val/avg_per_{event_type_name}_event_in_{example_type_name}_examples_spearmanR",
+                        avg_per_event_spearmanR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_per_{event_type_name}_event_in_{example_type_name}_examples_pearsonR",
+                        avg_per_event_pearsonR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"SpearmanR between avg predicted PSI of an event across samples and the average ground truth in {example_type_name} examples: {avg_per_event_spearmanR}"
+                    )
+                    print(
+                        f"PearsonR between avg predicted PSI of an event across samples and the average ground truth in {example_type_name} examples: {avg_per_event_pearsonR}"
+                    )
 
-                # compute metrics for events with most variance (top 25%)
-                most_var_events = np.argsort(std_across_samples)[
-                    -int(0.25 * len(std_across_samples)) :
-                ]
-                most_var_events_avg_spearmanR = np.mean(
-                    np.array(sample_wise_spearmanR)[most_var_events]
-                )
-                most_var_events_avg_pearsonR = np.mean(
-                    np.array(sample_wise_pearsonR)[most_var_events]
-                )
-                most_var_events_avg_r2 = np.mean(
-                    np.array(sample_wise_r2)[most_var_events]
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_most_var_events_spearmanR",
-                    most_var_events_avg_spearmanR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_most_var_events_pearsonR",
-                    most_var_events_avg_pearsonR,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                self.log(
-                    f"val/avg_{event_type_name}_most_var_events_r2",
-                    most_var_events_avg_r2,
-                    on_step=False,
-                    on_epoch=True,
-                )
-                print(
-                    f"Number of events with most variance (top 25%): {len(most_var_events)}, avg std: {np.mean(np.array(std_across_samples)[most_var_events])}"
-                )
-                print(
-                    f"Average SpearmanR across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_spearmanR}"
-                )
-                print(
-                    f"Average PearsonR across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_pearsonR}"
-                )
-                print(
-                    f"Average R2 score across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_r2}"
-                )
+                    # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
+                    # if an event is observed in less than 10 samples, we skip it
+                    # then log the average of these metrics
+                    sample_counts = subset_df["event_id"].value_counts()
+                    sample_counts = sample_counts[sample_counts >= 10]
+                    sample_counts = sample_counts.index
+                    std_across_samples = []
+                    sample_wise_spearmanR = []
+                    sample_wise_pearsonR = []
+                    sample_wise_r2 = []
+                    for event_id in tqdm(sample_counts):
+                        event_df = event_type_df[event_type_df["event_id"] == event_id]
+                        std_across_samples.append(np.std(event_df["psi_val"].values))
+                        spearmanR = np.nan_to_num(
+                            spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                        )
+                        pearsonR = np.nan_to_num(
+                            pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                        )
+                        r2 = np.nan_to_num(
+                            r2_score(event_df["psi_val"], event_df["pred_psi_val"])
+                        )
+                        sample_wise_spearmanR.append(spearmanR)
+                        sample_wise_pearsonR.append(pearsonR)
+                        sample_wise_r2.append(r2)
+                    sample_wise_spearmanR = np.array(sample_wise_spearmanR)
+                    sample_wise_pearsonR = np.array(sample_wise_pearsonR)
+                    sample_wise_r2 = np.array(sample_wise_r2)
+                    avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
+                    avg_sample_wise_pearsonR = np.mean(sample_wise_pearsonR)
+                    avg_sample_wise_r2 = np.mean(sample_wise_r2)
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_sample_wise_spearmanR",
+                        avg_sample_wise_spearmanR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_sample_wise_pearsonR",
+                        avg_sample_wise_pearsonR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_sample_wise_r2",
+                        avg_sample_wise_r2,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Number of events observed in at least 10 samples: {len(sample_counts)}"
+                    )
+                    print(
+                        f"Average SpearmanR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_spearmanR}"
+                    )
+                    print(
+                        f"Average PearsonR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_pearsonR}"
+                    )
+                    print(
+                        f"Average R2 score across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_r2}"
+                    )
+
+                    # compute metrics for events with high standard deviation across samples (std > 0.2)
+                    high_std_events_mask = np.array(std_across_samples) > 0.2
+                    high_std_events_avg_spearmanR = np.mean(
+                        np.array(sample_wise_spearmanR)[high_std_events_mask]
+                    )
+                    high_std_events_avg_pearsonR = np.mean(
+                        np.array(sample_wise_pearsonR)[high_std_events_mask]
+                    )
+                    high_std_events_avg_r2 = np.mean(
+                        np.array(sample_wise_r2)[high_std_events_mask]
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_high_std_events_spearmanR",
+                        high_std_events_avg_spearmanR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_high_std_events_pearsonR",
+                        high_std_events_avg_pearsonR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_high_std_events_r2",
+                        high_std_events_avg_r2,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Number of events with high standard deviation across samples (std > 0.2): {np.sum(high_std_events_mask)}"
+                    )
+                    print(
+                        f"Average SpearmanR across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_spearmanR}"
+                    )
+                    print(
+                        f"Average PearsonR across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_pearsonR}"
+                    )
+                    print(
+                        f"Average R2 score across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_r2}"
+                    )
+
+                    # compute metrics for events with most variance (top 25%)
+                    most_var_events = np.argsort(std_across_samples)[
+                        -int(0.25 * len(std_across_samples)) :
+                    ]
+                    most_var_events_avg_spearmanR = np.mean(
+                        np.array(sample_wise_spearmanR)[most_var_events]
+                    )
+                    most_var_events_avg_pearsonR = np.mean(
+                        np.array(sample_wise_pearsonR)[most_var_events]
+                    )
+                    most_var_events_avg_r2 = np.mean(
+                        np.array(sample_wise_r2)[most_var_events]
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_most_var_events_spearmanR",
+                        most_var_events_avg_spearmanR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_most_var_events_pearsonR",
+                        most_var_events_avg_pearsonR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_most_var_events_r2",
+                        most_var_events_avg_r2,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Number of events with most variance (top 25%): {len(most_var_events)}, avg std: {np.mean(np.array(std_across_samples)[most_var_events])}"
+                    )
+                    print(
+                        f"Average SpearmanR across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_spearmanR}"
+                    )
+                    print(
+                        f"Average PearsonR across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_pearsonR}"
+                    )
+                    print(
+                        f"Average R2 score across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_r2}"
+                    )
 
         # clear the stored predictions
         self.val_event_ids.clear()

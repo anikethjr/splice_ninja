@@ -39,6 +39,8 @@ class KnockdownDataset(Dataset):
         self.genome_name = "GRCh38.p14"
         self.genomes_dir = os.path.join(self.data_module.cache_dir, "genomes")
         self.genome = None  # Will be initialized per worker
+        self.use_shifts_during_training = self.data_module.use_shifts_during_training
+        self.shift_max = self.data_module.shift_max
 
         if self.split == "train":
             self.data = self.data_module.train_data
@@ -59,6 +61,7 @@ class KnockdownDataset(Dataset):
         event_type = row["EVENT_TYPE"]
         sample = row["SAMPLE"]
         psi_val = row["PSI"]
+        example_type = "train" if self.split == "train" else row["example_type"]
 
         # get expression of host gene
         has_gene_exp_values = row["HAS_GENE_EXP_VALUES"]
@@ -403,6 +406,39 @@ class KnockdownDataset(Dataset):
             spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
             spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
+        if self.split == "train" and self.use_shifts_during_training:
+            shift = np.random.randint(-self.shift_max, self.shift_max + 1)
+            # shift sequence/masks and pad with zeros
+            if shift > 0:
+                sequence_inds = np.concatenate(
+                    [np.zeros(shift), sequence_inds[:-shift]]
+                )
+                spliced_in_mask = np.concatenate(
+                    [np.zeros(shift), spliced_in_mask[:-shift]]
+                )
+                spliced_out_mask = np.concatenate(
+                    [np.zeros(shift), spliced_out_mask[:-shift]]
+                )
+            elif shift < 0:
+                sequence_inds = np.concatenate(
+                    [sequence_inds[-shift:], np.zeros(-shift)]
+                )
+                spliced_in_mask = np.concatenate(
+                    [spliced_in_mask[-shift:], np.zeros(-shift)]
+                )
+                spliced_out_mask = np.concatenate(
+                    [spliced_out_mask[-shift:], np.zeros(-shift)]
+                )
+            assert (
+                len(sequence_inds) == self.input_size
+            ), f"Sequence length is {len(sequence_inds)} but expected length is {self.input_size}, idx: {idx}"
+            assert (
+                len(spliced_in_mask) == self.input_size
+            ), f"Spliced-in mask length is {len(spliced_in_mask)} but expected length is {self.input_size}, idx: {idx}"
+            assert (
+                len(spliced_out_mask) == self.input_size
+            ), f"Spliced-out mask length is {len(spliced_out_mask)} but expected length is {self.input_size}, idx: {idx}"
+
         return {
             "sequence": sequence_inds.astype(np.int8),
             "spliced_in_mask": spliced_in_mask.astype(np.int8),
@@ -422,6 +458,7 @@ class KnockdownDataset(Dataset):
             ),  # if you convert PSI from 0-100 to 0-1, the variance will be divided by 100^2 and the standard deviation will be divided by 100
             "event_min_psi": (row["MIN_PSI"] / 100.0).astype(np.float32),
             "event_max_psi": (row["MAX_PSI"] / 100.0).astype(np.float32),
+            "example_type": self.data_module.example_type_to_ind[example_type],
         }
 
     def __getitem__(self, idx):
@@ -2057,20 +2094,99 @@ class KnockdownData(LightningDataModule):
             )
 
         # create datasets for training, validation, and testing
-        # train dataset
-        if "train_chromosomes" in self.config["train_config"]:
+        if self.split_type == "chromosome":
             self.train_data = self.unified_data[
                 self.unified_data["CHR"].isin(self.train_chromosomes)
             ].reset_index(drop=True)
-        elif "train_samples" in self.config["train_config"]:
+            self.val_data = self.unified_data[
+                self.unified_data["CHR"].isin(self.val_chromosomes)
+            ].reset_index(drop=True)
+            self.val_data["example_type"] = "heldout_chromosome"
+            self.test_data = self.unified_data[
+                self.unified_data["CHR"].isin(self.test_chromosomes)
+            ].reset_index(drop=True)
+            self.test_data["example_type"] = "heldout_chromosome"
+
+            self.example_types_in_this_split_type = ["train", "heldout_chromosome"]
+        elif self.split_type == "sample":
             self.train_data = self.unified_data[
                 self.unified_data["SAMPLE"].isin(self.train_samples)
             ].reset_index(drop=True)
+            self.val_data = self.unified_data[
+                self.unified_data["SAMPLE"].isin(self.val_samples)
+            ].reset_index(drop=True)
+            self.val_data["example_type"] = "heldout_sample"
+            self.test_data = self.unified_data[
+                self.unified_data["SAMPLE"].isin(self.test_samples)
+            ].reset_index(drop=True)
+            self.test_data["example_type"] = "heldout_sample"
+
+            self.example_types_in_this_split_type = ["train", "heldout_sample"]
+        elif self.split_type == "chromosome_and_sample":
+            self.train_data = self.unified_data[
+                self.unified_data["CHR"].isin(self.train_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.train_samples)
+            ].reset_index(drop=True)
+
+            # there are three types of val/test examples:
+            # 1. examples from the val/test chromosomes and val/test samples
+            # 2. examples from the val/test chromosomes and train samples
+            # 3. examples from the train chromosomes and val/test samples
+            # we will use all three types and quantify performance on all three types separately as well as combined
+            self.val_data = []
+            t1 = self.unified_data[
+                self.unified_data["CHR"].isin(self.val_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.val_samples)
+            ].reset_index(drop=True)
+            t1["example_type"] = "heldout_chromosome_and_sample"
+            self.val_data.append(t1)
+            t2 = self.unified_data[
+                self.unified_data["CHR"].isin(self.val_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.train_samples)
+            ].reset_index(drop=True)
+            t2["example_type"] = "heldout_chromosome_and_train_sample"
+            self.val_data.append(t2)
+            t3 = self.unified_data[
+                self.unified_data["CHR"].isin(self.train_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.val_samples)
+            ].reset_index(drop=True)
+            t3["example_type"] = "heldout_sample_and_train_chromosome"
+            self.val_data.append(t3)
+            self.val_data = pd.concat(self.val_data, ignore_index=True)
+
+            self.test_data = []
+            t1 = self.unified_data[
+                self.unified_data["CHR"].isin(self.test_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.test_samples)
+            ].reset_index(drop=True)
+            t1["example_type"] = "heldout_chromosome_and_sample"
+            self.test_data.append(t1)
+            t2 = self.unified_data[
+                self.unified_data["CHR"].isin(self.test_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.train_samples)
+            ].reset_index(drop=True)
+            t2["example_type"] = "heldout_chromosome_and_train_sample"
+            self.test_data.append(t2)
+            t3 = self.unified_data[
+                self.unified_data["CHR"].isin(self.train_chromosomes)
+                & self.unified_data["SAMPLE"].isin(self.test_samples)
+            ].reset_index(drop=True)
+            t3["example_type"] = "heldout_sample_and_train_chromosome"
+            self.test_data.append(t3)
+            self.test_data = pd.concat(self.test_data, ignore_index=True)
+
+            self.example_types_in_this_split_type = [
+                "train",
+                "heldout_chromosome_and_sample",
+                "heldout_chromosome_and_train_sample",
+                "heldout_sample_and_train_chromosome",
+            ]
         else:
             raise Exception(
-                "Either 'train_chromosomes' or 'train_samples' must be specified in the train config"
+                f"Invalid split type specified in config: {self.split_type}"
             )
 
+        # train dataset stats
         print("Train dataset:")
         print(
             "Number of PSI values: {} ({}%)".format(
@@ -2086,6 +2202,22 @@ class KnockdownData(LightningDataModule):
                 / len(self.unified_data["EVENT"].unique()),
             )
         )
+        print(
+            "Number of chromosomes: {} ({}%)".format(
+                len(self.train_data["CHR"].unique()),
+                100
+                * len(self.train_data["CHR"].unique())
+                / len(self.unified_data["CHR"].unique()),
+            )
+        )
+        print(
+            "Number of samples: {} ({}%)".format(
+                len(self.train_data["SAMPLE"].unique()),
+                100
+                * len(self.train_data["SAMPLE"].unique())
+                / len(self.unified_data["SAMPLE"].unique()),
+            )
+        )
 
         print("Number of PSI values of each event type:")
         full_value_counts = self.unified_data["EVENT_TYPE"].value_counts()
@@ -2095,20 +2227,7 @@ class KnockdownData(LightningDataModule):
                 f"{event_type}: {train_value_counts[event_type]} ({train_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
-        # val dataset
-        if "val_chromosomes" in self.config["train_config"]:
-            self.val_data = self.unified_data[
-                self.unified_data["CHR"].isin(self.val_chromosomes)
-            ].reset_index(drop=True)
-        elif "val_samples" in self.config["train_config"]:
-            self.val_data = self.unified_data[
-                self.unified_data["SAMPLE"].isin(self.val_samples)
-            ].reset_index(drop=True)
-        else:
-            raise Exception(
-                "Either 'val_chromosomes' or 'val_samples' must be specified in the train config"
-            )
-
+        # val dataset stats
         print("Val dataset:")
         print(
             "Number of PSI values: {} ({}%)".format(
@@ -2124,6 +2243,27 @@ class KnockdownData(LightningDataModule):
                 / len(self.unified_data["EVENT"].unique()),
             )
         )
+        print(
+            "Number of chromosomes: {} ({}%)".format(
+                len(self.val_data["CHR"].unique()),
+                100
+                * len(self.val_data["CHR"].unique())
+                / len(self.unified_data["CHR"].unique()),
+            )
+        )
+        print(
+            "Number of samples: {} ({}%)".format(
+                len(self.val_data["SAMPLE"].unique()),
+                100
+                * len(self.val_data["SAMPLE"].unique())
+                / len(self.unified_data["SAMPLE"].unique()),
+            )
+        )
+
+        for example_type in self.val_data["example_type"].unique():
+            print(
+                f"Number of PSI values for example type {example_type}: {len(self.val_data[self.val_data['example_type'] == example_type])} ({100 * len(self.val_data[self.val_data['example_type'] == example_type]) / len(self.val_data):.2f}%)"
+            )
 
         print("Number of PSI values of each event type:")
         val_value_counts = self.val_data["EVENT_TYPE"].value_counts()
@@ -2132,20 +2272,7 @@ class KnockdownData(LightningDataModule):
                 f"{event_type}: {val_value_counts[event_type]} ({val_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
-        # test dataset
-        if "test_chromosomes" in self.config["train_config"]:
-            self.test_data = self.unified_data[
-                self.unified_data["CHR"].isin(self.test_chromosomes)
-            ].reset_index(drop=True)
-        elif "test_samples" in self.config["train_config"]:
-            self.test_data = self.unified_data[
-                self.unified_data["SAMPLE"].isin(self.test_samples)
-            ].reset_index(drop=True)
-        else:
-            raise Exception(
-                "Either 'test_chromosomes' or 'test_samples' must be specified in the train config"
-            )
-
+        # test dataset stats
         print("Test dataset:")
         print(
             "Number of PSI values: {} ({}%)".format(
@@ -2161,6 +2288,27 @@ class KnockdownData(LightningDataModule):
                 / len(self.unified_data["EVENT"].unique()),
             )
         )
+        print(
+            "Number of chromosomes: {} ({}%)".format(
+                len(self.test_data["CHR"].unique()),
+                100
+                * len(self.test_data["CHR"].unique())
+                / len(self.unified_data["CHR"].unique()),
+            )
+        )
+        print(
+            "Number of samples: {} ({}%)".format(
+                len(self.test_data["SAMPLE"].unique()),
+                100
+                * len(self.test_data["SAMPLE"].unique())
+                / len(self.unified_data["SAMPLE"].unique()),
+            )
+        )
+
+        for example_type in self.test_data["example_type"].unique():
+            print(
+                f"Number of PSI values for example type {example_type}: {len(self.test_data[self.test_data['example_type'] == example_type])} ({100 * len(self.test_data[self.test_data['example_type'] == example_type]) / len(self.test_data):.2f}%)"
+            )
 
         print("Number of PSI values of each event type:")
         test_value_counts = self.test_data["EVENT_TYPE"].value_counts()
@@ -2206,6 +2354,14 @@ class KnockdownData(LightningDataModule):
         L.seed_everything(self.seed)
 
         self.input_size = self.config["train_config"]["input_size"]
+        if "use_shifts_during_training" in self.config["train_config"]:
+            self.use_shifts_during_training = self.config["train_config"][
+                "use_shifts_during_training"
+            ]
+            self.shift_max = self.config["train_config"]["shift_max"]
+        else:
+            self.use_shifts_during_training = False
+            self.shift_max = 0
         self.remove_events_without_gene_expression_data = self.config["train_config"][
             "remove_events_without_gene_expression_data"
         ]
@@ -2246,23 +2402,66 @@ class KnockdownData(LightningDataModule):
             "ALTA": 3,
         }
 
-        # default config is chromosome split so that train-val-test split is 70-10-20 roughly amoung filtered splicing events
-        # train proportion = 70.61341911926058%
-        # val proportion = 9.178465157513145%
-        # test proportion = 20.20811572322628%
-        # split was computed using the utils.chromosome_split function
-        if "train_chromosomes" in self.config["train_config"]:
+        # identify split type prepare parameters accordingly
+        if "split_type" in self.config["train_config"]:
+            self.split_type = self.config["train_config"]["split_type"]
+        else:
+            self.split_type = (
+                "chromosome"
+                if "train_chromosomes" in self.config["train_config"]
+                else "sample"
+                if "train_samples" in self.config["train_config"]
+                else None
+            )
+            if self.split_type is None:
+                raise Exception(
+                    "Either 'train_chromosomes', 'test_chromosomes', and 'val_chromosomes', or 'train_samples', 'test_samples', and 'val_samples' must be specified in the train config if 'split_type' is not specified"
+                )
+        assert self.split_type in [
+            "chromosome",
+            "sample",
+            "chromosome_and_sample",
+        ], "Invalid split type specified in config, must be one of 'chromosome', 'sample', 'chromosome_and_sample'"
+
+        if self.split_type == "chromosome":
+            assert (
+                "train_chromosomes" in self.config["train_config"]
+                and "test_chromosomes" in self.config["train_config"]
+                and "val_chromosomes" in self.config["train_config"]
+            ), "If split type is 'chromosome', 'train_chromosomes', 'test_chromosomes', and 'val_chromosomes' must be specified in the train config"
+        elif self.split_type == "sample":
+            assert (
+                "train_samples" in self.config["train_config"]
+                and "test_samples" in self.config["train_config"]
+                and "val_samples" in self.config["train_config"]
+            ), "If split type is 'sample', 'train_samples', 'test_samples', and 'val_samples' must be specified in the train config"
+        elif self.split_type == "chromosome_and_sample":
+            assert (
+                "train_chromosomes" in self.config["train_config"]
+                and "test_chromosomes" in self.config["train_config"]
+                and "val_chromosomes" in self.config["train_config"]
+                and "train_samples" in self.config["train_config"]
+                and "test_samples" in self.config["train_config"]
+                and "val_samples" in self.config["train_config"]
+            ), "If split type is 'chromosome_and_sample', 'train_chromosomes', 'test_chromosomes', 'val_chromosomes', 'train_samples', 'test_samples', and 'val_samples' must be specified in the train config"
+
+        if "chromosome" in self.split_type:
             self.train_chromosomes = self.config["train_config"]["train_chromosomes"]
             self.test_chromosomes = self.config["train_config"]["test_chromosomes"]
             self.val_chromosomes = self.config["train_config"]["val_chromosomes"]
-        elif "train_samples" in self.config["train_config"]:
+        if "sample" in self.split_type:
             self.train_samples = self.config["train_config"]["train_samples"]
             self.test_samples = self.config["train_config"]["test_samples"]
             self.val_samples = self.config["train_config"]["val_samples"]
-        else:
-            raise Exception(
-                "Either 'train_chromosomes', 'test_chromosomes', and 'val_chromosomes' or 'train_samples', 'test_samples', and 'val_samples' must be specified in the train config"
-            )
+
+        self.example_type_to_ind = {
+            "train": 0,
+            "heldout_chromosome": 1,
+            "heldout_sample": 2,
+            "heldout_chromosome_and_sample": 3,
+            "heldout_chromosome_and_train_sample": 4,
+            "heldout_sample_and_train_chromosome": 5,
+        }
 
     def train_dataloader(self):
         return DataLoader(
