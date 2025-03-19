@@ -2128,11 +2128,12 @@ class KnockdownData(LightningDataModule):
                 & self.unified_data["SAMPLE"].isin(self.train_samples)
             ].reset_index(drop=True)
 
-            # there are three types of val/test examples:
+            # there are four types of val/test examples:
             # 1. examples from the val/test chromosomes and val/test samples
             # 2. examples from the val/test chromosomes and train samples
             # 3. examples from the train chromosomes and val/test samples
-            # we will use all three types and quantify performance on all three types separately as well as combined
+            # 4. examples from the val chromosomes and test samples (opposite for test) - these are not used to avoid data leakage
+            # we will use the first three types and quantify performance on them separately as well as combined
             self.val_data = []
             t1 = self.unified_data[
                 self.unified_data["CHR"].isin(self.val_chromosomes)
@@ -2185,10 +2186,6 @@ class KnockdownData(LightningDataModule):
             raise Exception(
                 f"Invalid split type specified in config: {self.split_type}"
             )
-
-        assert (len(self.train_data) + len(self.val_data) + len(self.test_data)) == len(
-            self.unified_data
-        ), "Number of examples in the splits does not match the number of examples in the unified data"
 
         # train dataset stats
         print("Train dataset:")
