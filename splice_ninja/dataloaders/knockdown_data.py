@@ -2186,6 +2186,10 @@ class KnockdownData(LightningDataModule):
                 f"Invalid split type specified in config: {self.split_type}"
             )
 
+        assert (len(self.train_data) + len(self.val_data) + len(self.test_data)) == len(
+            self.unified_data
+        ), "Number of examples in the splits does not match the number of examples in the unified data"
+
         # train dataset stats
         print("Train dataset:")
         print(

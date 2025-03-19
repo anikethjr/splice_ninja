@@ -475,24 +475,26 @@ class PSIPredictor(LightningModule):
             if len(unique_example_types) > 1:
                 unique_example_types.append("ALL")
             for event_type in unique_event_types:
-                event_type_name = self.event_ind_to_type[event_type]
                 if event_type == "ALL":
                     event_type_df = preds_df
+                    event_type_name = "ALL"
                 else:
                     event_type_df = preds_df[
                         preds_df["event_type"] == event_type
                     ].reset_index(drop=True)
-                for example_type in self.example_types_in_this_split_type:
+                    event_type_name = self.event_ind_to_type[event_type]
+                for example_type in unique_example_types:
                     print(
                         f"Computing metrics for event type: {event_type}, example type: {example_type}"
                     )
-                    example_type_name = self.example_ind_to_type[example_type]
                     if example_type == "ALL":
                         subset_df = event_type_df
+                        example_type_name = "ALL"
                     else:
                         subset_df = event_type_df[
                             preds_df["example_type"] == example_type
                         ].reset_index(drop=True)
+                        example_type_name = self.example_ind_to_type[example_type]
 
                     # first compute average PSI prediction per event and compare with the ground truth
                     avg_per_event = (
