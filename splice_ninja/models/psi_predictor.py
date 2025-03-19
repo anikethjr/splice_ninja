@@ -679,11 +679,13 @@ class PSIPredictor(LightningModule):
         # clear the stored predictions
         self.val_event_ids.clear()
         self.val_event_types.clear()
+        self.val_examples_types.clear()
         self.val_samples.clear()
         self.val_psi_vals.clear()
         self.val_pred_psi_vals.clear()
         self.val_event_ids = []
         self.val_event_types = []
+        self.val_examples_types = []
         self.val_samples = []
         self.val_psi_vals = []
         self.val_pred_psi_vals = []
