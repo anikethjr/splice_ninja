@@ -339,6 +339,7 @@
         },
         "early_stopping_metric": "val/spearmanR",
         "early_stopping_mode": "max",
+        "wandb_team": "promoter_design",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
         "run_name": "SpliceAI10k_EX_bs=192x8_lr=0.001_wd=0.001_MSELoss_no_shifts_during_training"

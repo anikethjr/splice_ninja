@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import pdb
 import json
+import wandb
 from argparse import ArgumentParser, BooleanOptionalAction
 from tqdm import tqdm
 
@@ -22,6 +23,21 @@ from splice_ninja.models.psi_predictor import PSIPredictor
 np.random.seed(0)
 torch.manual_seed(0)
 torch.set_float32_matmul_precision("medium")
+
+
+def get_latest_wandb_run_id_from_run_name(team, project, run_name):
+    """Retrieve the most recent wandb run ID given a run name."""
+    api = wandb.Api()
+    runs = api.runs(f"{team}/{project}")
+
+    # Filter runs by name and sort by created timestamp (latest first)
+    matching_runs = sorted(
+        [run for run in runs if run.name == run_name],
+        key=lambda r: r.created_at,  # Sort by creation time
+        reverse=True,  # Latest run first
+    )
+
+    return matching_runs[0].id if matching_runs else None
 
 
 def parse_args():
@@ -85,10 +101,21 @@ def main():
     os.makedirs(ckpts_dir, exist_ok=True)
 
     # setup callbacks + trainer
+    team_name = config["train_config"]["wandb_team"]
+    project_name = config["train_config"]["wandb_project"]
+    existing_run_id = get_latest_wandb_run_id_from_run_name(
+        team_name, project_name, run_name
+    )
+    if existing_run_id is None:
+        print("No existing run found.")
+    else:
+        print(f"Resuming wandb logging from run ID: {existing_run_id}")
     logger = WandbLogger(
-        project="splice_ninja",
+        project=project_name,
         name=run_name,
         save_dir=logs_dir,
+        id=existing_run_id,
+        resume="must" if existing_run_id is not None else "allow",
     )
 
     early_stopping_metric = config["train_config"]["early_stopping_metric"]
@@ -167,12 +194,12 @@ def main():
 
             previous_ckpt_path = os.path.join(ckpts_dir, previous_ckpt_path)
             print(f"Resuming from checkpoint: {previous_ckpt_path}")
-            trainer.validate(
-                model,
-                datamodule=data_module,
-                ckpt_path=previous_ckpt_path,
-                verbose=True,
-            )
+            # trainer.validate(
+            #     model,
+            #     datamodule=data_module,
+            #     ckpt_path=previous_ckpt_path,
+            #     verbose=True,
+            # )
             trainer.fit(model, datamodule=data_module, ckpt_path=previous_ckpt_path)
 
     if not resume_flag:
