@@ -380,7 +380,7 @@ class PSIPredictor(LightningModule):
         # convert lists to torch tensors
         val_event_ids = torch.tensor(self.val_event_ids)
         val_event_types = torch.tensor(self.val_event_types)
-        val_examples_types = torch.tensor(self.val_example_types)
+        val_example_types = torch.tensor(self.val_example_types)
         val_samples = torch.tensor(self.val_samples)
         val_psi_vals = torch.tensor(self.val_psi_vals)
         val_pred_psi_vals = torch.tensor(self.val_pred_psi_vals)
@@ -401,8 +401,8 @@ class PSIPredictor(LightningModule):
         val_event_types = F.pad(
             val_event_types, (0, max_size - local_size), value=pad_value
         )
-        val_examples_types = F.pad(
-            val_examples_types, (0, max_size - local_size), value=pad_value
+        val_example_types = F.pad(
+            val_example_types, (0, max_size - local_size), value=pad_value
         )
         val_samples = F.pad(val_samples, (0, max_size - local_size), value=pad_value)
         val_psi_vals = F.pad(val_psi_vals, (0, max_size - local_size), value=pad_value)
@@ -413,7 +413,7 @@ class PSIPredictor(LightningModule):
         # gather all predictions across all processes
         val_event_ids = self.all_gather(val_event_ids)
         val_event_types = self.all_gather(val_event_types)
-        val_examples_types = self.all_gather(val_examples_types)
+        val_example_types = self.all_gather(val_example_types)
         val_samples = self.all_gather(val_samples)
         val_psi_vals = self.all_gather(val_psi_vals)
         val_pred_psi_vals = self.all_gather(val_pred_psi_vals)
@@ -423,7 +423,7 @@ class PSIPredictor(LightningModule):
             # flatten all tensors
             val_event_ids = val_event_ids.view(-1)
             val_event_types = val_event_types.view(-1)
-            val_examples_types = val_examples_types.view(-1)
+            val_example_types = val_example_types.view(-1)
             val_samples = val_samples.view(-1)
             val_psi_vals = val_psi_vals.view(-1)
             val_pred_psi_vals = val_pred_psi_vals.view(-1)
@@ -433,8 +433,8 @@ class PSIPredictor(LightningModule):
             val_event_types = (
                 val_event_types[~torch.isnan(val_event_types)].cpu().numpy()
             )
-            val_examples_types = (
-                val_examples_types[~torch.isnan(val_examples_types)].cpu().numpy()
+            val_example_types = (
+                val_example_types[~torch.isnan(val_example_types)].cpu().numpy()
             )
             val_samples = val_samples[~torch.isnan(val_samples)].cpu().numpy()
             val_psi_vals = val_psi_vals[~torch.isnan(val_psi_vals)].cpu().numpy()
@@ -447,7 +447,7 @@ class PSIPredictor(LightningModule):
                 {
                     "event_id": val_event_ids,
                     "event_type": val_event_types,
-                    "example_type": val_examples_types,
+                    "example_type": val_example_types,
                     "sample": val_samples,
                     "psi_val": val_psi_vals,
                     "pred_psi_val": val_pred_psi_vals,
@@ -679,11 +679,13 @@ class PSIPredictor(LightningModule):
         # clear the stored predictions
         self.val_event_ids.clear()
         self.val_event_types.clear()
+        self.val_example_types.clear()
         self.val_samples.clear()
         self.val_psi_vals.clear()
         self.val_pred_psi_vals.clear()
         self.val_event_ids = []
         self.val_event_types = []
+        self.val_example_types = []
         self.val_samples = []
         self.val_psi_vals = []
         self.val_pred_psi_vals = []
