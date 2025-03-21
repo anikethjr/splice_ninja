@@ -336,3 +336,7 @@ def main():
         ), "Ground truth PSI values do not match."
         df.to_csv(os.path.join(predictions_dir, "preds.csv"), index=False)
         print(f"Predictions saved to {predictions_dir}/preds.csv")
+
+
+if __name__ == "__main__":
+    main()
