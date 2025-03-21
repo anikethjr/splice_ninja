@@ -182,6 +182,9 @@ def main():
             resume_flag = False
         else:
             previous_ckpts = os.listdir(ckpts_dir)
+            previous_ckpts = [
+                x for x in previous_ckpts if x.endswith(".ckpt")
+            ]  # filter out other files
             print("Previous checkpoints found: ", previous_ckpts)
 
             # sort by epoch number
