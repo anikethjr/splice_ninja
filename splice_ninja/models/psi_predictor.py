@@ -691,8 +691,21 @@ class PSIPredictor(LightningModule):
         self.val_pred_psi_vals = []
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        pred_psi_val = self(batch)
-        return {
-            "pred_psi_val": pred_psi_val,
-            "psi_val": batch["psi_val"],
-        }
+        if self.predict_mean_std_psi_and_delta:
+            preds = self(batch)
+            pred_delta_psi_val = preds[:, 0]
+            pred_mean_psi_val = preds[:, 1]
+            pred_std_psi_val = preds[:, 2]
+            pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
+        else:
+            pred_psi_val = self(batch)
+
+        if "psi_val" in batch:
+            return {
+                "pred_psi_val": pred_psi_val,
+                "psi_val": batch["psi_val"],
+            }
+        else:
+            return {
+                "pred_psi_val": pred_psi_val,
+            }
