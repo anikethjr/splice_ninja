@@ -297,15 +297,13 @@ def main():
         pred_psi_vals = []
         batch_indices = []
         for i in range(n_gpus):
-            p = torch.load(os.path.join(args.predictions_dir, f"predictions_{i}.pt"))
+            p = torch.load(os.path.join(predictions_dir, f"predictions_{i}.pt"))
             psi_val = np.concatenate([batch["psi_val"] for batch in p])
             pred_psi_val = np.concatenate([batch["pred_psi_val"] for batch in p])
             psi_vals.append(psi_val)
             pred_psi_vals.append(pred_psi_val)
 
-            bi = torch.load(
-                os.path.join(args.predictions_dir, f"batch_indices_{i}.pt")
-            )[0]
+            bi = torch.load(os.path.join(predictions_dir, f"batch_indices_{i}.pt"))[0]
             bi = np.concatenate([inds for inds in bi])
             batch_indices.append(bi)
 
