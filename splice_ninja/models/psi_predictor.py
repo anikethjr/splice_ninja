@@ -95,6 +95,37 @@ class BiasedMSELossBasedOnNumSamplesEventObserved(nn.Module):
         return loss
 
 
+class RankingLoss(nn.Module):
+    def __init__(self, margin=0):
+        super().__init__()
+        self.margin = margin
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        # Create all pairwise differences
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)  # (N, N)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)  # (N, N)
+
+        # Get ranking labels: 1 if psi_val_i > psi_val_j, -1 if vice versa, 0 if equal
+        ranking_labels = torch.sign(true_diff)
+
+        # Flatten for loss computation
+        pred_diff = pred_diff.flatten()
+        ranking_labels = ranking_labels.flatten()
+        
+        # Apply margin ranking loss, masking out zero-label (equal) pairs
+        valid_pairs = ranking_labels != 0
+        if valid_pairs.sum() == 0:
+            return torch.tensor(0.0, device=pred_psi_val.device)  # No valid ranking pairs
+        
+        loss = F.margin_ranking_loss(
+            pred_diff[valid_pairs], 
+            torch.zeros_like(pred_diff[valid_pairs]),  # Target is 0 margin
+            ranking_labels[valid_pairs],
+            margin=self.margin
+        )
+        return loss
+        
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -171,9 +202,14 @@ class PSIPredictor(LightningModule):
             == "BiasedMSELossBasedOnNumSamplesEventObserved"
         ):
             self.loss_fn = BiasedMSELossBasedOnNumSamplesEventObserved()
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "RankingLoss"
+        ):
+            self.loss_fn = RankingLoss()
         else:
             raise ValueError(
-                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved"
+                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingLoss"
             )
 
         if self.predict_mean_std_psi_and_delta:
