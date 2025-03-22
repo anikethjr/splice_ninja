@@ -96,9 +96,10 @@ class BiasedMSELossBasedOnNumSamplesEventObserved(nn.Module):
 
 
 class RankingAndMSELoss(nn.Module):
-    def __init__(self, margin=0):
+    def __init__(self, margin=0, ranking_loss_weight=1e4):
         super().__init__()
         self.margin = margin
+        self.ranking_loss_weight = ranking_loss_weight  # needed to balance the ranking loss with the MSE loss, ranking loss is about 1e4 times smaller than MSE loss from experiments
 
     def forward(self, pred_psi_val, psi_val, **kwargs):
         # Create all pairwise differences
@@ -115,11 +116,14 @@ class RankingAndMSELoss(nn.Module):
         # Apply margin ranking loss, masking out zero-label (equal) pairs
         valid_pairs = ranking_labels != 0
         if valid_pairs.sum() != 0:
-            loss = F.margin_ranking_loss(
-                pred_diff[valid_pairs],
-                torch.zeros_like(pred_diff[valid_pairs]),  # Target is 0 margin
-                ranking_labels[valid_pairs],
-                margin=self.margin,
+            loss = (
+                F.margin_ranking_loss(
+                    pred_diff[valid_pairs],
+                    torch.zeros_like(pred_diff[valid_pairs]),  # Target is 0 margin
+                    ranking_labels[valid_pairs],
+                    margin=self.margin,
+                )
+                * self.ranking_loss_weight
             )
 
             # Add MSE loss
