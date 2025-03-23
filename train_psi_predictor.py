@@ -185,6 +185,9 @@ def main():
             previous_ckpts = [
                 x for x in previous_ckpts if x.endswith(".ckpt")
             ]  # filter out other files
+            previous_ckpts = [
+                x for x in previous_ckpts if "epoch" in x
+            ]  # filter out other files like "best.ckpt"
             print("Previous checkpoints found: ", previous_ckpts)
 
             # sort by epoch number
