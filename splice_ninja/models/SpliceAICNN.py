@@ -152,6 +152,7 @@ class SpliceAI10k(nn.Module):
         self.predict_mean_std_psi_and_delta = self.config["train_config"][
             "predict_mean_std_psi_and_delta"
         ]
+        self.predict_logits = "Logits" in self.config["train_config"]["loss_fn"]
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
@@ -329,12 +330,16 @@ class SpliceAI10k(nn.Module):
 
         if self.predict_mean_std_psi_and_delta:
             x_mean_std = self.mean_std_output_layer(x)
-            x_mean_std = F.sigmoid(
-                x_mean_std
-            )  # (B, 2) - first value is mean, second value is std
+            if not self.predict_logits:
+                x_mean_std = F.sigmoid(
+                    x_mean_std
+                )  # (B, 2) - first value is mean, second value is std
         x = torch.cat([x, conditioning], dim=1)
         x = self.output_layer(x)
-        x = F.sigmoid(x).reshape(-1)
+        if not self.predict_logits:
+            x = F.sigmoid(x).reshape(-1)
+        else:
+            x = x.reshape(-1)
 
         if self.predict_mean_std_psi_and_delta:
             x = torch.cat(

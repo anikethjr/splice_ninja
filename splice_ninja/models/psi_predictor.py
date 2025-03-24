@@ -135,6 +135,79 @@ class RankingAndMSELoss(nn.Module):
         return loss
 
 
+class BCEWithLogitsLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        psi_val = psi_val.view(-1, 1)
+        pred_psi_val = pred_psi_val.view(-1, 1)
+        loss = F.binary_cross_entropy_with_logits(pred_psi_val, psi_val)
+        return loss
+
+
+class BCEWithLogitsBiasedLossBasedOnEventStd(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        event_std_psi = kwargs["event_std_psi"] * 100.0
+        psi_val = psi_val.view(-1, 1)
+        pred_psi_val = pred_psi_val.view(-1, 1)
+        event_std_psi = event_std_psi.view(-1, 1)
+        loss = F.binary_cross_entropy_with_logits(pred_psi_val, psi_val)
+        # bias the loss towards events with high standard deviation across samples
+        # we want to increase the loss for events with high standard deviation
+        # so we multiply the loss by the standard deviation + 1 to make the loss larger
+        # for events with high standard deviation
+        loss = loss * (event_std_psi + 1)
+        return loss
+
+
+class RankingAndBCEWithLogitsLoss(nn.Module):
+    def __init__(self, margin=0, ranking_loss_weight=1):
+        super().__init__()
+        self.margin = margin
+        self.ranking_loss_weight = ranking_loss_weight
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        # Create all pairwise differences
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+
+        # Get ranking labels: 1 if psi_val_i > psi_val_j, -1 if vice versa, 0 if equal
+        ranking_labels = torch.sign(true_diff)
+
+        # Flatten for loss computation
+        pred_diff = pred_diff.flatten()
+        ranking_labels = ranking_labels.flatten()
+
+        # Apply margin ranking loss, masking out zero-label (equal) pairs
+        valid_pairs = ranking_labels != 0
+        if valid_pairs.sum() != 0:
+            loss = (
+                F.margin_ranking_loss(
+                    pred_diff[valid_pairs],
+                    torch.zeros_like(pred_diff[valid_pairs]),  # Target is 0 margin
+                    ranking_labels[valid_pairs],
+                    margin=self.margin,
+                )
+                * self.ranking_loss_weight
+            )
+
+            # Add BCEWithLogits loss
+            loss += F.binary_cross_entropy_with_logits(
+                pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
+            )
+        else:
+            # only BCEWithLogits loss if no valid pairs
+            loss = F.binary_cross_entropy_with_logits(
+                pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
+            )
+
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -213,13 +286,25 @@ class PSIPredictor(LightningModule):
             self.loss_fn = BiasedMSELossBasedOnNumSamplesEventObserved()
         elif self.config["train_config"]["loss_fn"] == "RankingAndMSELoss":
             self.loss_fn = RankingAndMSELoss()
+        elif self.config["train_config"]["loss_fn"] == "BCEWithLogitsLoss":
+            self.loss_fn = BCEWithLogitsLoss()
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "BCEWithLogitsBiasedLossBasedOnEventStd"
+        ):
+            self.loss_fn = BCEWithLogitsBiasedLossBasedOnEventStd()
+        elif self.config["train_config"]["loss_fn"] == "RankingAndBCEWithLogitsLoss":
+            self.loss_fn = RankingAndBCEWithLogitsLoss()
         else:
             raise ValueError(
-                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingAndMSELoss."
+                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingAndMSELoss, BCEWithLogitsLoss, BCEWithLogitsBiasedLossBasedOnEventStd, RankingAndBCEWithLogitsLoss."
             )
 
         if self.predict_mean_std_psi_and_delta:
-            self.mean_delta_psi_loss_fn = MSELoss()
+            if "Logits" not in self.config["train_config"]["loss_fn"]:
+                self.mean_delta_psi_loss_fn = MSELoss()
+            else:
+                self.mean_delta_psi_loss_fn = BCEWithLogitsLoss()
 
         # define metrics
         # no spearmanR for train metrics to avoid memory issues
@@ -405,6 +490,8 @@ class PSIPredictor(LightningModule):
         )
 
         # store predictions for more complex metrics
+        if "Logits" in self.config["train_config"]["loss_fn"]:
+            pred_psi_val = torch.sigmoid(pred_psi_val)
         self.val_event_ids.extend(batch["event_id"].detach().cpu())
         self.val_event_types.extend(batch["event_type"].detach().cpu())
         self.val_example_types.extend(batch["example_type"].detach().cpu())
@@ -741,6 +828,9 @@ class PSIPredictor(LightningModule):
             pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
         else:
             pred_psi_val = self(batch)
+
+        if "Logits" in self.config["train_config"]["loss_fn"]:
+            pred_psi_val = torch.sigmoid(pred_psi_val)
 
         if "psi_val" in batch:
             return {
