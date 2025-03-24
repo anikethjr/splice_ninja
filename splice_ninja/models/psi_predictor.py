@@ -146,7 +146,7 @@ class BCEWithLogitsLoss(nn.Module):
         return loss
 
 
-class BCEWithLogitsBiasedLossBasedOnEventStd(nn.Module):
+class BiasedBCEWithLogitsLossBasedOnEventStd(nn.Module):
     def __init__(self):
         super().__init__()
 
@@ -290,14 +290,14 @@ class PSIPredictor(LightningModule):
             self.loss_fn = BCEWithLogitsLoss()
         elif (
             self.config["train_config"]["loss_fn"]
-            == "BCEWithLogitsBiasedLossBasedOnEventStd"
+            == "BiasedBCEWithLogitsLossBasedOnEventStd"
         ):
-            self.loss_fn = BCEWithLogitsBiasedLossBasedOnEventStd()
+            self.loss_fn = BiasedBCEWithLogitsLossBasedOnEventStd()
         elif self.config["train_config"]["loss_fn"] == "RankingAndBCEWithLogitsLoss":
             self.loss_fn = RankingAndBCEWithLogitsLoss()
         else:
             raise ValueError(
-                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingAndMSELoss, BCEWithLogitsLoss, BCEWithLogitsBiasedLossBasedOnEventStd, RankingAndBCEWithLogitsLoss."
+                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingAndMSELoss, BCEWithLogitsLoss, BiasedBCEWithLogitsLossBasedOnEventStd, RankingAndBCEWithLogitsLoss."
             )
 
         if self.predict_mean_std_psi_and_delta:
