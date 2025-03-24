@@ -155,12 +155,15 @@ class BiasedBCEWithLogitsLossBasedOnEventStd(nn.Module):
         psi_val = psi_val.view(-1, 1)
         pred_psi_val = pred_psi_val.view(-1, 1)
         event_std_psi = event_std_psi.view(-1, 1)
-        loss = F.binary_cross_entropy_with_logits(pred_psi_val, psi_val)
+        loss = F.binary_cross_entropy_with_logits(
+            pred_psi_val, psi_val, reduction="none"
+        )
         # bias the loss towards events with high standard deviation across samples
         # we want to increase the loss for events with high standard deviation
         # so we multiply the loss by the standard deviation + 1 to make the loss larger
         # for events with high standard deviation
         loss = loss * (event_std_psi + 1)
+        loss = loss.mean()
         return loss
 
 
