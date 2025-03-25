@@ -423,6 +423,8 @@ class PSIPredictor(LightningModule):
             self.log("train/std_psi_loss", std_psi_loss, on_step=True, on_epoch=True)
         self.log("train/loss", loss, on_step=True, on_epoch=True)
 
+        if "Logits" in self.config["train_config"]["loss_fn"]:
+            pred_psi_val = torch.sigmoid(pred_psi_val)
         self.log_dict(
             self.train_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,
@@ -485,6 +487,8 @@ class PSIPredictor(LightningModule):
             )
         self.log("val/loss", loss, on_step=False, on_epoch=True, sync_dist=True)
 
+        if "Logits" in self.config["train_config"]["loss_fn"]:
+            pred_psi_val = torch.sigmoid(pred_psi_val)
         self.log_dict(
             self.val_metrics(pred_psi_val, batch["psi_val"]),
             on_step=False,
@@ -493,8 +497,6 @@ class PSIPredictor(LightningModule):
         )
 
         # store predictions for more complex metrics
-        if "Logits" in self.config["train_config"]["loss_fn"]:
-            pred_psi_val = torch.sigmoid(pred_psi_val)
         self.val_event_ids.extend(batch["event_id"].detach().cpu())
         self.val_event_types.extend(batch["event_type"].detach().cpu())
         self.val_example_types.extend(batch["example_type"].detach().cpu())
