@@ -142,7 +142,7 @@ class NEventsPerBatchDistributedSampler(
         indices = []
 
         cur_event_idx = 0
-        current_batch_idxs = np.zeros(self.batch_size)
+        current_batch_idxs = np.zeros(self.batch_size, dtype=int)
         while num_batches_so_far < total_num_batches:
             for event_id, event_data in self.grouped_rank_data:
                 # stop yielding if we have enough batches
