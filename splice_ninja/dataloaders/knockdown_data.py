@@ -12,6 +12,7 @@ from statsmodels.stats.multitest import multipletests
 import genomepy
 
 import torch
+import torch.distributed as dist
 from torch.utils.data import Dataset, DataLoader
 
 import lightning as L
@@ -28,6 +29,113 @@ def worker_init_fn(worker_id):
     worker_info.dataset.genome = genomepy.Genome(
         worker_info.dataset.genome_name, genomes_dir=worker_info.dataset.genomes_dir
     )
+
+
+# DistributedSampler if we want to have one event per batch
+class OneEventPerBatchDistributedSampler(
+    torch.utils.data.distributed.DistributedSampler
+):
+    def split_data_among_ranks(self):
+        # function to split data among ranks
+
+        # set seed - add epoch to seed to shuffle differently each epoch
+        self.seed = self.data_module.config["train_config"]["seed"] + self.epoch
+        np.random.seed(self.seed)
+        # get full data
+        if self.split == "train":
+            data = self.data_module.train_data
+        else:
+            raise ValueError(
+                f"OneEventPerBatchDistributedSampler should only be used with the train split, not {self.split}"
+            )
+
+        # get unique event IDs
+        self.event_ids = self.data["EVENT"].unique()
+        # shuffle the event IDs
+        np.random.shuffle(self.event_ids)
+
+        # split the event IDs among the ranks
+        self.event_ids = np.array_split(self.event_ids, self.num_replicas)[self.rank]
+
+        # subset the data to only include the events in the event IDs
+        # we only need the row idx and the event ID
+        self.this_rank_data = data.loc[data["EVENT"].isin(self.event_ids), ["EVENT"]]
+
+        # compute length
+        self.length = len(data) // self.num_replicas
+        self.length = self.length - (
+            self.length % self.batch_size
+        )  # make sure the length is a multiple of the batch size
+        assert (
+            self.length % self.batch_size == 0
+        ), f"Length is not a multiple of the batch size, length: {self.length}, batch size: {self.batch_size}"
+        print(
+            "Rank: {}, Seed: {}, Length: {}, Num events: {}, Num examples: {}".format(
+                self.rank,
+                self.seed,
+                self.length,
+                len(self.event_ids),
+                len(self.this_rank_data),
+            )
+        )
+
+    def __init__(self, data_module, num_replicas=None, rank=None, split="train"):
+        self.data_module = data_module
+        self.split = split
+
+        # get the number of replicas and rank if not provided
+        if num_replicas is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            num_replicas = dist.get_world_size()
+        if rank is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            rank = dist.get_rank()
+        if rank >= num_replicas or rank < 0:
+            raise ValueError(
+                f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]"
+            )
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+        # get batch size
+        self.batch_size = self.data_module.config["train_config"]["batch_size"]
+
+        # split data among ranks
+        self.epoch = 0
+        self.split_data_among_ranks()
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+        self.split_data_among_ranks()
+
+    def __len__(self):
+        return self.length
+
+    def __iter__(self):
+        self.this_rank_data = self.this_rank_data.groupby("EVENT")
+
+        num_batches_so_far = 0
+        total_num_batches = len(self.this_rank_data) // self.batch_size
+
+        indices = []
+        while num_batches_so_far < total_num_batches:
+            for event_id, event_data in self.this_rank_data:
+                # stop yielding if we have enough batches
+                if num_batches_so_far >= total_num_batches:
+                    break
+
+                # sample batch_size examples for the event
+                this_event_idx_sample = np.random.choice(
+                    event_data.index,
+                    size=self.batch_size,
+                    replace=False if len(event_data) >= self.batch_size else True,
+                ).tolist()
+                indices.extend(this_event_idx_sample)
+                num_batches_so_far += 1
+
+        return iter(indices)
 
 
 # Datast for the knockdown data
@@ -2472,6 +2580,12 @@ class KnockdownData(LightningDataModule):
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
             worker_init_fn=worker_init_fn,
+            sampler=OneEventPerBatchDistributedSampler(self)
+            if (
+                "one_event_per_batch" in self.config["train_config"]
+                and self.config["train_config"]["one_event_per_batch"]
+            )
+            else None,
         )
 
     def val_dataloader(self):
