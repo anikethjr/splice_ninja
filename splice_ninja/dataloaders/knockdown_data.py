@@ -115,7 +115,7 @@ class OneEventPerBatchDistributedSampler(
 
     def __iter__(self):
         num_batches_so_far = 0
-        total_num_batches = len(self.this_rank_data) // self.batch_size
+        total_num_batches = self.length // self.batch_size
 
         self.this_rank_data = self.this_rank_data.groupby("EVENT")
         indices = []
