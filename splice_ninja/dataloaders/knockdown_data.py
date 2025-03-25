@@ -118,6 +118,9 @@ class OneEventPerBatchDistributedSampler(
         total_num_batches = self.length // self.batch_size
 
         self.this_rank_data = self.this_rank_data.groupby("EVENT")
+        assert len(self.this_rank_data) == len(
+            self.event_ids
+        ), f"Length of this_rank_data is {len(self.this_rank_data)} but expected length is {len(self.event_ids)}"
         indices = []
         while num_batches_so_far < total_num_batches:
             for event_id, event_data in self.this_rank_data:
@@ -133,13 +136,11 @@ class OneEventPerBatchDistributedSampler(
                 ).tolist()
                 indices.extend(this_event_idx_sample)
                 num_batches_so_far += 1
+        num_unique_indices = len(set(indices))
 
         print(
-            "Rank: {}, Seed: {}, Length: {}, Indices len: {}".format(
-                self.rank,
-                self.seed,
-                self.length,
-                len(indices),
+            "Rank: {}, Seed: {}, Length: {}, Indices len: {}, Num unique indices: {}".format(
+                self.rank, self.seed, self.length, len(indices), num_unique_indices
             )
         )
 
