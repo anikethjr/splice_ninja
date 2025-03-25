@@ -50,7 +50,7 @@ class OneEventPerBatchDistributedSampler(
             )
 
         # get unique event IDs
-        self.event_ids = self.data["EVENT"].unique()
+        self.event_ids = data["EVENT"].unique()
         # shuffle the event IDs
         np.random.shuffle(self.event_ids)
 
