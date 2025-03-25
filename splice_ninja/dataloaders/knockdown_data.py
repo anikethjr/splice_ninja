@@ -2576,7 +2576,12 @@ class KnockdownData(LightningDataModule):
         return DataLoader(
             self.train_dataset,
             batch_size=self.config["train_config"]["batch_size"],
-            shuffle=True,
+            shuffle=None
+            if (
+                "one_event_per_batch" in self.config["train_config"]
+                and self.config["train_config"]["one_event_per_batch"]
+            )
+            else True,
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
             worker_init_fn=worker_init_fn,
