@@ -324,7 +324,7 @@
         "test_chromosomes": ["chr1", "chr3", "chr5", "chr7", "chr9"],
         "model_name": "SpliceAI10k",
         "loss_fn": "RankingAndBCEWithLogitsLoss",
-        "N_events_per_batch": 1,
+        "N_events_per_batch": 8,
         "optimizer": "AdamW",
         "use_shifts_during_training": false,
         "shift_max": 100,
@@ -343,6 +343,6 @@
         "wandb_team": "promoter_design",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
-        "run_name": "SpliceAI10k_EX_bs=192x8_lr=0.001_wd=0.001_RankingAndBCEWithLogitsLoss_one_event_per_batch_chr_split"
+        "run_name": "SpliceAI10k_EX_bs=192x8_lr=0.001_wd=0.001_RankingAndBCEWithLogitsLoss_8_events_per_batch_chr_split"
     }
 }

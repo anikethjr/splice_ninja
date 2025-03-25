@@ -31,8 +31,8 @@ def worker_init_fn(worker_id):
     )
 
 
-# DistributedSampler if we want to have one event per batch
-class OneEventPerBatchDistributedSampler(
+# DistributedSampler if we want to have N events per batch
+class NEventsPerBatchDistributedSampler(
     torch.utils.data.distributed.DistributedSampler
 ):
     def split_data_among_ranks(self):
@@ -46,7 +46,7 @@ class OneEventPerBatchDistributedSampler(
             data = self.data_module.train_data
         else:
             raise ValueError(
-                f"OneEventPerBatchDistributedSampler should only be used with the train split, not {self.split}"
+                f"NEventsPerBatchDistributedSampler should only be used with the train split, not {self.split}"
             )
 
         # get unique event IDs
@@ -99,8 +99,26 @@ class OneEventPerBatchDistributedSampler(
         self.num_replicas = num_replicas
         self.rank = rank
 
+        # get N
+        assert (
+            "N_events_per_batch" in self.data_module.config["train_config"]
+        ), "N_events_per_batch should be in the config to use NEventsPerBatchDistributedSampler"
+        self.N_events_per_batch = self.data_module.config["train_config"][
+            "N_events_per_batch"
+        ]
+
         # get batch size
         self.batch_size = self.data_module.config["train_config"]["batch_size"]
+
+        # compute examples per event
+        if self.batch_size % self.N_events_per_batch != 0:
+            print(
+                "WARNING: Batch size is not a multiple of N_events_per_batch, all events might not have the same number of examples in a batch"
+            )
+        self.examples_per_event = np.array_split(
+            np.arange(self.batch_size), self.N_events_per_batch
+        )
+        print(f"Examples per event: {self.examples_per_event}")
 
         # split data among ranks
         self.epoch = 0
@@ -117,25 +135,43 @@ class OneEventPerBatchDistributedSampler(
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
 
-        self.this_rank_data = self.this_rank_data.groupby("EVENT")
-        assert len(self.this_rank_data) == len(
+        self.grouped_rank_data = self.this_rank_data.groupby("EVENT")
+        assert len(self.grouped_rank_data) == len(
             self.event_ids
-        ), f"Length of this_rank_data is {len(self.this_rank_data)} but expected length is {len(self.event_ids)}"
+        ), f"Expected number of events: {len(self.event_ids)}, actual number of events: {len(self.grouped_rank_data)}"
         indices = []
+
+        cur_event_idx = 0
+        current_batch_idxs = np.zeros(self.batch_size)
         while num_batches_so_far < total_num_batches:
-            for event_id, event_data in self.this_rank_data:
+            for event_id, event_data in self.grouped_rank_data:
                 # stop yielding if we have enough batches
                 if num_batches_so_far >= total_num_batches:
                     break
 
-                # sample batch_size examples for the event
-                this_event_idx_sample = np.random.choice(
+                # sample examples for the event
+                examples_needed_from_event = len(self.examples_per_event[cur_event_idx])
+                current_batch_idxs[
+                    self.examples_per_event[cur_event_idx]
+                ] = np.random.choice(
                     event_data.index,
-                    size=self.batch_size,
-                    replace=False if len(event_data) >= self.batch_size else True,
-                ).tolist()
-                indices.extend(this_event_idx_sample)
-                num_batches_so_far += 1
+                    size=examples_needed_from_event,
+                    replace=False
+                    if len(event_data) >= examples_needed_from_event
+                    else True,
+                )
+                cur_event_idx += 1
+
+                # if N events have been sampled, yield the indices
+                if cur_event_idx == self.N_events_per_batch:
+                    indices.extend(current_batch_idxs.tolist())
+                    num_batches_so_far += 1
+                    cur_event_idx = 0
+
+            # shuffle the events
+            self.this_rank_data = self.this_rank_data.sample(frac=1)
+            self.grouped_rank_data = self.this_rank_data.groupby("EVENT")
+
         num_unique_indices = len(set(indices))
 
         print(
@@ -2586,19 +2622,13 @@ class KnockdownData(LightningDataModule):
             self.train_dataset,
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=None
-            if (
-                "one_event_per_batch" in self.config["train_config"]
-                and self.config["train_config"]["one_event_per_batch"]
-            )
+            if ("N_events_per_batch" in self.config["train_config"])
             else True,
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
             worker_init_fn=worker_init_fn,
-            sampler=OneEventPerBatchDistributedSampler(self)
-            if (
-                "one_event_per_batch" in self.config["train_config"]
-                and self.config["train_config"]["one_event_per_batch"]
-            )
+            sampler=NEventsPerBatchDistributedSampler(self)
+            if ("N_events_per_batch" in self.config["train_config"])
             else None,
         )
 
