@@ -170,7 +170,7 @@ class NEventsPerBatchDistributedSampler(
 
             # shuffle the events
             self.this_rank_data = self.this_rank_data.sample(frac=1)
-            self.grouped_rank_data = self.this_rank_data.groupby("EVENT")
+            self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
 
         num_unique_indices = len(set(indices))
 
