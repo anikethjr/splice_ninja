@@ -135,7 +135,7 @@ class NEventsPerBatchDistributedSampler(
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
 
-        self.grouped_rank_data = self.this_rank_data.groupby("EVENT")
+        self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
             self.event_ids
         ), f"Expected number of events: {len(self.event_ids)}, actual number of events: {len(self.grouped_rank_data)}"
