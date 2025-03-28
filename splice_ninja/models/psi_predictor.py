@@ -864,8 +864,8 @@ class PSIPredictor(LightningModule):
                     ] > (low_std_events_df["mean_psi_val"] + 0.1)
 
                     # we check for 4 things:
-                    # 1. does the model predict the mean PSI correctly? (should be within 0.05 of the ground truth)
-                    # 2. does the model predict the std PSI correctly? (should be within 0.025 of the ground truth)
+                    # 1. does the model predict the mean PSI correctly? (should be within 0.01 of the ground truth)
+                    # 2. does the model predict the std PSI correctly? (should be within 0.01 of the ground truth)
                     # 3. does the model correctly identify samples with significantly different PSI values? track the average percentile of the samples that are predicted to be significantly different from the mean - ranking should be based on the absolute difference between the predicted PSI and the mean predicted PSI.
                     # 4. does the model correctly predict the direction of the deviation? track the average percentile of the samples that are predicted to be significantly different from the mean - ranking should be based on the signed difference between the predicted PSI and the mean predicted PSI.
 
@@ -890,7 +890,7 @@ class PSIPredictor(LightningModule):
                         .reset_index(drop=True)
                     )
                     accuracy = (
-                        temp["|mean_predicted_psi - mean_psi_val|"] < 0.05
+                        temp["|mean_predicted_psi - mean_psi_val|"] < 0.01
                     ).sum() / len(temp)
                     self.log(
                         f"val/{event_type_name}_{example_type_name}_low_std_events_mean_psi_accuracy",
@@ -922,7 +922,7 @@ class PSIPredictor(LightningModule):
                         .reset_index(drop=True)
                     )
                     accuracy = (
-                        temp["|std_predicted_psi - std_psi_val|"] < 0.025
+                        temp["|std_predicted_psi - std_psi_val|"] < 0.01
                     ).sum() / len(temp)
                     self.log(
                         f"val/{event_type_name}_{example_type_name}_low_std_events_std_psi_accuracy",
@@ -965,6 +965,9 @@ class PSIPredictor(LightningModule):
                     # track the average percentile of the samples that are predicted to be significantly different from the mean
                     avg_percentile_lower = 0.0
                     avg_percentile_higher = 0.0
+                    low_std_events_df["predicted_psi_val - mean_predicted_psi"] = (
+                        low_std_events_df["pred_psi_val"] - low_std_events_df["mean_predicted_psi"]
+                    )
                     for event_id in low_std_events_df["event_id"].unique():
                         event_df = low_std_events_df[
                             low_std_events_df["event_id"] == event_id
