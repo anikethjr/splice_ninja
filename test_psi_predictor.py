@@ -336,9 +336,9 @@ def main():
         assert len(df) == len(
             psi_vals
         ), f"Length of dataframe ({len(df)}) and PSI values ({len(psi_vals)}) do not match."
-        df["pred_psi_val"] = pred_psi_vals
+        df["PSI_PREDS"] = pred_psi_vals
         assert np.allclose(
-            df["psi_val"].values, psi_vals
+            df["PSI"].values, psi_vals * 100
         ), "Ground truth PSI values do not match."
         df.to_csv(os.path.join(predictions_dir, "preds.csv"), index=False)
         print(f"Predictions saved to {predictions_dir}/preds.csv")
