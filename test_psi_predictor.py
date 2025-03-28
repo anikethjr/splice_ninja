@@ -255,11 +255,14 @@ def main():
     )
 
     # if all predictions exist, skip the prediction step
-    if all(
-        [
-            os.path.exists(os.path.join(predictions_dir, f"predictions_{i}.pt"))
-            for i in range(n_gpus)
-        ]
+    if (
+        all(
+            [
+                os.path.exists(os.path.join(predictions_dir, f"predictions_{i}.pt"))
+                for i in range(n_gpus)
+            ]
+        )
+        and not args.overwrite_predictions
     ):
         print("Predictions already exist, skipping prediction step.")
     else:
