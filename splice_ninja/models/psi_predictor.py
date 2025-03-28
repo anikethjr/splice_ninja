@@ -959,15 +959,26 @@ class PSIPredictor(LightningModule):
                         avg_percentile /= total_num_events
                     else:
                         avg_percentile = -1.0
+                    
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_low_std_events_num_events_with_sig_deviations",
+                        total_num_events,
+                        on_step=False,
+                        on_epoch=True,
+                    )
                     self.log(
                         f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_abs_deviations",
                         avg_percentile,
                         on_step=False,
                         on_epoch=True,
+                    )                    
+                    print(
+                        f"Number of events with significant deviations from the mean in low std events: {total_num_events}"
                     )
                     print(
                         f"Average percentile of samples with significant deviations from the mean in low std events: {avg_percentile}"
                     )
+
                     # check if the model correctly predicts the direction of the deviation
                     # track the average percentile of the samples that are predicted to be significantly different from the mean
                     low_std_events_df["predicted_psi_val - mean_predicted_psi"] = (
@@ -989,7 +1000,6 @@ class PSIPredictor(LightningModule):
                         )
                         event_df = event_df.reset_index(drop=True)
                         event_df["percentile"] = (event_df.index / len(event_df)) * 100
-
                         avg_percentile_lower += event_df[
                             event_df["sample_has_sig_lower_PSI"]
                         ]["percentile"].mean()
@@ -1002,6 +1012,7 @@ class PSIPredictor(LightningModule):
                     else:
                         avg_percentile_lower = -1.0
                         avg_percentile_higher = -1.0
+
                     self.log(
                         f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_lower_deviations",
                         avg_percentile_lower,
