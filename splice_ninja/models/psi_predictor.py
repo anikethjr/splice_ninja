@@ -948,6 +948,55 @@ class PSIPredictor(LightningModule):
                         )
                         event_df = event_df.reset_index(drop=True)
                         event_df["percentile"] = (event_df.index / len(event_df)) * 100
+                        avg_percentile += event_df[
+                            event_df["sample_has_sig_lower_PSI"] | event_df["sample_has_sig_higher_PSI"]
+                        ]["percentile"].mean()
+                    avg_percentile /= len(low_std_events_df["event_id"].unique())
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_abs_deviations",
+                        avg_percentile,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Average percentile of samples with significant deviations from the mean in low std events: {avg_percentile}"
+                    )
+                    # check if the model correctly predicts the direction of the deviation
+                    # track the average percentile of the samples that are predicted to be significantly different from the mean
+                    avg_percentile_lower = 0.0
+                    avg_percentile_higher = 0.0
+                    for event_id in low_std_events_df["event_id"].unique():
+                        event_df = low_std_events_df[
+                            low_std_events_df["event_id"] == event_id
+                        ]
+                        event_df = event_df.sort_values(
+                            "predicted_psi_val - mean_predicted_psi",
+                            ascending=False,
+                        )
+                        event_df = event_df.reset_index(drop=True)
+                        event_df["percentile"] = (event_df.index / len(event_df)) * 100
+
+                        avg_percentile_lower += event_df[
+                            event_df["sample_has_sig_lower_PSI"]
+                        ]["percentile"].mean()
+                        avg_percentile_higher += event_df[
+                            event_df["sample_has_sig_higher_PSI"]
+                        ]["percentile"].mean()
+                    avg_percentile_lower /= len(low_std_events_df["event_id"].unique())
+                    avg_percentile_higher /= len(low_std_events_df["event_id"].unique())
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_lower_deviations",
+                        avg_percentile_lower,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_higher_deviations",
+                        avg_percentile_higher,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                        
 
         # clear the stored predictions
         self.val_event_ids.clear()
