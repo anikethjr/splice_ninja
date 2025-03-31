@@ -214,6 +214,8 @@ class KnockdownDataset(Dataset):
         event_type = row["EVENT_TYPE"]
         sample = row["SAMPLE"]
         psi_val = row["PSI"]
+        controls_avg_psi_val = row["CONTROLS_AVG_PSI"]
+        num_controls = row["NUM_CONTROLS"]
         example_type = "train" if self.split == "train" else row["example_type"]
 
         # get expression of host gene
@@ -611,6 +613,8 @@ class KnockdownDataset(Dataset):
             ),  # if you convert PSI from 0-100 to 0-1, the variance will be divided by 100^2 and the standard deviation will be divided by 100
             "event_min_psi": (row["MIN_PSI"] / 100.0).astype(np.float32),
             "event_max_psi": (row["MAX_PSI"] / 100.0).astype(np.float32),
+            "event_controls_avg_psi": (controls_avg_psi_val / 100.0).astype(np.float32),
+            "event_num_controls": num_controls,
             "example_type": self.data_module.example_type_to_ind[example_type],
         }
 
@@ -1426,6 +1430,24 @@ class KnockdownData(LightningDataModule):
                     normalized_gene_expression[sample + "_RPKM"] + 1
                 )
 
+            # average expression metrics from the control samples
+            control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            normalized_gene_expression["AV_Controls" + "_log2TPM"] = 0
+            normalized_gene_expression["AV_Controls" + "_log2RPKM"] = 0
+            for sample in control_samples:
+                normalized_gene_expression[
+                    "AV_Controls" + "_log2TPM"
+                ] += normalized_gene_expression[sample + "_log2TPM"]
+                normalized_gene_expression[
+                    "AV_Controls" + "_log2RPKM"
+                ] += normalized_gene_expression[sample + "_log2RPKM"]
+            normalized_gene_expression["AV_Controls" + "_log2TPM"] /= len(
+                control_samples
+            )
+            normalized_gene_expression["AV_Controls" + "_log2RPKM"] /= len(
+                control_samples
+            )
+
             normalized_gene_expression.to_parquet(
                 os.path.join(self.cache_dir, "normalized_gene_expression.parquet"),
                 index=False,
@@ -1441,14 +1463,23 @@ class KnockdownData(LightningDataModule):
             normalized_gene_expression = pd.read_parquet(
                 os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
             )
+            control_samples = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
+                "AV_Controls",
+            ]
 
             all_gene_ids = normalized_gene_expression["gene_id"].values
             splicing_factor_gene_ids = [
-                i for i in normalized_gene_expression.columns if i in all_gene_ids
+                i
+                for i in normalized_gene_expression.columns
+                if ((i in all_gene_ids) and (i not in control_samples))
             ]
-            assert (len(splicing_factor_gene_ids) * 5) == len(
-                normalized_gene_expression.columns
-            ) - 3, "Could not find all splicing factor gene IDs in the normalized gene expression data"
 
             splicing_factor_expression_levels = normalized_gene_expression.loc[
                 normalized_gene_expression["gene_id"].isin(splicing_factor_gene_ids)
@@ -1483,7 +1514,6 @@ class KnockdownData(LightningDataModule):
             # this makes it to create a dataset for training
             # to avoid duplicating event information, we only keep the columns for the event and the PSI value
             # another file is created with the event information like event type, coordinates, etc.
-            # we also create a file with the intron sequence around the splicing events - this can be used for dataset augmentation
 
             print("Flattening the filtered data")
 
@@ -1559,9 +1589,59 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
             )
 
-            psi_vals_columns = [
-                i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
+            # define samples
+            control_samples_psi_vals_columns = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
             ]
+            knockdown_samples_psi_vals_columns = [
+                i
+                for i in inclusion_levels_full.columns[6:]
+                if (
+                    (not i.endswith("-Q"))
+                    and (i not in control_samples_psi_vals_columns)
+                )
+            ]
+
+            # create a column for the average control PSI values
+            inclusion_levels_full["AV_Controls"] = np.nan
+            inclusion_levels_full["num_controls"] = 0
+            for sample in control_samples_psi_vals_columns:
+                not_nan_mask = inclusion_levels_full[sample].notna()
+                currently_nan_mask = inclusion_levels_full["AV_Controls"].isna()
+
+                # if the AV_Controls column is NaN, set it to the current sample value
+                inclusion_levels_full.loc[
+                    not_nan_mask & currently_nan_mask, "AV_Controls"
+                ] = inclusion_levels_full.loc[not_nan_mask & currently_nan_mask, sample]
+                # increment the number of controls for the current sample
+                inclusion_levels_full.loc[
+                    not_nan_mask & currently_nan_mask, "num_controls"
+                ] = 1
+
+                # if the AV_Controls column is not NaN, add the current sample value to it
+                inclusion_levels_full.loc[
+                    not_nan_mask & (~currently_nan_mask), "AV_Controls"
+                ] += inclusion_levels_full.loc[
+                    not_nan_mask & (~currently_nan_mask), sample
+                ]
+                # increment the number of controls for the current sample
+                inclusion_levels_full.loc[
+                    not_nan_mask & (~currently_nan_mask), "num_controls"
+                ] += 1
+            # divide the AV_Controls column by the number of controls to get the average
+            not_nan_mask = inclusion_levels_full["num_controls"] > 0
+            assert np.all(
+                inclusion_levels_full.loc[not_nan_mask, "AV_Controls"].notna()
+            )
+            inclusion_levels_full.loc[
+                not_nan_mask, "AV_Controls"
+            ] /= inclusion_levels_full.loc[not_nan_mask, "num_controls"]
 
             # create a column for the chromosome
             inclusion_levels_full["CHR"] = inclusion_levels_full["COORD"].apply(
@@ -1669,6 +1749,8 @@ class KnockdownData(LightningDataModule):
             ] = []  # standard deviation of the PSI values across samples
             event_info["MIN_PSI"] = []  # minimum of the PSI values across samples
             event_info["MAX_PSI"] = []  # maximum of the PSI values across samples
+            event_info["CONTROLS_AVG_PSI"] = []  # average of the control PSI values
+            event_info["NUM_CONTROLS"] = []  # number of control samples
 
             event_info["FullCO"] = []  # full coordinates of the event
             event_info["COMPLEX"] = []  # fine-grained event type
@@ -1729,7 +1811,7 @@ class KnockdownData(LightningDataModule):
                     )
                 event_info["EVENT_TYPE"].append(event_type)
 
-                for psi_col in psi_vals_columns:
+                for psi_col in knockdown_samples_psi_vals_columns + ["AV_Controls"]:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
                         flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
@@ -1744,13 +1826,19 @@ class KnockdownData(LightningDataModule):
                 )
 
                 # stats about the PSI values
-                psi_vals = row[psi_vals_columns].values.reshape(-1).astype(float)
+                psi_vals = (
+                    row[knockdown_samples_psi_vals_columns]
+                    .values.reshape(-1)
+                    .astype(float)
+                )
                 psi_vals = psi_vals[~np.isnan(psi_vals)]
                 event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
                 event_info["MEAN_PSI"].append(psi_vals.mean())
                 event_info["STD_PSI"].append(psi_vals.std())
                 event_info["MIN_PSI"].append(psi_vals.min())
                 event_info["MAX_PSI"].append(psi_vals.max())
+                event_info["CONTROLS_AVG_PSI"].append(row["AV_Controls"])
+                event_info["NUM_CONTROLS"].append(row["num_controls"])
 
                 event_info["FullCO"].append(row["FullCO"])
                 event_info["COMPLEX"].append(row["COMPLEX"])
@@ -2112,6 +2200,22 @@ class KnockdownData(LightningDataModule):
         self.has_gene_exp_values = True
 
         print("Total number of PSI values:", len(self.flattened_inclusion_levels_full))
+        print(
+            "Total number of PSI values from control samples:",
+            len(
+                self.flattened_inclusion_levels_full[
+                    self.flattened_inclusion_levels_full["SAMPLE"] == "AV_Controls"
+                ]
+            ),
+        )
+        print(
+            "Total number of PSI values from knockdown samples:",
+            len(
+                self.flattened_inclusion_levels_full[
+                    self.flattened_inclusion_levels_full["SAMPLE"] != "AV_Controls"
+                ]
+            ),
+        )
         print("Total number of events:", len(self.event_info))
 
         print("Number of PSI values of each event type:")
@@ -2126,16 +2230,16 @@ class KnockdownData(LightningDataModule):
         )  # only need "GRCh38.p14" since the data is from human cell lines
 
         # create a flattened version of the gene expression data to make it easier to merge with the PSI values
-        if self.gene_expression_metric == "count":
-            gene_expression_metric_cols = [
-                i for i in self.normalized_gene_expression.columns[2:] if (not "_" in i)
-            ]
-        else:
-            gene_expression_metric_cols = [
-                i
-                for i in self.normalized_gene_expression.columns[2:]
-                if i.endswith(self.gene_expression_metric)
-            ]
+        control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+        gene_expression_metric_cols = []
+        for sample in self.normalized_gene_expression.columns[2:]:
+            if sample.endswith(f"_{self.gene_expression_metric}"):
+                if not sample.startswith(tuple(control_samples)):
+                    gene_expression_metric_cols.append(sample)
+        assert (
+            f"AV_Controls_{self.gene_expression_metric}" in gene_expression_metric_cols
+        ), f"Average control sample {f'AV_Controls_{self.gene_expression_metric}'} not found in gene expression data"
+
         self.normalized_gene_expression = self.normalized_gene_expression[
             self.normalized_gene_expression.columns[:2].to_list()
             + gene_expression_metric_cols
@@ -2228,6 +2332,9 @@ class KnockdownData(LightningDataModule):
 
             self.example_types_in_this_split_type = ["train", "heldout_chromosome"]
         elif self.split_type == "sample":
+            self.train_samples.append(
+                "AV_Controls"
+            )  # add control samples to the training set
             self.train_data = self.unified_data[
                 self.unified_data["SAMPLE"].isin(self.train_samples)
             ].reset_index(drop=True)
@@ -2242,6 +2349,9 @@ class KnockdownData(LightningDataModule):
 
             self.example_types_in_this_split_type = ["train", "heldout_sample"]
         elif self.split_type == "chromosome_and_sample":
+            self.train_samples.append(
+                "AV_Controls"
+            )  # add control samples to the training set
             self.train_data = self.unified_data[
                 self.unified_data["CHR"].isin(self.train_chromosomes)
                 & self.unified_data["SAMPLE"].isin(self.train_samples)
@@ -2489,12 +2599,9 @@ class KnockdownData(LightningDataModule):
             "gene_expression_metric"
         ]
         assert self.gene_expression_metric in [
-            "count",
-            "RPKM",
             "log2RPKM",
-            "TPM",
             "log2TPM",
-        ], "Invalid gene expression metric specified in config, must be one of 'count', 'RPKM', 'log2RPKM', 'TPM', 'log2TPM'"
+        ], "Invalid gene expression metric specified in config, must be one of 'log2RPKM', 'log2TPM'"
         self.event_types_to_model = self.config["train_config"][
             "event_types_to_model"
         ]  # list of event types to model (comma separated), "ALL" to model all event types
