@@ -664,26 +664,30 @@ class KnockdownData(LightningDataModule):
                 sep="\t",
                 index_col=0,
             )
+            print("Loaded raw gene counts data")
             gene_counts = gene_counts.rename({"X": "gene_id"}, axis=1)
+            ori_num_samples = gene_counts.shape[1] - 2
+            control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            knockdown_samples = [i for i in gene_counts.columns[2:] if i not in control_samples]
             print(
-                "Read gene counts data, number of samples: {}".format(
-                    gene_counts.shape[1] - 2
+                "Original total number of samples: {}, number of control samples: {}, number of knockdown samples: {}".format(
+                    ori_num_samples,
+                    len(control_samples),
+                    len(knockdown_samples),
                 )
             )
 
-            # average counts from biological replicates - these are samples with suffixes "_r1" and "_r2"
+            # rename replicate columns to match the naming scheme in the splicing data
             gene_counts_samples = gene_counts.columns[2:]
+            drop_columns = []
             rename_dict = {}
             for col in gene_counts_samples:
                 if col.endswith("_r1"):
-                    gene_counts[col] = (
-                        gene_counts[col] + gene_counts[col[:-3] + "_r2"]
-                    ) / 2
-                    rename_dict[col] = col[:-3]
-                if col.endswith(
-                    ".1"
-                ):  # these correspond to replicates with the "_b" or "con" suffix in the splicing data
-                    if col[:-2] in [
+                    # rename the first replicate to match the naming scheme in the splicing data
+                    rename_dict[col] = col[:-len("_r1")]        
+                if col.endswith(".1") or col.endswith("_r2"):  # these most probably correspond to replicates with the "_b" or "con" suffix in the splicing data
+                    prefix = col[:-2] if col.endswith(".1") else col[:-3]
+                    if prefix in [
                         "C1orf55",
                         "CCDC12",
                         "CDC5L",
@@ -693,35 +697,71 @@ class KnockdownData(LightningDataModule):
                         "SRPK2",
                         "XAB2",
                     ]:
-                        rename_dict[col] = col[:-2] + "_b"
-                    elif col[:-2] in ["IK", "PRPF8", "RBM17", "SF3B1", "SMU1"]:
-                        rename_dict[col] = col[:-2] + "con"
+                        rename_dict[col] = prefix + "_b"
+                    elif prefix in ["IK", "PRPF8", "RBM17", "SF3B1", "SMU1"]:
+                        rename_dict[col] = prefix + "con"
                     else:
-                        raise ValueError(
-                            f"Could not determine replicate suffix for {col}"
-                        )
-            gene_counts = gene_counts.drop(
-                columns=[i for i in gene_counts.columns if i.endswith("_r2")]
-            )
+                        raise Exception("Should not happen, probably a bug in the code")
+            gene_counts = gene_counts.rename(columns=rename_dict)
+            print("Renamed {} columns from gene counts data to match the naming scheme in the splicing data".format(len(rename_dict)))
+                        
+            # authors of original work use data from second replicate for the following splicing factors:
+            # LENG1 (called LENG1_b), RBM17 (called RBM17con), HFM1 (called HFM1_b but this is already corrected in gene counts file), CCDC12 (called CCDC12_b), CDC5L (called CDC5L_b)
+            # (from https://github.com/estepi/SpliceNet/blob/main/prepareALLTable.R#L20-L29)
+            # thus, we drop the columns for the first replicate of these splicing factors and rename the columns for the second replicate
+            rename_dict = {
+                "LENG1_b": "LENG1",
+                "RBM17con": "RBM17",
+                "CCDC12_b": "CCDC12",
+                "CDC5L_b": "CDC5L",
+            }
+            # we can drop the first replicate columns for these splicing factors
+            drop_columns = ["LENG1", "RBM17", "CCDC12", "CDC5L"]
+            ori_num_samples = gene_counts.shape[1] - 2
+            gene_counts = gene_counts.drop(columns=drop_columns)
+            # rename the columns for the second replicate of these splicing factors
             gene_counts = gene_counts.rename(columns=rename_dict)
             print(
-                "Averaged gene counts from biological replicates, number of samples: {}".format(
-                    gene_counts.shape[1] - 2
+                "Dropped {} columns and renamed {} columns from gene counts data to use the second replicate for the splicing factors LENG1, RBM17, HFM1, CCDC12, CDC5L, left with {} samples".format(
+                    len(drop_columns),
+                    len(rename_dict),
+                    gene_counts.shape[1] - 2,
                 )
             )
 
+            # drop any remaining second replicates, all of these have first replicates
+            drop_columns = []
+            rename_dict = {}
+            for col in gene_counts.columns[2:]:
+                if col.endswith("_b") or col.endswith("con"):
+                    prefix = col[:-2] if col.endswith("_b") else col[:-3]
+                    assert prefix in gene_counts.columns
+                    drop_columns.append(col)
+            ori_num_samples = gene_counts.shape[1] - 2
+            gene_counts = gene_counts.drop(columns=drop_columns)
+            print("Dropped {} columns from gene counts data to account any remaining second replicates".format(
+                (ori_num_samples - (gene_counts.shape[1] - 2)),
+            ))
+
+            # print stats after QC-based dropping and renaming
+            control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            knockdown_samples = [
+                i for i in gene_counts.columns[2:] if i not in control_samples
+            ]
+            assert np.all([i in gene_counts.columns for i in control_samples])
+            print("Number of samples after all QC-based dropping and renaming: {}, control samples: {}, knockdown samples: {}".format(
+                gene_counts.shape[1] - 2,
+                len(control_samples),
+                len(knockdown_samples),
+            ))
+
             # start building a dictionary to map gene names to Ensembl gene IDs
             drop_columns = []
-            for sf in tqdm(gene_counts.columns[2:]):
+            for sf in tqdm(knockdown_samples):
                 if sf not in gene_name_to_ensembl_id:
-                    if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf[:-2] if sf.endswith("_b") else sf[:-3]
-                        )  # return can be str | list[str], list is for multiple IDs
-                    else:
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf
-                        )  # return can be str | list[str], list is for multiple IDs
+                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
+                        sf
+                    )  # return can be str | list[str], list is for multiple IDs
                     if ensembl_id is not None:
                         if isinstance(ensembl_id, list):
                             gene_name_to_ensembl_id[sf] = ensembl_id
@@ -756,36 +796,18 @@ class KnockdownData(LightningDataModule):
             )
             # also drop columns for which there is no corresponding gene count data in the rows
             drop_columns = []
-            for sf in gene_counts.columns[2:]:
+            for sf in knockdown_samples:
                 check = False
                 for ensembl_id in gene_name_to_ensembl_id[sf]:
                     if (gene_counts["gene_id"] == ensembl_id).sum() > 0:
                         check = True
                         break
                 if not check:
-                    alias = (
-                        sf
-                        if not sf.endswith("_b") and not sf.endswith("con")
-                        else sf[:-2]
-                        if sf.endswith("_b")
-                        else sf[:-3]
-                    )
-                    if (gene_counts["alias"] == alias).sum() == 0:
+                    if (gene_counts["alias"] == sf).sum() == 0:
                         drop_columns.append(sf)
                     else:
-                        print(
-                            "Weird case where the gene ID is not found but the alias is found for {}, using gene ID present in the gene count data".format(
-                                sf
-                            )
-                        )
-                        ensembl_id = gene_counts.loc[
-                            gene_counts["alias"] == alias, "gene_id"
-                        ].iloc[0]
-                        gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(sf)
-                        else:
-                            ensembl_id_to_gene_name[ensembl_id] = [sf]
+                        raise Exception("Should never happen, probably a bug")
+                    
             gene_counts = gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
@@ -794,7 +816,7 @@ class KnockdownData(LightningDataModule):
             )
 
             # load psi values
-            # data was provided in the VastTools output format, more details on the data format are here - https://github.com/vastgroup/vast-tools?tab=readme-ov-file#combine-output-format
+            # data was provided in the VAST-TOOLS output format, more details on the data format are here - https://github.com/vastgroup/vast-tools?tab=readme-ov-file#combine-output-format
             inclusion_levels_full = pd.read_csv(
                 os.path.join(
                     self.config["data_config"]["data_dir"],
@@ -817,72 +839,9 @@ class KnockdownData(LightningDataModule):
                     rename_dict[col] = col[:-4] + "-Q"
             inclusion_levels_full = inclusion_levels_full.rename(columns=rename_dict)
 
-            # get the columns for PSI values and quality - every PSI column is followed by a quality column
-            # each PSI value is measured after knockdown of a specific splicing factor indicated by the column name
-            psi_vals_columns = [
-                i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
-            ]
-            quality_columns = [
-                i for i in inclusion_levels_full.columns[6:] if i.endswith("-Q")
-            ]
-            assert len(psi_vals_columns) == len(quality_columns)
-            print("Every PSI value is followed by a quality column in the raw data")
-
-            # get ensembl gene IDs for the splicing factors being knocked down in the splicing data
-            drop_columns = []
-            for sf in tqdm(psi_vals_columns):
-                if sf not in gene_name_to_ensembl_id:
-                    if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf[:-2] if sf.endswith("_b") else sf[:-3]
-                        )
-                    else:
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
-                    if ensembl_id is not None:
-                        if isinstance(ensembl_id, list):
-                            gene_name_to_ensembl_id[sf] = ensembl_id
-                        else:
-                            gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        for ensembl_id in gene_name_to_ensembl_id[sf]:
-                            if ensembl_id in ensembl_id_to_gene_name:
-                                ensembl_id_to_gene_name[ensembl_id].append(sf)
-                            else:
-                                ensembl_id_to_gene_name[ensembl_id] = [sf]
-                    else:
-                        drop_columns.append(sf)
-                        drop_columns.append(sf + "-Q")
-            inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
-            print(
-                "Dropping PSI values data from {} samples for which the Ensembl ID could not be found".format(
-                    len(drop_columns) // 2
-                )
-            )
-            psi_vals_columns = [
-                i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
-            ]
-            quality_columns = [
-                i for i in inclusion_levels_full.columns[6:] if i.endswith("-Q")
-            ]
-            assert len(psi_vals_columns) == len(quality_columns)
-            print(
-                "Every PSI value is followed by a quality column in the data after removing samples for which the Ensembl ID could not be found"
-            )
-
-            # cache the gene name to Ensembl gene ID mapping
-            with open(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w+"
-            ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
-
-            # cache the Ensembl gene ID to gene name mapping
-            with open(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w+"
-            ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
-
             # discard columns corresponding to the following samples due to poor quality of the data
             # AA2, AA1, CCDC12, C1orf55, C1orf55_b, CDC5L, HFM1, LENG1, RBM17, PPIL1, SRRM4, SRRT
-            drop_columns = [
+            poor_quality_samples = [
                 "AA2",
                 "AA1",
                 "CCDC12",
@@ -913,88 +872,44 @@ class KnockdownData(LightningDataModule):
                 ]
             ]
             inclusion_levels_full = inclusion_levels_full.drop(
-                columns=drop_columns, errors="ignore"
+                columns=poor_quality_samples, errors="ignore"
             )
             print(
                 "Discarded columns with poor quality data, number of samples: {}".format(
                     (inclusion_levels_full.shape[1] - 6) / 2
                 )
             )
+            # get the columns for PSI values and quality - every PSI column is followed by a quality column
+            # each PSI value is measured after knockdown of a specific splicing factor indicated by the column name
             psi_vals_columns = [
                 i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
             ]
             quality_columns = [
                 i for i in inclusion_levels_full.columns[6:] if i.endswith("-Q")
             ]
+            for i in psi_vals_columns:
+                assert f"{i}-Q" in quality_columns, f"Quality column for {i} not found"
             assert len(psi_vals_columns) == len(quality_columns)
             print(
                 "Every PSI value is followed by a quality column in the data after discarding poor quality data"
             )
-            # drop these columns from the gene counts as well, if they exist + some specific rules to account for data weirdness
-            drop_columns = []
-            rename_dict = {}
-            for col in [
-                "AA2",
-                "AA1",
-                "CCDC12",
-                "C1orf55",
-                "C1orf55_b",
-                "CDC5L",
-                "HFM1",
-                "LENG1",
-                "RBM17",
-                "PPIL1",
-                "SRRM4",
-                "SRRT",
-            ]:
-                if col in gene_counts.columns:
-                    if col == "LENG1":
-                        if "LENG1_b" in gene_counts.columns:
-                            drop_columns.append("LENG1")
-                            rename_dict["LENG1_b"] = "LENG1"
-                        else:
-                            print(
-                                "We needed LENG1_b gene count data but it was not found, so using LENG1 data"
-                            )
-                    elif col == "RBM17":
-                        if "RBM17con" in gene_counts.columns:
-                            drop_columns.append("RBM17")
-                            rename_dict["RBM17con"] = "RBM17"
-                        else:
-                            print(
-                                "We needed RBM17con gene count data but it was not found, so using RBM17 data"
-                            )
-                    elif col == "HFM1":
-                        if "HFM1_b" in gene_counts.columns:
-                            drop_columns.append("HFM1")
-                            rename_dict["HFM1_b"] = "HFM1"
-                        else:
-                            print(
-                                "We needed HFM1_b gene count data but it was not found, so using HFM1 data"
-                            )
-                    elif col == "CCDC12":
-                        if "CCDC12_b" in gene_counts.columns:
-                            drop_columns.append("CCDC12")
-                            rename_dict["CCDC12_b"] = "CCDC12"
-                        else:
-                            print(
-                                "We needed CCDC12_b gene count data but it was not found, so using CCDC12 data"
-                            )
-                    elif col == "CDC5L":
-                        if "CDC5L_b" in gene_counts.columns:
-                            drop_columns.append("CDC5L")
-                            rename_dict["CDC5L_b"] = "CDC5L"
-                        else:
-                            print(
-                                "We needed CDC5L_b gene count data but it was not found, so using CDC5L data"
-                            )
-                    else:
-                        drop_columns.append(col)
-            gene_counts = gene_counts.drop(columns=drop_columns)
-            gene_counts = gene_counts.rename(columns=rename_dict)
+
+            # define control samples
+            control_samples_psi_vals_columns = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            control_samples_quality_columns = [
+                i + "-Q" for i in control_samples_psi_vals_columns
+            ]
+            # define knockdown samples
+            knockdown_samples_psi_vals_columns = [
+                i for i in psi_vals_columns if i not in control_samples_psi_vals_columns
+            ]
+            knockdown_samples_quality_columns = [
+                i for i in quality_columns if i not in control_samples_quality_columns
+            ]
             print(
-                "Dropped gene count data from samples for which the PSI value data was dropped due to poor quality, left with num samples = {}".format(
-                    gene_counts.shape[1] - 2
+                "After dropping poor quality data, number of control samples: {}, number of knockdown samples: {}".format(
+                    len(control_samples_psi_vals_columns),
+                    len(knockdown_samples_psi_vals_columns),
                 )
             )
 
@@ -1017,7 +932,6 @@ class KnockdownData(LightningDataModule):
             inclusion_levels_full = inclusion_levels_full.rename(
                 columns=rename_dict, errors="ignore"
             )
-
             # we also drop all other replicate columns (endswith "_b" or "con") since we only use the data from the first replicate
             drop_columns = [
                 i
@@ -1025,7 +939,41 @@ class KnockdownData(LightningDataModule):
                 if i.endswith("_b") or i.endswith("con")
             ]
             drop_columns += [i + "-Q" for i in drop_columns]
+            ori_num_samples = (inclusion_levels_full.shape[1] - 6) / 2
             inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
+            print(
+                "Dropped unused replicate columns from PSI values data, went from {} samples to {} samples".format(
+                    ori_num_samples, (inclusion_levels_full.shape[1] - 6) / 2
+                )
+            )
+
+            # get Ensembl gene IDs for the splicing factors being knocked down in the splicing data
+            drop_columns = []
+            for sf in tqdm(knockdown_samples_psi_vals_columns):
+                if sf not in gene_name_to_ensembl_id:
+                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
+                    if ensembl_id is not None:
+                        if isinstance(ensembl_id, list):
+                            gene_name_to_ensembl_id[sf] = ensembl_id
+                        else:
+                            gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        for ensembl_id in gene_name_to_ensembl_id[sf]:
+                            if ensembl_id in ensembl_id_to_gene_name:
+                                ensembl_id_to_gene_name[ensembl_id].append(sf)
+                            else:
+                                ensembl_id_to_gene_name[ensembl_id] = [sf]
+                    else:
+                        drop_columns.append(sf)
+                        drop_columns.append(sf + "-Q")
+            inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
+            print(
+                "Dropping PSI values data from {} samples for which the Ensembl ID could not be found, went from {} samples to {} samples".format(
+                    len(drop_columns) // 2,
+                    (inclusion_levels_full.shape[1] - 6) / 2,
+                    (inclusion_levels_full.shape[1] - 6) / 2
+                    - len(drop_columns) // 2,
+                )
+            )
             psi_vals_columns = [
                 i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
             ]
@@ -1036,26 +984,25 @@ class KnockdownData(LightningDataModule):
                 assert f"{i}-Q" in quality_columns, f"Quality column for {i} not found"
             assert len(psi_vals_columns) == len(quality_columns)
             print(
-                "Dropped unused replicate columns from PSI values data, number of samples: {}".format(
-                    (inclusion_levels_full.shape[1] - 6) / 2
-                )
+                "Every PSI value is followed by a quality column in the data after removing samples for which the Ensembl ID could not be found"
             )
 
-            # drop replicate columns from gene counts
-            drop_columns = [
-                i for i in gene_counts.columns if i.endswith("_b") or i.endswith("con")
-            ]
-            gene_counts = gene_counts.drop(columns=drop_columns)
-            print(
-                "Dropped unused replicate columns from gene count data, number of samples: {}".format(
-                    gene_counts.shape[1] - 2
-                )
-            )
+            # cache the gene name to Ensembl gene ID mapping
+            with open(
+                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w+"
+            ) as f:
+                json.dump(gene_name_to_ensembl_id, f)
+
+            # cache the Ensembl gene ID to gene name mapping
+            with open(
+                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w+"
+            ) as f:
+                json.dump(ensembl_id_to_gene_name, f)
 
             # now rename all the columns to use Ensembl gene IDs instead of gene names since the two files don't always use the same gene names
             # if a gene has multiple Ensembl IDs, we use the one for which the gene id is found in the gene count data and has the cumulative highest expression
             rename_dict = {}
-            for i in gene_counts.columns[2:]:
+            for i in knockdown_samples:
                 max_count = 0
                 best_ensembl_id = None
                 for ensembl_id in gene_name_to_ensembl_id[i]:
@@ -1078,7 +1025,7 @@ class KnockdownData(LightningDataModule):
             # we also rename the quality columns
             # if a gene has multiple Ensembl IDs, we use the one which was used for the gene count data
             rename_dict = {}
-            for i in psi_vals_columns:
+            for i in knockdown_samples_psi_vals_columns:
                 max_count = 0
                 best_ensembl_id = gene_name_to_ensembl_id[i][0]
                 for ensembl_id in gene_name_to_ensembl_id[i]:
