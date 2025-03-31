@@ -668,7 +668,9 @@ class KnockdownData(LightningDataModule):
             gene_counts = gene_counts.rename({"X": "gene_id"}, axis=1)
             ori_num_samples = gene_counts.shape[1] - 2
             control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
-            knockdown_samples = [i for i in gene_counts.columns[2:] if i not in control_samples]
+            knockdown_samples = [
+                i for i in gene_counts.columns[2:] if i not in control_samples
+            ]
             print(
                 "Original total number of samples: {}, number of control samples: {}, number of knockdown samples: {}".format(
                     ori_num_samples,
@@ -684,8 +686,10 @@ class KnockdownData(LightningDataModule):
             for col in gene_counts_samples:
                 if col.endswith("_r1"):
                     # rename the first replicate to match the naming scheme in the splicing data
-                    rename_dict[col] = col[:-len("_r1")]        
-                if col.endswith(".1") or col.endswith("_r2"):  # these most probably correspond to replicates with the "_b" or "con" suffix in the splicing data
+                    rename_dict[col] = col[: -len("_r1")]
+                if col.endswith(".1") or col.endswith(
+                    "_r2"
+                ):  # these most probably correspond to replicates with the "_b" or "con" suffix in the splicing data
                     prefix = col[:-2] if col.endswith(".1") else col[:-3]
                     if prefix in [
                         "C1orf55",
@@ -703,8 +707,12 @@ class KnockdownData(LightningDataModule):
                     else:
                         raise Exception("Should not happen, probably a bug in the code")
             gene_counts = gene_counts.rename(columns=rename_dict)
-            print("Renamed {} columns from gene counts data to match the naming scheme in the splicing data".format(len(rename_dict)))
-                        
+            print(
+                "Renamed {} columns from gene counts data to match the naming scheme in the splicing data".format(
+                    len(rename_dict)
+                )
+            )
+
             # authors of original work use data from second replicate for the following splicing factors:
             # LENG1 (called LENG1_b), RBM17 (called RBM17con), HFM1 (called HFM1_b but this is already corrected in gene counts file), CCDC12 (called CCDC12_b), CDC5L (called CDC5L_b)
             # (from https://github.com/estepi/SpliceNet/blob/main/prepareALLTable.R#L20-L29)
@@ -739,9 +747,11 @@ class KnockdownData(LightningDataModule):
                     drop_columns.append(col)
             ori_num_samples = gene_counts.shape[1] - 2
             gene_counts = gene_counts.drop(columns=drop_columns)
-            print("Dropped {} columns from gene counts data to account any remaining second replicates".format(
-                (ori_num_samples - (gene_counts.shape[1] - 2)),
-            ))
+            print(
+                "Dropped {} columns from gene counts data to account any remaining second replicates".format(
+                    (ori_num_samples - (gene_counts.shape[1] - 2)),
+                )
+            )
 
             # print stats after QC-based dropping and renaming
             control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
@@ -749,11 +759,13 @@ class KnockdownData(LightningDataModule):
                 i for i in gene_counts.columns[2:] if i not in control_samples
             ]
             assert np.all([i in gene_counts.columns for i in control_samples])
-            print("Number of samples after all QC-based dropping and renaming: {}, control samples: {}, knockdown samples: {}".format(
-                gene_counts.shape[1] - 2,
-                len(control_samples),
-                len(knockdown_samples),
-            ))
+            print(
+                "Number of samples after all QC-based dropping and renaming: {}, control samples: {}, knockdown samples: {}".format(
+                    gene_counts.shape[1] - 2,
+                    len(control_samples),
+                    len(knockdown_samples),
+                )
+            )
 
             # start building a dictionary to map gene names to Ensembl gene IDs
             drop_columns = []
@@ -807,7 +819,7 @@ class KnockdownData(LightningDataModule):
                         drop_columns.append(sf)
                     else:
                         raise Exception("Should never happen, probably a bug")
-                    
+
             gene_counts = gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
@@ -895,7 +907,15 @@ class KnockdownData(LightningDataModule):
             )
 
             # define control samples
-            control_samples_psi_vals_columns = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            control_samples_psi_vals_columns = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
+            ]
             control_samples_quality_columns = [
                 i + "-Q" for i in control_samples_psi_vals_columns
             ]
@@ -970,8 +990,7 @@ class KnockdownData(LightningDataModule):
                 "Dropping PSI values data from {} samples for which the Ensembl ID could not be found, went from {} samples to {} samples".format(
                     len(drop_columns) // 2,
                     (inclusion_levels_full.shape[1] - 6) / 2,
-                    (inclusion_levels_full.shape[1] - 6) / 2
-                    - len(drop_columns) // 2,
+                    (inclusion_levels_full.shape[1] - 6) / 2 - len(drop_columns) // 2,
                 )
             )
             psi_vals_columns = [
