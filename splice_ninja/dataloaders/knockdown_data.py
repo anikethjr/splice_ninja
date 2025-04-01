@@ -822,7 +822,19 @@ class KnockdownData(LightningDataModule):
                     if (gene_counts["alias"] == sf).sum() == 0:
                         drop_columns.append(sf)
                     else:
-                        raise Exception("Should never happen, probably a bug")
+                        # sometimes the Ensembl ID in the gene count data is not the same as the one from HGNC, but the gene name is the same
+                        # in that case we can use the gene name from the gene count data
+                        print(
+                            f"Weird case where Ensembl ID from HGNC is not in gene count data, but gene name is the same for {sf}. ID from HGNC: {gene_name_to_ensembl_id[sf]}, ID from gene count data: {gene_counts.loc[gene_counts['alias'] == sf, 'gene_id'].iloc[0]}"
+                        )
+                        ensembl_id = gene_counts.loc[
+                            gene_counts["alias"] == sf, "gene_id"
+                        ].iloc[0]
+                        gene_name_to_ensembl_id[sf] = [ensembl_id]
+                        if ensembl_id in ensembl_id_to_gene_name:
+                            ensembl_id_to_gene_name[ensembl_id].append(sf)
+                        else:
+                            ensembl_id_to_gene_name[ensembl_id] = [sf]
 
             gene_counts = gene_counts.drop(columns=drop_columns)
             print(
@@ -972,6 +984,21 @@ class KnockdownData(LightningDataModule):
             )
 
             # get Ensembl gene IDs for the splicing factors being knocked down in the splicing data
+            control_samples_psi_vals_columns = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
+            ]
+            knockdown_samples_psi_vals_columns = [
+                i
+                for i in inclusion_levels_full.columns[6:]
+                if (not i.endswith("-Q"))
+                and (i not in control_samples_psi_vals_columns)
+            ]
             drop_columns = []
             for sf in tqdm(knockdown_samples_psi_vals_columns):
                 if sf not in gene_name_to_ensembl_id:
@@ -991,8 +1018,8 @@ class KnockdownData(LightningDataModule):
                         drop_columns.append(sf + "-Q")
             inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
             print(
-                "Dropping PSI values data from {} samples for which the Ensembl ID could not be found, went from {} samples to {} samples".format(
-                    len(drop_columns) // 2,
+                "Dropping PSI values data from {} for which the Ensembl ID could not be found, went from {} samples to {} samples".format(
+                    drop_columns,
                     (inclusion_levels_full.shape[1] - 6) / 2,
                     (inclusion_levels_full.shape[1] - 6) / 2 - len(drop_columns) // 2,
                 )
@@ -1024,7 +1051,12 @@ class KnockdownData(LightningDataModule):
 
             # now rename all the columns to use Ensembl gene IDs instead of gene names since the two files don't always use the same gene names
             # if a gene has multiple Ensembl IDs, we use the one for which the gene id is found in the gene count data and has the cumulative highest expression
+            # rename the columns in the gene count data
             rename_dict = {}
+            control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            knockdown_samples = [
+                i for i in gene_counts.columns[2:] if i not in control_samples
+            ]
             for i in knockdown_samples:
                 max_count = 0
                 best_ensembl_id = None
@@ -1047,6 +1079,21 @@ class KnockdownData(LightningDataModule):
             # now rename the columns in the PSI values data
             # we also rename the quality columns
             # if a gene has multiple Ensembl IDs, we use the one which was used for the gene count data
+            control_samples_psi_vals_columns = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
+            ]
+            knockdown_samples_psi_vals_columns = [
+                i
+                for i in inclusion_levels_full.columns[6:]
+                if (not i.endswith("-Q"))
+                and (i not in control_samples_psi_vals_columns)
+            ]
             rename_dict = {}
             for i in knockdown_samples_psi_vals_columns:
                 max_count = 0
@@ -1147,15 +1194,42 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Number of PSI values of each type:\n{number_of_PSI_vals_of_each_type}"
             )
-            # remove events with NaN PSI values in all samples
+
+            # remove events with NaN PSI values in all knockdown samples
+            control_samples_psi_vals_columns = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
+            ]
+            knockdown_samples_psi_vals_columns = [
+                i
+                for i in inclusion_levels_full.columns[6:]
+                if (not i.endswith("-Q"))
+                and (i not in control_samples_psi_vals_columns)
+            ]
             filter_out_events_with_all_PSI_values_NaN = np.all(
-                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+                inclusion_levels_full[knockdown_samples_psi_vals_columns].isna(), axis=1
             )
             inclusion_levels_full = inclusion_levels_full.loc[
                 ~filter_out_events_with_all_PSI_values_NaN
             ].reset_index(drop=True)
             print(
-                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+                f"Number of events of each type after dropping events with no valid measurements in knockdown samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
+            # remove events with NaN PSI values in all control samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[control_samples_psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements in control samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
             # filter out PSI values which did not pass the quality control
@@ -1198,15 +1272,25 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Number of PSI values of each type after filtering events which did not pass the quality control:\n{num_PSI_vals_of_each_type_after_quality_control_filtering}"
             )
-            # remove events with NaN PSI values in all samples
+            # remove events with NaN PSI values in all knockdown samples
             filter_out_events_with_all_PSI_values_NaN = np.all(
-                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+                inclusion_levels_full[knockdown_samples_psi_vals_columns].isna(), axis=1
             )
             inclusion_levels_full = inclusion_levels_full.loc[
                 ~filter_out_events_with_all_PSI_values_NaN
             ].reset_index(drop=True)
             print(
-                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+                f"Number of events of each type after dropping events with no valid measurements in knockdown samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+            # remove events with NaN PSI values in all control samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[control_samples_psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements in control samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
             # filter out intron retention (IR) PSI values where the corrected p-value of a binomial test of balance between reads mapping to the upstream and downstream exon-intron junctions is less than 0.05,
@@ -1256,15 +1340,25 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Number of PSI values of each type after filtering IR events:\n{num_PSI_vals_of_each_type_after_IR_filtering}"
             )
-            # remove events with NaN PSI values in all samples
+            # remove events with NaN PSI values in all knockdown samples
             filter_out_events_with_all_PSI_values_NaN = np.all(
-                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+                inclusion_levels_full[knockdown_samples_psi_vals_columns].isna(), axis=1
             )
             inclusion_levels_full = inclusion_levels_full.loc[
                 ~filter_out_events_with_all_PSI_values_NaN
             ].reset_index(drop=True)
             print(
-                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+                f"Number of events of each type after dropping events with no valid measurements in knockdown samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+            # remove events with NaN PSI values in all control samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[control_samples_psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements in control samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
             # filter out ALTA/ALTD events where either the start or end coordinates of the event are missing -- need to figure out why this happens, but for now we filter them out
@@ -1317,15 +1411,25 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Number of PSI values of each type after filtering ALTA/ALTD events with missing start/end coordinates:\n{num_PSI_vals_of_each_type_after_ALTA_ALTD_events_with_missing_coordinates_filtering}"
             )
-            # remove events with NaN PSI values in all samples
+            # remove events with NaN PSI values in all knockdown samples
             filter_out_events_with_all_PSI_values_NaN = np.all(
-                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+                inclusion_levels_full[knockdown_samples_psi_vals_columns].isna(), axis=1
             )
             inclusion_levels_full = inclusion_levels_full.loc[
                 ~filter_out_events_with_all_PSI_values_NaN
             ].reset_index(drop=True)
             print(
-                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+                f"Number of events of each type after dropping events with no valid measurements in knockdown samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+            # remove events with NaN PSI values in all control samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[control_samples_psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements in control samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
             # print number of events of each type
@@ -2245,7 +2349,9 @@ class KnockdownData(LightningDataModule):
             + gene_expression_metric_cols
         ]
         self.normalized_gene_expression = self.normalized_gene_expression.rename(
-            columns={i: i.split("_")[0] for i in gene_expression_metric_cols}
+            columns={
+                i: "_".join(i.split("_")[:-1]) for i in gene_expression_metric_cols
+            }
         )  # remove the metric suffix from the column names
         print(
             f"Kept {len(gene_expression_metric_cols)} columns with the gene expression metric '{self.gene_expression_metric}'"
