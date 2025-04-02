@@ -26,6 +26,7 @@ setuptools.setup(
         "einsum",
         "rotary-embedding-torch",
         "pyarrow",
+        "openpyxl",
         "torchmetrics",
         "pytorch-lightning-bolts",
     ],
