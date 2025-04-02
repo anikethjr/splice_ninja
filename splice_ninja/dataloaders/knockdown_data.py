@@ -648,36 +648,23 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "gene_counts_filtered.parquet")
             )
             or not os.path.exists(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json")
-            )
-            or not os.path.exists(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json")
-            )
-            or not os.path.exists(
                 os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
             )
         ):
             print("Filtering data")
 
-            if os.path.exists(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json")
-            ):
-                with open(
-                    os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "r"
-                ) as f:
-                    gene_name_to_ensembl_id = json.load(f)
-            else:
-                gene_name_to_ensembl_id = {}
-
-            if os.path.exists(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json")
-            ):
-                with open(
-                    os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "r"
-                ) as f:
-                    ensembl_id_to_gene_name = json.load(f)
-            else:
-                ensembl_id_to_gene_name = {}
+            # download sample names and corresponding Ensembl gene IDs provided by Rogalska et al.
+            # uploaded at https://docs.google.com/spreadsheets/d/1PYQ0r1m22f-RdWKJX84phmUsMqnYcQ3Y/edit?usp=sharing&ouid=101070324332733161031&rtpof=true&sd=true
+            sample_names_path = os.path.join(
+                self.config["data_config"]["data_dir"], "sample names.xlsx"
+            )
+            # download the file
+            urllib.request.urlretrieve(
+                "https://docs.google.com/spreadsheets/d/1PYQ0r1m22f-RdWKJX84phmUsMqnYcQ3Y/export?format=xlsx",
+                sample_names_path,
+            )
+            # read the file
+            sample_names = pd.read_excel(sample_names_path)
 
             # load gene counts
             gene_counts = pd.read_csv(
@@ -699,6 +686,14 @@ class KnockdownData(LightningDataModule):
                     len(knockdown_samples),
                 )
             )
+
+            # this is required downstream, so make sure all the gene IDs in the sample_names file have gene counts
+            assert np.all(
+                [
+                    i in gene_counts["gene_id"].values
+                    for i in sample_names["Ensemble.Gene.ID"].values
+                ]
+            ), "Not all gene IDs in the sample names file have gene counts"
 
             # rename replicate columns to match the naming scheme in the splicing data
             gene_counts_samples = gene_counts.columns[2:]
@@ -769,97 +764,6 @@ class KnockdownData(LightningDataModule):
                     gene_counts.shape[1] - 2,
                     len(control_samples),
                     len(knockdown_samples),
-                )
-            )
-
-            # start building a dictionary to map gene names to Ensembl gene IDs
-            drop_columns = []
-            for sf in tqdm(knockdown_samples):
-                if sf not in gene_name_to_ensembl_id:
-                    if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf[:-2] if sf.endswith("_b") else sf[:-3]
-                        )  # return can be str | list[str], list is for multiple IDs
-                    else:
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf
-                        )  # return can be str | list[str], list is for multiple IDs
-                    if ensembl_id is not None:
-                        if isinstance(ensembl_id, list):
-                            gene_name_to_ensembl_id[sf] = ensembl_id
-                        else:
-                            gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        for ensembl_id in gene_name_to_ensembl_id[sf]:
-                            if ensembl_id in ensembl_id_to_gene_name:
-                                ensembl_id_to_gene_name[ensembl_id].append(sf)
-                            else:
-                                ensembl_id_to_gene_name[ensembl_id] = [sf]
-                    else:
-                        drop_columns.append(sf)
-            # if any of the columns to be dropped have a row with the same name in the gene count data, we use the gene ID present in the gene count data and add it to the mapping and don't drop the column
-            for sf in drop_columns:
-                alias = (
-                    sf
-                    if not sf.endswith("_b") and not sf.endswith("con")
-                    else sf[:-2]
-                    if sf.endswith("_b")
-                    else sf[:-3]
-                )
-                if (gene_counts["alias"] == alias).sum() > 0:
-                    ensembl_id = gene_counts.loc[
-                        gene_counts["alias"] == alias, "gene_id"
-                    ].iloc[0]
-                    gene_name_to_ensembl_id[sf] = [ensembl_id]
-                    if ensembl_id in ensembl_id_to_gene_name:
-                        ensembl_id_to_gene_name[ensembl_id].append(sf)
-                    else:
-                        ensembl_id_to_gene_name[ensembl_id] = [sf]
-            drop_columns = [i for i in drop_columns if i not in gene_name_to_ensembl_id]
-
-            # drop columns for which we could not find the Ensembl gene ID
-            gene_counts = gene_counts.drop(columns=drop_columns)
-            print(
-                "Dropping gene count data from {} splicing factors for which the Ensembl ID could not be found".format(
-                    drop_columns
-                )
-            )
-            # also drop columns for which there is no corresponding gene count data in the rows
-            drop_columns = []
-            for sf in knockdown_samples:
-                check = False
-                for ensembl_id in gene_name_to_ensembl_id[sf]:
-                    if (gene_counts["gene_id"] == ensembl_id).sum() > 0:
-                        check = True
-                        break
-                if not check:
-                    alias = (
-                        sf
-                        if not sf.endswith("_b") and not sf.endswith("con")
-                        else sf[:-2]
-                        if sf.endswith("_b")
-                        else sf[:-3]
-                    )
-                    if (gene_counts["alias"] == alias).sum() == 0:
-                        drop_columns.append(sf)
-                    else:
-                        # sometimes the Ensembl ID in the gene count data is not the same as the one from HGNC, but the gene name is the same
-                        # in that case we can use the gene name from the gene count data
-                        print(
-                            f"Weird case where Ensembl ID from HGNC is not in gene count data, but gene name is the same for {sf}. ID from HGNC: {gene_name_to_ensembl_id[sf]}, ID from gene count data: {gene_counts.loc[gene_counts['alias'] == sf, 'gene_id'].iloc[0]}"
-                        )
-                        ensembl_id = gene_counts.loc[
-                            gene_counts["alias"] == alias, "gene_id"
-                        ].iloc[0]
-                        gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        if ensembl_id in ensembl_id_to_gene_name:
-                            ensembl_id_to_gene_name[ensembl_id].append(sf)
-                        else:
-                            ensembl_id_to_gene_name[ensembl_id] = [sf]
-
-            gene_counts = gene_counts.drop(columns=drop_columns)
-            print(
-                "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
-                    drop_columns
                 )
             )
 
@@ -987,111 +891,33 @@ class KnockdownData(LightningDataModule):
             }
             inclusion_levels_full = inclusion_levels_full.rename(columns=rename_dict)
 
-            # get Ensembl gene IDs for the splicing factors being knocked down in the splicing data
-            control_samples_psi_vals_columns = [
-                "AA3",
-                "AA4",
-                "AA5",
-                "AA6",
-                "AA7",
-                "AA8",
-                "AA9",
-            ]
-            knockdown_samples_psi_vals_columns = [
-                i
-                for i in inclusion_levels_full.columns[6:]
-                if (not i.endswith("-Q"))
-                and (i not in control_samples_psi_vals_columns)
-            ]
-            drop_columns = []
-            for sf in tqdm(knockdown_samples_psi_vals_columns):
-                if sf not in gene_name_to_ensembl_id:
-                    if sf.endswith("_b") or sf.endswith("con"):
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                            sf[:-2] if sf.endswith("_b") else sf[:-3]
-                        )
-                    else:
-                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
-                    if ensembl_id is not None:
-                        if isinstance(ensembl_id, list):
-                            gene_name_to_ensembl_id[sf] = ensembl_id
-                        else:
-                            gene_name_to_ensembl_id[sf] = [ensembl_id]
-                        for ensembl_id in gene_name_to_ensembl_id[sf]:
-                            if ensembl_id in ensembl_id_to_gene_name:
-                                ensembl_id_to_gene_name[ensembl_id].append(sf)
-                            else:
-                                ensembl_id_to_gene_name[ensembl_id] = [sf]
-                    else:
-                        drop_columns.append(sf)
-                        drop_columns.append(sf + "-Q")
-            inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
-            print(
-                "Dropping PSI values data from {} for which the Ensembl ID could not be found, went from {} samples to {} samples".format(
-                    drop_columns,
-                    (inclusion_levels_full.shape[1] - 6) / 2,
-                    (inclusion_levels_full.shape[1] - 6) / 2 - len(drop_columns) // 2,
-                )
-            )
-            psi_vals_columns = [
-                i for i in inclusion_levels_full.columns[6:] if not i.endswith("-Q")
-            ]
-            quality_columns = [
-                i for i in inclusion_levels_full.columns[6:] if i.endswith("-Q")
-            ]
-            for i in psi_vals_columns:
-                assert f"{i}-Q" in quality_columns, f"Quality column for {i} not found"
-            assert len(psi_vals_columns) == len(quality_columns)
-            print(
-                "Every PSI value is followed by a quality column in the data after removing samples for which the Ensembl ID could not be found"
-            )
-
-            # cache the gene name to Ensembl gene ID mapping
-            with open(
-                os.path.join(self.cache_dir, "gene_name_to_ensembl_id.json"), "w+"
-            ) as f:
-                json.dump(gene_name_to_ensembl_id, f)
-
-            # cache the Ensembl gene ID to gene name mapping
-            with open(
-                os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json"), "w+"
-            ) as f:
-                json.dump(ensembl_id_to_gene_name, f)
-
-            # now rename all the columns to use Ensembl gene IDs instead of gene names since the two files don't always use the same gene names
-            # if a gene has multiple Ensembl IDs, we use the one for which the gene id is found in the gene count data and has the cumulative highest expression
-            # rename the columns in the gene count data
+            # now we unify the naming scheme for the splicing factors in the gene count data and the splicing data by using the Ensembl IDs
+            # first rename the columns in the gene count data
             rename_dict = {}
             control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
             knockdown_samples = [
                 i for i in gene_counts.columns[2:] if i not in control_samples
             ]
             for i in knockdown_samples:
-                max_count = 0
-                best_ensembl_id = None
-                for ensembl_id in gene_name_to_ensembl_id[i]:
-                    if (gene_counts["gene_id"] == ensembl_id).sum() > 0:
-                        exp_count = (
-                            gene_counts[gene_counts["gene_id"] == ensembl_id]
-                            .iloc[0][gene_counts.columns[2:]]
-                            .sum()
-                        )
-                        if exp_count > max_count:
-                            max_count = exp_count
-                            best_ensembl_id = ensembl_id
-                if best_ensembl_id is None:
-                    raise Exception(f"Could not find the gene count data for {i}")
+                gene_name_in_gene_counts_data = i
+                if i.endswith("_b"):
+                    gene_name_in_gene_counts_data = i[:-2]
+                elif i.endswith("con"):
+                    gene_name_in_gene_counts_data = i[:-3]
 
-                # for replicate columns, we append "_replicate" to the Ensembl ID
+                ensembl_id = sample_names[
+                    sample_names["gene.name.VT"] == gene_name_in_gene_counts_data
+                ]["Ensemble.Gene.ID"].values[0]
+
+                # for replicate columns, we append "_replicate" to the
                 if i.endswith("_b") or i.endswith("con"):
-                    rename_dict[i] = best_ensembl_id + "_replicate"
+                    rename_dict[i] = ensembl_id + "_replicate"
                 else:
-                    rename_dict[i] = best_ensembl_id
+                    rename_dict[i] = ensembl_id
             gene_counts = gene_counts.rename(columns=rename_dict)
 
-            # now rename the columns in the PSI values data
+            # next rename the columns in the PSI values data
             # we also rename the quality columns
-            # if a gene has multiple Ensembl IDs, we use the one which was used for the gene count data
             control_samples_psi_vals_columns = [
                 "AA3",
                 "AA4",
@@ -1109,26 +935,23 @@ class KnockdownData(LightningDataModule):
             ]
             rename_dict = {}
             for i in knockdown_samples_psi_vals_columns:
-                max_count = 0
-                best_ensembl_id = gene_name_to_ensembl_id[i][0]
-                for ensembl_id in gene_name_to_ensembl_id[i]:
-                    if ensembl_id in gene_counts.columns:
-                        exp_count = (
-                            gene_counts[gene_counts["gene_id"] == ensembl_id]
-                            .iloc[0][gene_counts.columns[2:]]
-                            .sum()
-                        )
-                        if exp_count > max_count:
-                            max_count = exp_count
-                            best_ensembl_id = ensembl_id
+                gene_name_in_psi_vals_data = i
+                if i.endswith("_b"):
+                    gene_name_in_psi_vals_data = i[:-2]
+                elif i.endswith("con"):
+                    gene_name_in_psi_vals_data = i[:-3]
+
+                ensembl_id = sample_names[
+                    sample_names["Gene.Symbol"] == gene_name_in_psi_vals_data
+                ]["Ensemble.Gene.ID"].values[0]
 
                 # for replicate columns, we append "_replicate" to the Ensembl ID
                 if i.endswith("_b") or i.endswith("con"):
-                    rename_dict[i] = best_ensembl_id + "_replicate"
-                    rename_dict[i + "-Q"] = best_ensembl_id + "_replicate-Q"
+                    rename_dict[i] = ensembl_id + "_replicate"
+                    rename_dict[i + "-Q"] = ensembl_id + "_replicate-Q"
                 else:
-                    rename_dict[i] = best_ensembl_id
-                    rename_dict[i + "-Q"] = best_ensembl_id + "-Q"
+                    rename_dict[i] = ensembl_id
+                    rename_dict[i + "-Q"] = ensembl_id + "-Q"
             inclusion_levels_full = inclusion_levels_full.rename(columns=rename_dict)
 
             # now drop all splicing data for which the gene count data is not available and vice versa
