@@ -625,6 +625,20 @@ class KnockdownDataset(Dataset):
 # DataModule for the knockdown data
 class KnockdownData(LightningDataModule):
     def prepare_data(self):
+        # download the genome if it does not exist
+        if not os.path.exists(os.path.join(self.cache_dir, "genomes", "GRCh38.p14")):
+            print("Downloading the genome")
+            os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
+            # download ENSEMBL GRChg38 v112 GTF since that was the version used for the gene counts
+            genomepy.install_genome(
+                name="GRCh38.p14",
+                provider="Ensembl",
+                annotation=True,
+                version=112,
+                genomes_dir=os.path.join(self.cache_dir, "genomes"),
+            )
+            print("Genome downloaded")
+
         # load/create the filtered splicing data
         if (
             not os.path.exists(
@@ -638,6 +652,9 @@ class KnockdownData(LightningDataModule):
             )
             or not os.path.exists(
                 os.path.join(self.cache_dir, "ensembl_id_to_gene_name.json")
+            )
+            or not os.path.exists(
+                os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
             )
         ):
             print("Filtering data")
@@ -741,22 +758,6 @@ class KnockdownData(LightningDataModule):
                 )
             )
 
-            # drop any remaining second replicates, all of these have first replicates
-            drop_columns = []
-            rename_dict = {}
-            for col in gene_counts.columns[2:]:
-                if col.endswith("_b") or col.endswith("con"):
-                    prefix = col[:-2] if col.endswith("_b") else col[:-3]
-                    assert prefix in gene_counts.columns
-                    drop_columns.append(col)
-            ori_num_samples = gene_counts.shape[1] - 2
-            gene_counts = gene_counts.drop(columns=drop_columns)
-            print(
-                "Dropped {} columns from gene counts data to account any remaining second replicates".format(
-                    (ori_num_samples - (gene_counts.shape[1] - 2)),
-                )
-            )
-
             # print stats after QC-based dropping and renaming
             control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
             knockdown_samples = [
@@ -775,9 +776,14 @@ class KnockdownData(LightningDataModule):
             drop_columns = []
             for sf in tqdm(knockdown_samples):
                 if sf not in gene_name_to_ensembl_id:
-                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
-                        sf
-                    )  # return can be str | list[str], list is for multiple IDs
+                    if sf.endswith("_b") or sf.endswith("con"):
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
+                            sf[:-2] if sf.endswith("_b") else sf[:-3]
+                        )  # return can be str | list[str], list is for multiple IDs
+                    else:
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
+                            sf
+                        )  # return can be str | list[str], list is for multiple IDs
                     if ensembl_id is not None:
                         if isinstance(ensembl_id, list):
                             gene_name_to_ensembl_id[sf] = ensembl_id
@@ -792,9 +798,16 @@ class KnockdownData(LightningDataModule):
                         drop_columns.append(sf)
             # if any of the columns to be dropped have a row with the same name in the gene count data, we use the gene ID present in the gene count data and add it to the mapping and don't drop the column
             for sf in drop_columns:
-                if (gene_counts["alias"] == sf).sum() > 0:
+                alias = (
+                    sf
+                    if not sf.endswith("_b") and not sf.endswith("con")
+                    else sf[:-2]
+                    if sf.endswith("_b")
+                    else sf[:-3]
+                )
+                if (gene_counts["alias"] == alias).sum() > 0:
                     ensembl_id = gene_counts.loc[
-                        gene_counts["alias"] == sf, "gene_id"
+                        gene_counts["alias"] == alias, "gene_id"
                     ].iloc[0]
                     gene_name_to_ensembl_id[sf] = [ensembl_id]
                     if ensembl_id in ensembl_id_to_gene_name:
@@ -807,7 +820,7 @@ class KnockdownData(LightningDataModule):
             gene_counts = gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the Ensembl ID could not be found".format(
-                    len(drop_columns)
+                    drop_columns
                 )
             )
             # also drop columns for which there is no corresponding gene count data in the rows
@@ -819,7 +832,14 @@ class KnockdownData(LightningDataModule):
                         check = True
                         break
                 if not check:
-                    if (gene_counts["alias"] == sf).sum() == 0:
+                    alias = (
+                        sf
+                        if not sf.endswith("_b") and not sf.endswith("con")
+                        else sf[:-2]
+                        if sf.endswith("_b")
+                        else sf[:-3]
+                    )
+                    if (gene_counts["alias"] == alias).sum() == 0:
                         drop_columns.append(sf)
                     else:
                         # sometimes the Ensembl ID in the gene count data is not the same as the one from HGNC, but the gene name is the same
@@ -828,7 +848,7 @@ class KnockdownData(LightningDataModule):
                             f"Weird case where Ensembl ID from HGNC is not in gene count data, but gene name is the same for {sf}. ID from HGNC: {gene_name_to_ensembl_id[sf]}, ID from gene count data: {gene_counts.loc[gene_counts['alias'] == sf, 'gene_id'].iloc[0]}"
                         )
                         ensembl_id = gene_counts.loc[
-                            gene_counts["alias"] == sf, "gene_id"
+                            gene_counts["alias"] == alias, "gene_id"
                         ].iloc[0]
                         gene_name_to_ensembl_id[sf] = [ensembl_id]
                         if ensembl_id in ensembl_id_to_gene_name:
@@ -839,7 +859,7 @@ class KnockdownData(LightningDataModule):
             gene_counts = gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} splicing factors for which the gene ID could not be found in the gene count data".format(
-                    len(drop_columns)
+                    drop_columns
                 )
             )
 
@@ -900,7 +920,7 @@ class KnockdownData(LightningDataModule):
                 ]
             ]
             inclusion_levels_full = inclusion_levels_full.drop(
-                columns=poor_quality_samples, errors="ignore"
+                columns=poor_quality_samples
             )
             print(
                 "Discarded columns with poor quality data, number of samples: {}".format(
@@ -965,23 +985,7 @@ class KnockdownData(LightningDataModule):
                 "CCDC12_b-Q": "CCDC12-Q",
                 "CDC5L_b-Q": "CDC5L-Q",
             }
-            inclusion_levels_full = inclusion_levels_full.rename(
-                columns=rename_dict, errors="ignore"
-            )
-            # we also drop all other replicate columns (endswith "_b" or "con") since we only use the data from the first replicate
-            drop_columns = [
-                i
-                for i in inclusion_levels_full.columns
-                if i.endswith("_b") or i.endswith("con")
-            ]
-            drop_columns += [i + "-Q" for i in drop_columns]
-            ori_num_samples = (inclusion_levels_full.shape[1] - 6) / 2
-            inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
-            print(
-                "Dropped unused replicate columns from PSI values data, went from {} samples to {} samples".format(
-                    ori_num_samples, (inclusion_levels_full.shape[1] - 6) / 2
-                )
-            )
+            inclusion_levels_full = inclusion_levels_full.rename(columns=rename_dict)
 
             # get Ensembl gene IDs for the splicing factors being knocked down in the splicing data
             control_samples_psi_vals_columns = [
@@ -1002,7 +1006,12 @@ class KnockdownData(LightningDataModule):
             drop_columns = []
             for sf in tqdm(knockdown_samples_psi_vals_columns):
                 if sf not in gene_name_to_ensembl_id:
-                    ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
+                    if sf.endswith("_b") or sf.endswith("con"):
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(
+                            sf[:-2] if sf.endswith("_b") else sf[:-3]
+                        )
+                    else:
+                        ensembl_id = get_ensembl_gene_id_hgnc_with_alias(sf)
                     if ensembl_id is not None:
                         if isinstance(ensembl_id, list):
                             gene_name_to_ensembl_id[sf] = ensembl_id
@@ -1073,7 +1082,11 @@ class KnockdownData(LightningDataModule):
                 if best_ensembl_id is None:
                     raise Exception(f"Could not find the gene count data for {i}")
 
-                rename_dict[i] = best_ensembl_id
+                # for replicate columns, we append "_replicate" to the Ensembl ID
+                if i.endswith("_b") or i.endswith("con"):
+                    rename_dict[i] = best_ensembl_id + "_replicate"
+                else:
+                    rename_dict[i] = best_ensembl_id
             gene_counts = gene_counts.rename(columns=rename_dict)
 
             # now rename the columns in the PSI values data
@@ -1109,8 +1122,13 @@ class KnockdownData(LightningDataModule):
                             max_count = exp_count
                             best_ensembl_id = ensembl_id
 
-                rename_dict[i] = best_ensembl_id
-                rename_dict[i + "-Q"] = best_ensembl_id + "-Q"
+                # for replicate columns, we append "_replicate" to the Ensembl ID
+                if i.endswith("_b") or i.endswith("con"):
+                    rename_dict[i] = best_ensembl_id + "_replicate"
+                    rename_dict[i + "-Q"] = best_ensembl_id + "_replicate-Q"
+                else:
+                    rename_dict[i] = best_ensembl_id
+                    rename_dict[i + "-Q"] = best_ensembl_id + "-Q"
             inclusion_levels_full = inclusion_levels_full.rename(columns=rename_dict)
 
             # now drop all splicing data for which the gene count data is not available and vice versa
@@ -1125,7 +1143,7 @@ class KnockdownData(LightningDataModule):
             inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
             print(
                 "Dropping PSI values data from {} samples for which the gene count data could not be found".format(
-                    len(drop_columns) // 2
+                    drop_columns
                 )
             )
             psi_vals_columns = [
@@ -1139,7 +1157,7 @@ class KnockdownData(LightningDataModule):
             gene_counts = gene_counts.drop(columns=drop_columns)
             print(
                 "Dropping gene count data from {} samples for which the PSI value data could not be found".format(
-                    len(drop_columns)
+                    drop_columns
                 )
             )
 
@@ -1432,49 +1450,121 @@ class KnockdownData(LightningDataModule):
                 f"Number of events of each type after dropping events with no valid measurements in control samples:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
+            # drop all quality columns, we don't need them anymore
+            inclusion_levels_full = inclusion_levels_full.drop(
+                columns=[i for i in inclusion_levels_full.columns if i.endswith("-Q")]
+            )
+
+            # create a column for the average control PSI values
+            inclusion_levels_full["AV_Controls"] = np.nan
+            inclusion_levels_full["num_controls"] = 0
+            assert inclusion_levels_full.columns[-1] == "num_controls"
+            for sample in control_samples_psi_vals_columns:
+                not_nan_mask = inclusion_levels_full[sample].notna()
+                currently_nan_mask = inclusion_levels_full["AV_Controls"].isna()
+
+                # if the AV_Controls column is NaN, set it to the current sample value
+                inclusion_levels_full.loc[
+                    not_nan_mask & currently_nan_mask, "AV_Controls"
+                ] = inclusion_levels_full.loc[not_nan_mask & currently_nan_mask, sample]
+                # increment the number of controls for the current sample
+                inclusion_levels_full.loc[
+                    not_nan_mask & currently_nan_mask, "num_controls"
+                ] = 1
+
+                # if the AV_Controls column is not NaN, add the current sample value to it
+                inclusion_levels_full.loc[
+                    not_nan_mask & (~currently_nan_mask), "AV_Controls"
+                ] += inclusion_levels_full.loc[
+                    not_nan_mask & (~currently_nan_mask), sample
+                ]
+                # increment the number of controls for the current sample
+                inclusion_levels_full.loc[
+                    not_nan_mask & (~currently_nan_mask), "num_controls"
+                ] += 1
+            # divide the AV_Controls column by the number of controls to get the average
+            not_nan_mask = inclusion_levels_full["num_controls"] > 0
+            assert np.all(
+                inclusion_levels_full.loc[not_nan_mask, "AV_Controls"].notna()
+            )
+            inclusion_levels_full.loc[
+                not_nan_mask, "AV_Controls"
+            ] /= inclusion_levels_full.loc[not_nan_mask, "num_controls"]
+
+            # finally, for splicing factors with replicates, we average the PSI values across the replicates
+            # the replicates are named with a "_replicate" suffix
+            # for example, "IK" and "IK_replicate" will be averaged to "IK"
+            # we also drop the replicate columns
+            drop_columns = []
+            for i in inclusion_levels_full.columns[6:-1]:
+                if i.endswith("_replicate"):
+                    # get the name of the original column
+                    original_col = i[: -len("_replicate")]
+                    # average the values across the two columns if PSI values are not NaN
+                    nan_in_original_col = inclusion_levels_full[original_col].isna()
+                    nan_in_replicate_col = inclusion_levels_full[i].isna()
+                    # if both columns are not NaN, average the values
+                    inclusion_levels_full.loc[
+                        ~nan_in_original_col & ~nan_in_replicate_col,
+                        original_col,
+                    ] = (
+                        inclusion_levels_full.loc[
+                            ~nan_in_original_col & ~nan_in_replicate_col, original_col
+                        ]
+                        + inclusion_levels_full.loc[
+                            ~nan_in_original_col & ~nan_in_replicate_col, i
+                        ]
+                    ) / 2
+                    # if only one column is not NaN, keep the value from that column
+                    inclusion_levels_full.loc[
+                        nan_in_original_col & ~nan_in_replicate_col,
+                        original_col,
+                    ] = inclusion_levels_full.loc[
+                        nan_in_original_col & ~nan_in_replicate_col, i
+                    ]
+
+                    # drop the replicate column
+                    drop_columns.append(i)
+            inclusion_levels_full = inclusion_levels_full.drop(columns=drop_columns)
+            assert inclusion_levels_full.columns[-1] == "num_controls"
+            control_samples_psi_vals_columns = [
+                "AA3",
+                "AA4",
+                "AA5",
+                "AA6",
+                "AA7",
+                "AA8",
+                "AA9",
+            ]
+            knockdown_samples_psi_vals_columns = [
+                i
+                for i in inclusion_levels_full.columns[6:-1]
+                if (i not in control_samples_psi_vals_columns)
+            ]
+            print(
+                f"Dropping replicate columns: {drop_columns}, total number of samples: {len(inclusion_levels_full.columns[6:-1])}, number of control samples: {len(control_samples_psi_vals_columns)}, number of knockdown samples: {len(knockdown_samples_psi_vals_columns)}"
+            )
+
             # print number of events of each type
             print(
                 f"Final number of events of each type:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
             )
 
-            # cache the filtered data
+            # cache the filtered PSI data
             inclusion_levels_full.to_parquet(
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet"),
                 index=False,
             )
 
-            # cache the gene counts
-            gene_counts.to_parquet(
-                os.path.join(self.cache_dir, "gene_counts_filtered.parquet"),
-                index=False,
-            )
-
-            print("Filtered data cached")
-
-        if not os.path.exists(os.path.join(self.cache_dir, "genomes", "GRCh38.p14")):
-            print("Downloading the genome")
-            os.makedirs(os.path.join(self.cache_dir, "genomes"), exist_ok=True)
-            # download ENSEMBL GRChg38 v112 GTF since that was the version used for the gene counts
-            genomepy.install_genome(
-                name="GRCh38.p14",
-                provider="Ensembl",
-                annotation=True,
-                version=112,
-                genomes_dir=os.path.join(self.cache_dir, "genomes"),
-            )
-            print("Genome downloaded")
-
-        if not os.path.exists(
-            os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
-        ):
             # from the gene counts data, calculate the normalized gene expression values - TPM and RPKM
             print(
                 "Calculating normalized gene expression values from gene counts (TPM and RPKM)"
             )
 
-            gene_counts = pd.read_parquet(
-                os.path.join(self.cache_dir, "gene_counts_filtered.parquet")
-            )
+            control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
+            knockdown_samples = [
+                i for i in gene_counts.columns[2:] if i not in control_samples
+            ]
 
             genome_annotation = genomepy.Annotation(
                 name="GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
@@ -1534,8 +1624,17 @@ class KnockdownData(LightningDataModule):
                     normalized_gene_expression[sample + "_RPKM"] + 1
                 )
 
+            # drop all count, TPM, and RPKM columns, we don't support using them downstream
+            drop_columns = []
+            for col in knockdown_samples + control_samples:
+                drop_columns.append(col)
+                drop_columns.append(col + "_TPM")
+                drop_columns.append(col + "_RPKM")
+            normalized_gene_expression = normalized_gene_expression.drop(
+                columns=drop_columns
+            )
+
             # average expression metrics from the control samples
-            control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
             normalized_gene_expression["AV_Controls" + "_log2TPM"] = 0
             normalized_gene_expression["AV_Controls" + "_log2RPKM"] = 0
             for sample in control_samples:
@@ -1551,6 +1650,53 @@ class KnockdownData(LightningDataModule):
             normalized_gene_expression["AV_Controls" + "_log2RPKM"] /= len(
                 control_samples
             )
+
+            # average expression metrics from replicate knockdown samples
+            # the replicate samples are named with a "_replicate" suffix
+            # for example, "IK" and "IK_replicate" will be averaged to "IK"
+            # we also drop the replicate columns
+            # - same as in the PSI values data
+            # but we only average the log2TPM or log2RPKM values, not the raw counts since that is not a principled way to do it
+            drop_columns = []
+            for sample in knockdown_samples:
+                if sample.endswith("_replicate"):
+                    # get the name of the original column
+                    original_col = sample[: -len("_replicate")]
+
+                    # average the values across the two columns
+                    normalized_gene_expression[original_col + "_log2TPM"] = (
+                        normalized_gene_expression[sample + "_log2TPM"]
+                        + normalized_gene_expression[original_col + "_log2TPM"]
+                    ) / 2
+                    normalized_gene_expression[original_col + "_log2RPKM"] = (
+                        normalized_gene_expression[sample + "_log2RPKM"]
+                        + normalized_gene_expression[original_col + "_log2RPKM"]
+                    ) / 2
+                    # drop the replicate column
+                    drop_columns.append(sample + "_log2TPM")
+                    drop_columns.append(sample + "_log2RPKM")
+            normalized_gene_expression = normalized_gene_expression.drop(
+                columns=drop_columns
+            )
+
+            # now just verify that every sample has both expression and PSI values
+            psi_vals_columns = [i for i in inclusion_levels_full.columns[6:-1]]
+            for sample in psi_vals_columns:
+                assert (sample + "_log2TPM" in normalized_gene_expression.columns) and (
+                    sample + "_log2RPKM" in normalized_gene_expression.columns
+                ), f"Sample {sample} does not have expression values"
+            expression_columns = [
+                i for i in normalized_gene_expression.columns[2:] if i != "length"
+            ]
+            for col in expression_columns:
+                if col.endswith("_log2TPM"):
+                    sample = col[: -len("_log2TPM")]
+                elif col.endswith("_log2RPKM"):
+                    sample = col[: -len("_log2RPKM")]
+
+                assert (
+                    sample in psi_vals_columns
+                ), f"Sample {sample} does not have PSI values"
 
             normalized_gene_expression.to_parquet(
                 os.path.join(self.cache_dir, "normalized_gene_expression.parquet"),
@@ -1579,9 +1725,14 @@ class KnockdownData(LightningDataModule):
             ]
 
             all_gene_ids = normalized_gene_expression["gene_id"].values
+            sample_names = [
+                i[: -len("_log2TPM")]
+                for i in normalized_gene_expression.columns[2:]
+                if i.endswith("_log2TPM")
+            ]
             splicing_factor_gene_ids = [
                 i
-                for i in normalized_gene_expression.columns
+                for i in sample_names
                 if ((i in all_gene_ids) and (i not in control_samples))
             ]
 
@@ -1703,51 +1854,14 @@ class KnockdownData(LightningDataModule):
                 "AA8",
                 "AA9",
             ]
+            assert inclusion_levels_full.columns[-1] == "num_controls"
             knockdown_samples_psi_vals_columns = [
                 i
-                for i in inclusion_levels_full.columns[6:]
-                if (
-                    (not i.endswith("-Q"))
-                    and (i not in control_samples_psi_vals_columns)
-                )
+                for i in inclusion_levels_full.columns[6:-1]
+                if (i not in control_samples_psi_vals_columns)
             ]
 
-            # create a column for the average control PSI values
-            inclusion_levels_full["AV_Controls"] = np.nan
-            inclusion_levels_full["num_controls"] = 0
-            for sample in control_samples_psi_vals_columns:
-                not_nan_mask = inclusion_levels_full[sample].notna()
-                currently_nan_mask = inclusion_levels_full["AV_Controls"].isna()
-
-                # if the AV_Controls column is NaN, set it to the current sample value
-                inclusion_levels_full.loc[
-                    not_nan_mask & currently_nan_mask, "AV_Controls"
-                ] = inclusion_levels_full.loc[not_nan_mask & currently_nan_mask, sample]
-                # increment the number of controls for the current sample
-                inclusion_levels_full.loc[
-                    not_nan_mask & currently_nan_mask, "num_controls"
-                ] = 1
-
-                # if the AV_Controls column is not NaN, add the current sample value to it
-                inclusion_levels_full.loc[
-                    not_nan_mask & (~currently_nan_mask), "AV_Controls"
-                ] += inclusion_levels_full.loc[
-                    not_nan_mask & (~currently_nan_mask), sample
-                ]
-                # increment the number of controls for the current sample
-                inclusion_levels_full.loc[
-                    not_nan_mask & (~currently_nan_mask), "num_controls"
-                ] += 1
-            # divide the AV_Controls column by the number of controls to get the average
-            not_nan_mask = inclusion_levels_full["num_controls"] > 0
-            assert np.all(
-                inclusion_levels_full.loc[not_nan_mask, "AV_Controls"].notna()
-            )
-            inclusion_levels_full.loc[
-                not_nan_mask, "AV_Controls"
-            ] /= inclusion_levels_full.loc[not_nan_mask, "num_controls"]
-
-            # create a column for the chromosome
+            # finally, create a column for the chromosome
             inclusion_levels_full["CHR"] = inclusion_levels_full["COORD"].apply(
                 lambda x: x.split(":")[0]
             )
