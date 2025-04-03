@@ -32,6 +32,8 @@ def worker_init_fn(worker_id):
 
 
 # DistributedSampler if we want to have N events per batch
+# Note that the corresponding control data will always be included in the batch as the first sample from an event.
+# This is important for the model to learn the difference between control and non-control data.
 class NEventsPerBatchDistributedSampler(
     torch.utils.data.distributed.DistributedSampler
 ):
@@ -49,6 +51,14 @@ class NEventsPerBatchDistributedSampler(
                 f"NEventsPerBatchDistributedSampler should only be used with the train split, not {self.split}"
             )
 
+        # if self.epoch < self.num_epochs_for_training_on_control_data_only, then subset the data to only include control data
+        # in this case, we return a random sample of the control data in each batch
+        if self.epoch < self.num_epochs_for_training_on_control_data_only:
+            print(
+                f"Epoch {self.epoch} is less than {self.num_epochs_for_training_on_control_data_only}, using control data only"
+            )
+            data = data.loc[data["SAMPLE"] == "AV_Controls"]
+
         # get unique event IDs
         self.event_ids = data["EVENT"].unique()
         # shuffle the event IDs
@@ -60,6 +70,10 @@ class NEventsPerBatchDistributedSampler(
         # subset the data to only include the events in the event IDs
         # we only need the row idx and the event ID
         self.this_rank_data = data.loc[data["EVENT"].isin(self.event_ids), ["EVENT"]]
+        if self.epoch < self.num_epochs_for_training_on_control_data_only:
+            assert len(self.this_rank_data) == len(
+                self.event_ids
+            ), f"Training only on control data, expected rank data length and number of events to be the same, but got {len(self.this_rank_data)} and {len(self.event_ids)}"
 
         # compute length
         self.length = len(data) // self.num_replicas
@@ -120,6 +134,23 @@ class NEventsPerBatchDistributedSampler(
         )
         print(f"Examples per event: {self.examples_per_event}")
 
+        # hyperparams that affect how we use the controls data + how we define significant events
+        if (
+            "num_epochs_for_training_on_control_data_only"
+            in self.data_module.config["train_config"]
+        ):
+            self.num_epochs_for_training_on_control_data_only = self.data_module.config[
+                "train_config"
+            ]["num_epochs_for_training_on_control_data_only"]
+        else:
+            self.num_epochs_for_training_on_control_data_only = 0
+        if "dPSI_threshold_for_significance" in self.data_module.config["train_config"]:
+            self.dPSI_threshold_for_significance = self.data_module.config[
+                "train_config"
+            ]["dPSI_threshold_for_significance"]
+        else:
+            self.dPSI_threshold_for_significance = 0.0
+
         # split data among ranks
         self.epoch = 0
         self.split_data_among_ranks()
@@ -134,6 +165,24 @@ class NEventsPerBatchDistributedSampler(
     def __iter__(self):
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
+
+        # if we are training on control data only, we just return random indices of the control data
+        if self.epoch < self.num_epochs_for_training_on_control_data_only:
+            indices = np.random.choice(
+                self.this_rank_data.index,
+                size=self.length,
+                replace=False if len(self.this_rank_data) >= self.length else True,
+            )
+            print(
+                "Rank: {}, Seed: {}, Length: {}, Indices len: {}, Num unique indices: {}".format(
+                    self.rank,
+                    self.seed,
+                    self.length,
+                    len(indices),
+                    len(set(indices)),
+                )
+            )
+            return iter(indices)
 
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
@@ -150,16 +199,26 @@ class NEventsPerBatchDistributedSampler(
                     break
 
                 # sample examples for the event
-                examples_needed_from_event = len(self.examples_per_event[cur_event_idx])
+                # first example is always the control data
                 current_batch_idxs[
-                    self.examples_per_event[cur_event_idx]
-                ] = np.random.choice(
-                    event_data.index,
-                    size=examples_needed_from_event,
-                    replace=False
-                    if len(event_data) >= examples_needed_from_event
-                    else True,
+                    self.examples_per_event[cur_event_idx][0]
+                ] = event_data[event_data["SAMPLE"] == "AV_Controls"].index[0]
+                examples_needed_from_event = (
+                    len(self.examples_per_event[cur_event_idx]) - 1
                 )
+                if examples_needed_from_event > 0:
+                    non_control_indices = event_data[
+                        event_data["SAMPLE"] != "AV_Controls"
+                    ].index
+                    current_batch_idxs[
+                        self.examples_per_event[cur_event_idx][1:]
+                    ] = np.random.choice(
+                        non_control_indices,
+                        size=examples_needed_from_event,
+                        replace=False
+                        if len(event_data) >= examples_needed_from_event
+                        else True,
+                    )
                 cur_event_idx += 1
 
                 # if N events have been sampled, yield the indices
@@ -2601,8 +2660,12 @@ class KnockdownData(LightningDataModule):
         }
 
         # get sample ID to index mapping
+        # ind 0 must always be AV_Controls - this is the control sample
         all_samples = self.unified_data["SAMPLE"].unique().tolist()
         all_samples.sort()
+        all_samples = ["AV_Controls"] + [
+            sample for sample in all_samples if sample != "AV_Controls"
+        ]
         self.sample_to_ind = {sample: i for i, sample in enumerate(all_samples)}
         print("All samples:", all_samples)
         print("Sample ID to index mapping:", self.sample_to_ind)
@@ -2732,6 +2795,26 @@ class KnockdownData(LightningDataModule):
             "heldout_chromosome_and_train_sample": 4,
             "heldout_sample_and_train_chromosome": 5,
         }
+
+        # hyperparams that affect how we use the controls data + how we define significant events
+        if (
+            "num_epochs_for_training_on_control_data_only"
+            in self.config["train_config"]
+        ):
+            self.num_epochs_for_training_on_control_data_only = self.config[
+                "train_config"
+            ]["num_epochs_for_training_on_control_data_only"]
+            assert (
+                "N_events_per_batch" in self.config["train_config"]
+            ), "If 'num_epochs_for_training_on_control_data_only' is specified, 'N_events_per_batch' must also be specified in the train config as only the N events per batch sampler is supported for training on control data only"
+        else:
+            self.num_epochs_for_training_on_control_data_only = 0
+        if "dPSI_threshold_for_significance" in self.config["train_config"]:
+            self.dPSI_threshold_for_significance = self.config["train_config"][
+                "dPSI_threshold_for_significance"
+            ]
+        else:
+            self.dPSI_threshold_for_significance = 0.0
 
     def train_dataloader(self):
         return DataLoader(

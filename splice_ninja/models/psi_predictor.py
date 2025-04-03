@@ -211,6 +211,84 @@ class RankingAndBCEWithLogitsLoss(nn.Module):
         return loss
 
 
+class RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss(nn.Module):
+    def __init__(self, dPSI_threshold, margin=0, ranking_loss_weight_multiplier=10):
+        super().__init__()
+        self.dPSI_threshold = dPSI_threshold
+        self.margin = margin
+        self.ranking_loss_weight_multiplier = ranking_loss_weight_multiplier
+
+    def forward(self, pred_psi_val, psi_val, use_BCE_loss_only=False, **kwargs):
+        # Compute BCEWithLogits loss
+        loss = F.binary_cross_entropy_with_logits(
+            pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
+        )
+
+        if use_BCE_loss_only:
+            return loss
+
+        event_id, sample_id = kwargs["event_id"], kwargs["sample"]
+
+        # Compute control-based ranking loss efficiently
+        unique_events, event_indices = torch.unique_consecutive(
+            event_id, return_inverse=True
+        )
+
+        # Extract control PSI values for each event (assumes control sample is always sample_id == 0)
+        control_mask = sample_id == 0
+        control_psi = torch.zeros_like(unique_events, dtype=psi_val.dtype)
+        control_pred_psi = torch.zeros_like(unique_events, dtype=pred_psi_val.dtype)
+
+        control_psi[event_indices[control_mask]] = psi_val[control_mask]
+        control_pred_psi[event_indices[control_mask]] = pred_psi_val[control_mask]
+
+        # Compute difference from control values
+        psi_diff = psi_val - control_psi[event_indices]
+        pred_psi_diff = pred_psi_val - control_pred_psi[event_indices]
+
+        # Determine valid ranking pairs
+        ranking_labels = torch.sign(psi_diff)
+        valid_pairs = torch.abs(psi_diff) >= self.dPSI_threshold
+
+        # Apply margin ranking loss
+        if valid_pairs.any():
+            control_ranking_loss = F.margin_ranking_loss(
+                pred_psi_diff[valid_pairs],
+                torch.zeros_like(pred_psi_diff[valid_pairs]),
+                ranking_labels[valid_pairs],
+                margin=self.margin,
+                reduction="none",
+            )
+            loss += (
+                control_ranking_loss
+                * torch.abs(psi_diff[valid_pairs])
+                * self.ranking_loss_weight_multiplier
+            ).mean()
+
+        # Compute sample-based ranking loss efficiently
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+
+        ranking_labels = torch.sign(true_diff)
+        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+
+        if valid_pairs.any():
+            sample_ranking_loss = F.margin_ranking_loss(
+                pred_diff[valid_pairs],
+                torch.zeros_like(pred_diff[valid_pairs]),
+                ranking_labels[valid_pairs],
+                margin=self.margin,
+                reduction="none",
+            )
+            loss += (
+                sample_ranking_loss
+                * torch.abs(true_diff[valid_pairs])
+                * self.ranking_loss_weight_multiplier
+            ).mean()
+
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -259,6 +337,23 @@ class PSIPredictor(LightningModule):
             f"Example types in this split type: {self.example_types_in_this_split_type}"
         )
 
+        # hyperparams that affect how we use the controls data + how we define significant events
+        if (
+            "num_epochs_for_training_on_control_data_only"
+            in self.config["train_config"]
+        ):
+            self.num_epochs_for_training_on_control_data_only = self.config[
+                "train_config"
+            ]["num_epochs_for_training_on_control_data_only"]
+        else:
+            self.num_epochs_for_training_on_control_data_only = 0
+        if "dPSI_threshold_for_significance" in self.config["train_config"]:
+            self.dPSI_threshold_for_significance = self.config["train_config"][
+                "dPSI_threshold_for_significance"
+            ]
+        else:
+            self.dPSI_threshold_for_significance = 0.0
+
         # define model
         self.name_to_model = {"SpliceAI10k": SpliceAI10k}
         assert (
@@ -298,6 +393,13 @@ class PSIPredictor(LightningModule):
             self.loss_fn = BiasedBCEWithLogitsLossBasedOnEventStd()
         elif self.config["train_config"]["loss_fn"] == "RankingAndBCEWithLogitsLoss":
             self.loss_fn = RankingAndBCEWithLogitsLoss()
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss"
+        ):
+            self.loss_fn = RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss(
+                self.dPSI_threshold_for_significance
+            )
         else:
             raise ValueError(
                 f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingAndMSELoss, BCEWithLogitsLoss, BiasedBCEWithLogitsLossBasedOnEventStd, RankingAndBCEWithLogitsLoss."
@@ -407,6 +509,10 @@ class PSIPredictor(LightningModule):
             event_std_psi=batch["event_std_psi"],
             event_min_psi=batch["event_min_psi"],
             event_max_psi=batch["event_max_psi"],
+            event_id=batch["event_id"],
+            sample=batch["sample"],
+            event_controls_avg_psi=batch["event_controls_avg_psi"],
+            event_num_controls=batch["event_num_controls"],
         )
         if self.predict_mean_std_psi_and_delta:
             self.log(
@@ -459,6 +565,10 @@ class PSIPredictor(LightningModule):
             event_std_psi=batch["event_std_psi"],
             event_min_psi=batch["event_min_psi"],
             event_max_psi=batch["event_max_psi"],
+            event_id=batch["event_id"],
+            sample=batch["sample"],
+            event_controls_avg_psi=batch["event_controls_avg_psi"],
+            event_num_controls=batch["event_num_controls"],
         )
         if self.predict_mean_std_psi_and_delta:
             self.log(
@@ -945,7 +1055,10 @@ class PSIPredictor(LightningModule):
                         event_df = low_std_events_df[
                             low_std_events_df["event_id"] == event_id
                         ]
-                        if (event_df["sample_has_sig_lower_PSI"] | event_df["sample_has_sig_higher_PSI"]).sum() == 0:
+                        if (
+                            event_df["sample_has_sig_lower_PSI"]
+                            | event_df["sample_has_sig_higher_PSI"]
+                        ).sum() == 0:
                             continue
                         total_num_events += 1
                         event_df = event_df.sort_values(
@@ -955,13 +1068,14 @@ class PSIPredictor(LightningModule):
                         event_df = event_df.reset_index(drop=True)
                         event_df["percentile"] = (event_df.index / len(event_df)) * 100
                         avg_percentile += event_df[
-                            event_df["sample_has_sig_lower_PSI"] | event_df["sample_has_sig_higher_PSI"]
+                            event_df["sample_has_sig_lower_PSI"]
+                            | event_df["sample_has_sig_higher_PSI"]
                         ]["percentile"].mean()
                     if total_num_events > 0:
                         avg_percentile /= total_num_events
                     else:
                         avg_percentile = -1.0
-                    
+
                     self.log(
                         f"val/{event_type_name}_{example_type_name}_low_std_events_num_events_with_sig_deviations",
                         total_num_events,
@@ -973,7 +1087,7 @@ class PSIPredictor(LightningModule):
                         avg_percentile,
                         on_step=False,
                         on_epoch=True,
-                    )                    
+                    )
                     print(
                         f"Number of events with significant deviations from the mean in low std events: {total_num_events}"
                     )
@@ -984,7 +1098,8 @@ class PSIPredictor(LightningModule):
                     # check if the model correctly predicts the direction of the deviation
                     # track the average percentile of the samples that are predicted to be significantly different from the mean
                     low_std_events_df["predicted_psi_val - mean_predicted_psi"] = (
-                        low_std_events_df["pred_psi_val"] - low_std_events_df["mean_predicted_psi"]
+                        low_std_events_df["pred_psi_val"]
+                        - low_std_events_df["mean_predicted_psi"]
                     )
                     avg_percentile_lower = 0.0
                     avg_percentile_higher = 0.0
@@ -993,7 +1108,10 @@ class PSIPredictor(LightningModule):
                         event_df = low_std_events_df[
                             low_std_events_df["event_id"] == event_id
                         ]
-                        if (event_df["sample_has_sig_lower_PSI"] | event_df["sample_has_sig_higher_PSI"]).sum() == 0:
+                        if (
+                            event_df["sample_has_sig_lower_PSI"]
+                            | event_df["sample_has_sig_higher_PSI"]
+                        ).sum() == 0:
                             continue
                         total_num_events += 1
                         event_df = event_df.sort_values(
@@ -1033,7 +1151,6 @@ class PSIPredictor(LightningModule):
                     print(
                         f"Average percentile of samples with significant higher deviations from the mean in low std events: {avg_percentile_higher}"
                     )
-                        
 
         # clear the stored predictions
         self.val_event_ids.clear()
