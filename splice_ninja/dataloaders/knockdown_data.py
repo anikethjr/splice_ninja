@@ -138,9 +138,15 @@ class NEventsPerBatchDistributedSampler(
 
         # hyperparam that affects when we use the ranking loss and this determines when
         # we return a specific number of events per batch
-        self.num_epochs_after_which_to_use_ranking_loss = (
-            self.data_module.num_epochs_after_which_to_use_ranking_loss
-        )
+        if (
+            "num_epochs_after_which_to_use_ranking_loss"
+            in self.data_module.config["train_config"]
+        ):
+            self.num_epochs_after_which_to_use_ranking_loss = self.data_module.config[
+                "train_config"
+            ]["num_epochs_after_which_to_use_ranking_loss"]
+        else:
+            self.num_epochs_after_which_to_use_ranking_loss = 0
 
         # hyperparams that affect how we use the controls data + how we define significant events
         if (
