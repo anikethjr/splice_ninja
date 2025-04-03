@@ -1617,7 +1617,7 @@ class KnockdownData(LightningDataModule):
             ]
 
             # compute normalized splicing factor expression levels so that they sum to 1 across all splicing factors in each sample
-            for sample in splicing_factor_gene_ids:
+            for sample in splicing_factor_gene_ids + ["AV_Controls"]:
                 splicing_factor_expression_levels[sample + "_log2TPM_rel_norm"] = (
                     splicing_factor_expression_levels[sample + "_log2TPM"]
                     / splicing_factor_expression_levels[sample + "_log2TPM"].sum()
