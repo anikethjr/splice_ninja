@@ -562,8 +562,7 @@ class PSIPredictor(LightningModule):
         loss = self.loss_fn(
             pred_psi_val,
             batch["psi_val"],
-            use_BCE_loss_only=self.current_epoch
-            < self.num_epochs_for_training_on_control_data_only,
+            use_BCE_loss_only=True,
             event_num_samples_observed=batch["event_num_samples_observed"],
             event_mean_psi=batch["event_mean_psi"],
             event_std_psi=batch["event_std_psi"],
