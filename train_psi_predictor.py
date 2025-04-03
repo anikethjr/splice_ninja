@@ -143,12 +143,12 @@ def main():
         save_top_k=-1,
         auto_insert_metric_name=False,
     )
-    # early stopping
-    early_stopping_cb = EarlyStopping(
-        monitor=early_stopping_metric,
-        mode=early_stopping_mode,
-        patience=patience,
-    )
+    # # early stopping
+    # early_stopping_cb = EarlyStopping(
+    #     monitor=early_stopping_metric,
+    #     mode=early_stopping_mode,
+    #     patience=patience,
+    # )
 
     os.environ["SLURM_JOB_NAME"] = "interactive"
     # get number of gpus
@@ -168,7 +168,7 @@ def main():
         callbacks=[
             checkpointing_cb_based_on_epoch,
             # checkpointing_cb,
-            early_stopping_cb,
+            # early_stopping_cb,
         ],
         precision="32-true",
         strategy="ddp",
