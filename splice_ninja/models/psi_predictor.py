@@ -337,6 +337,14 @@ class PSIPredictor(LightningModule):
             f"Example types in this split type: {self.example_types_in_this_split_type}"
         )
 
+        # hyperparams that affect when the ranking loss is applied
+        if "num_epochs_after_which_to_use_ranking_loss" in self.config["train_config"]:
+            self.num_epochs_after_which_to_use_ranking_loss = self.config[
+                "train_config"
+            ]["num_epochs_after_which_to_use_ranking_loss"]
+        else:
+            self.num_epochs_after_which_to_use_ranking_loss = 0
+
         # hyperparams that affect how we use the controls data + how we define significant events
         if (
             "num_epochs_for_training_on_control_data_only"
@@ -504,8 +512,10 @@ class PSIPredictor(LightningModule):
         loss = self.loss_fn(
             pred_psi_val,
             batch["psi_val"],
-            use_BCE_loss_only=self.current_epoch
-            < self.num_epochs_for_training_on_control_data_only,
+            use_BCE_loss_only=(
+                self.current_epoch < self.num_epochs_for_training_on_control_data_only
+            )
+            or (self.current_epoch < self.num_epochs_after_which_to_use_ranking_loss),
             event_num_samples_observed=batch["event_num_samples_observed"],
             event_mean_psi=batch["event_mean_psi"],
             event_std_psi=batch["event_std_psi"],

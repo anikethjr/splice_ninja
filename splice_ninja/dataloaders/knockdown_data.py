@@ -136,6 +136,12 @@ class NEventsPerBatchDistributedSampler(
         )
         print(f"Examples per event: {self.examples_per_event}")
 
+        # hyperparam that affects when we use the ranking loss and this determines when
+        # we return a specific number of events per batch
+        self.num_epochs_after_which_to_use_ranking_loss = (
+            self.data_module.num_epochs_after_which_to_use_ranking_loss
+        )
+
         # hyperparams that affect how we use the controls data + how we define significant events
         if (
             "num_epochs_for_training_on_control_data_only"
@@ -169,7 +175,10 @@ class NEventsPerBatchDistributedSampler(
         total_num_batches = self.length // self.batch_size
 
         # if we are training on control data only, we just return random indices of the control data
-        if self.epoch < self.num_epochs_for_training_on_control_data_only:
+        # alternatively, if we are not using the ranking loss, we return random indices of the data
+        if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
+            self.epoch < self.num_epochs_after_which_to_use_ranking_loss
+        ):
             indices = np.random.choice(
                 self.this_rank_data.index,
                 size=self.length,
