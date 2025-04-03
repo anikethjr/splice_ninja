@@ -218,13 +218,13 @@ class RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss(nn.Module):
         self.margin = margin
         self.ranking_loss_weight_multiplier = ranking_loss_weight_multiplier
 
-    def forward(self, pred_psi_val, psi_val, use_BCE_loss_only=False, **kwargs):
+    def forward(self, pred_psi_val, psi_val, **kwargs):
         # Compute BCEWithLogits loss
         loss = F.binary_cross_entropy_with_logits(
             pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
         )
 
-        if use_BCE_loss_only:
+        if kwargs["use_BCE_loss_only"]:
             return loss
 
         event_id, sample_id = kwargs["event_id"], kwargs["sample"]
@@ -504,6 +504,8 @@ class PSIPredictor(LightningModule):
         loss = self.loss_fn(
             pred_psi_val,
             batch["psi_val"],
+            use_BCE_loss_only=self.current_epoch
+            < self.num_epochs_for_training_on_control_data_only,
             event_num_samples_observed=batch["event_num_samples_observed"],
             event_mean_psi=batch["event_mean_psi"],
             event_std_psi=batch["event_std_psi"],
@@ -560,6 +562,8 @@ class PSIPredictor(LightningModule):
         loss = self.loss_fn(
             pred_psi_val,
             batch["psi_val"],
+            use_BCE_loss_only=self.current_epoch
+            < self.num_epochs_for_training_on_control_data_only,
             event_num_samples_observed=batch["event_num_samples_observed"],
             event_mean_psi=batch["event_mean_psi"],
             event_std_psi=batch["event_std_psi"],
