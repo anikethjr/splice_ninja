@@ -122,17 +122,17 @@ def main():
     early_stopping_mode = config["train_config"]["early_stopping_mode"]
     patience = config["train_config"]["patience"]
     max_epochs = config["train_config"]["max_epochs"]
-    # checkpoint based on metric
-    checkpointing_cb = ModelCheckpoint(
-        dirpath=ckpts_dir,
-        filename="epoch={epoch}-step={step}-metric={"
-        + f"{early_stopping_metric}"
-        + ":.6f}",
-        monitor=early_stopping_metric,
-        mode=early_stopping_mode,
-        save_top_k=1,
-        auto_insert_metric_name=False,
-    )
+    # # checkpoint based on metric
+    # checkpointing_cb = ModelCheckpoint(
+    #     dirpath=ckpts_dir,
+    #     filename="epoch={epoch}-step={step}-metric={"
+    #     + f"{early_stopping_metric}"
+    #     + ":.6f}",
+    #     monitor=early_stopping_metric,
+    #     mode=early_stopping_mode,
+    #     save_top_k=1,
+    #     auto_insert_metric_name=False,
+    # )
     # checkpoint based on epoch so that training can be resumed easily
     checkpointing_cb_based_on_epoch = ModelCheckpoint(
         dirpath=ckpts_dir,
@@ -140,7 +140,7 @@ def main():
         + f"{early_stopping_metric}"
         + ":.6f}",
         monitor=None,
-        save_top_k=1,
+        save_top_k=-1,
         auto_insert_metric_name=False,
     )
     # early stopping
@@ -167,7 +167,7 @@ def main():
         ),
         callbacks=[
             checkpointing_cb_based_on_epoch,
-            checkpointing_cb,
+            # checkpointing_cb,
             early_stopping_cb,
         ],
         precision="32-true",
