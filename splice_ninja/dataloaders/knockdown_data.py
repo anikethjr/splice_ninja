@@ -699,16 +699,10 @@ class KnockdownData(LightningDataModule):
             print("Genome downloaded")
 
         # load/create the filtered splicing data
-        if (
-            not os.path.exists(
-                os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
-            )
-            or not os.path.exists(
-                os.path.join(self.cache_dir, "gene_counts_filtered.parquet")
-            )
-            or not os.path.exists(
-                os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
-            )
+        if not os.path.exists(
+            os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
+        ) or not os.path.exists(
+            os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
         ):
             print("Filtering data")
 
