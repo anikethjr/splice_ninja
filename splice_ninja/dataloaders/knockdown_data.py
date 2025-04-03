@@ -68,8 +68,10 @@ class NEventsPerBatchDistributedSampler(
         self.event_ids = np.array_split(self.event_ids, self.num_replicas)[self.rank]
 
         # subset the data to only include the events in the event IDs
-        # we only need the row idx and the event ID
-        self.this_rank_data = data.loc[data["EVENT"].isin(self.event_ids), ["EVENT"]]
+        # we only need the row idx, the event ID, and the sample name
+        self.this_rank_data = data.loc[
+            data["EVENT"].isin(self.event_ids), ["EVENT", "SAMPLE"]
+        ]
         if self.epoch < self.num_epochs_for_training_on_control_data_only:
             assert len(self.this_rank_data) == len(
                 self.event_ids
