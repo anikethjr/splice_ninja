@@ -2843,8 +2843,24 @@ class KnockdownData(LightningDataModule):
         )
 
     def val_dataloader(self):
+        # if we are training on control data only, we only use the control data for validation
+        if (
+            self.trainer.current_epoch
+            < self.num_epochs_for_training_on_control_data_only
+        ):
+            print(
+                f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs, using control data for validation. Current epoch: {self.trainer.current_epoch}"
+            )
+            val_data = self.val_dataset[
+                self.val_dataset.data["SAMPLE"] == "AV_Controls"
+            ].reset_index(drop=True)
+        else:
+            print(
+                f"In epoch {self.trainer.current_epoch}, using all data for validation"
+            )
+            val_data = self.val_dataset
         return DataLoader(
-            self.val_dataset,
+            val_data,
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
