@@ -51,13 +51,13 @@ class NEventsPerBatchDistributedSampler(
                 f"NEventsPerBatchDistributedSampler should only be used with the train split, not {self.split}"
             )
 
-        # if self.epoch < self.num_epochs_for_training_on_control_data_only, then subset the data to only include control data
-        # in this case, we return a random sample of the control data in each batch
-        if self.epoch < self.num_epochs_for_training_on_control_data_only:
-            print(
-                f"Epoch {self.epoch} is less than {self.num_epochs_for_training_on_control_data_only}, using control data only"
+        # this sampler should not be used if only training on control data or if the ranking loss is not used
+        if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
+            self.epoch < self.num_epochs_after_which_to_use_ranking_loss
+        ):
+            raise Exception(
+                "This sampler should not be used if only training on control data or if the ranking loss is not used"
             )
-            data = data.loc[data["SAMPLE"] == "AV_Controls"]
 
         # get unique event IDs
         self.event_ids = data["EVENT"].unique()
@@ -72,10 +72,6 @@ class NEventsPerBatchDistributedSampler(
         self.this_rank_data = data.loc[
             data["EVENT"].isin(self.event_ids), ["EVENT", "SAMPLE"]
         ]
-        if self.epoch < self.num_epochs_for_training_on_control_data_only:
-            assert len(self.this_rank_data) == len(
-                self.event_ids
-            ), f"Training only on control data, expected rank data length and number of events to be the same, but got {len(self.this_rank_data)} and {len(self.event_ids)}"
 
         # compute length
         self.length = len(data) // self.num_replicas
@@ -180,26 +176,13 @@ class NEventsPerBatchDistributedSampler(
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
 
-        # if we are training on control data only, we just return random indices of the control data
-        # alternatively, if we are not using the ranking loss, we return random indices of the data
+        # this sampler should not be used if only training on control data or if the ranking loss is not used
         if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
             self.epoch < self.num_epochs_after_which_to_use_ranking_loss
         ):
-            indices = np.random.choice(
-                self.this_rank_data.index,
-                size=self.length,
-                replace=False if len(self.this_rank_data) >= self.length else True,
+            raise Exception(
+                "This sampler should not be used if only training on control data or if the ranking loss is not used"
             )
-            print(
-                "Rank: {}, Seed: {}, Length: {}, Indices len: {}, Num unique indices: {}".format(
-                    self.rank,
-                    self.seed,
-                    self.length,
-                    len(indices),
-                    len(set(indices)),
-                )
-            )
-            return iter(indices)
 
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
@@ -2807,6 +2790,14 @@ class KnockdownData(LightningDataModule):
             "heldout_sample_and_train_chromosome": 5,
         }
 
+        # hyperparams that affect when the ranking loss is applied
+        if "num_epochs_after_which_to_use_ranking_loss" in self.config["train_config"]:
+            self.num_epochs_after_which_to_use_ranking_loss = self.config[
+                "train_config"
+            ]["num_epochs_after_which_to_use_ranking_loss"]
+        else:
+            self.num_epochs_after_which_to_use_ranking_loss = 0
+
         # hyperparams that affect how we use the controls data + how we define significant events
         if (
             "num_epochs_for_training_on_control_data_only"
@@ -2828,19 +2819,55 @@ class KnockdownData(LightningDataModule):
             self.dPSI_threshold_for_significance = 0.0
 
     def train_dataloader(self):
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.config["train_config"]["batch_size"],
-            shuffle=None
-            if ("N_events_per_batch" in self.config["train_config"])
-            else True,
-            pin_memory=True,
-            num_workers=self.config["train_config"]["num_workers"],
-            worker_init_fn=worker_init_fn,
-            sampler=NEventsPerBatchDistributedSampler(self)
-            if ("N_events_per_batch" in self.config["train_config"])
-            else None,
-        )
+        if (
+            self.trainer.current_epoch
+            < self.num_epochs_for_training_on_control_data_only
+        ):
+            print(
+                f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.trainer.current_epoch}"
+            )
+            train_data = self.train_dataset[
+                self.train_dataset.data["SAMPLE"] == "AV_Controls"
+            ].reset_index(drop=True)
+            return DataLoader(
+                train_data,
+                batch_size=self.config["train_config"]["batch_size"],
+                shuffle=True,
+                pin_memory=True,
+                num_workers=self.config["train_config"]["num_workers"],
+                worker_init_fn=worker_init_fn,
+            )
+        elif (
+            self.trainer.current_epoch < self.num_epochs_after_which_to_use_ranking_loss
+        ):
+            print(
+                f"Not using ranking loss in epoch {self.trainer.current_epoch} as it is before the specified epoch {self.num_epochs_after_which_to_use_ranking_loss}, a random sampler will be used"
+            )
+            return DataLoader(
+                self.train_dataset.reset_index(drop=True),
+                batch_size=self.config["train_config"]["batch_size"],
+                shuffle=True,
+                pin_memory=True,
+                num_workers=self.config["train_config"]["num_workers"],
+                worker_init_fn=worker_init_fn,
+            )
+        else:
+            print(
+                f"Current epoch: {self.trainer.current_epoch}, using fully-fledged train dataloader"
+            )
+            return DataLoader(
+                self.train_dataset,
+                batch_size=self.config["train_config"]["batch_size"],
+                shuffle=None
+                if ("N_events_per_batch" in self.config["train_config"])
+                else True,
+                pin_memory=True,
+                num_workers=self.config["train_config"]["num_workers"],
+                worker_init_fn=worker_init_fn,
+                sampler=NEventsPerBatchDistributedSampler(self)
+                if ("N_events_per_batch" in self.config["train_config"])
+                else None,
+            )
 
     def val_dataloader(self):
         # if we are training on control data only, we only use the control data for validation
