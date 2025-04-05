@@ -2812,9 +2812,6 @@ class KnockdownData(LightningDataModule):
             self.num_epochs_for_training_on_control_data_only = self.config[
                 "train_config"
             ]["num_epochs_for_training_on_control_data_only"]
-            assert (
-                "N_events_per_batch" in self.config["train_config"]
-            ), "If 'num_epochs_for_training_on_control_data_only' is specified, 'N_events_per_batch' must also be specified in the train config as only the N events per batch sampler is supported for training on control data only"
         else:
             self.num_epochs_for_training_on_control_data_only = 0
         if "dPSI_threshold_for_significance" in self.config["train_config"]:
