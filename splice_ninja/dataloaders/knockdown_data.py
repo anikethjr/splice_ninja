@@ -91,7 +91,13 @@ class NEventsPerBatchDistributedSampler(
             )
         )
 
-    def __init__(self, data_module, num_replicas=None, rank=None, split="train"):
+    def __init__(
+        self,
+        data_module: LightningDataModule,
+        num_replicas=None,
+        rank=None,
+        split="train",
+    ):
         self.data_module = data_module
         self.split = split
 
@@ -162,7 +168,7 @@ class NEventsPerBatchDistributedSampler(
             self.dPSI_threshold_for_significance = 0.0
 
         # split data among ranks
-        self.epoch = 0
+        self.epoch = self.data_module.trainer.current_epoch
         self.split_data_among_ranks()
 
     def set_epoch(self, epoch):
