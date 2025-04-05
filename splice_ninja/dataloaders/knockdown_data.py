@@ -2888,22 +2888,26 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs, using control data for validation. Current epoch: {self.trainer.current_epoch}"
             )
-            val_data = self.val_dataset[
-                self.val_dataset.data["SAMPLE"] == "AV_Controls"
-            ].reset_index(drop=True)
+            return DataLoader(
+                KnockdownDataset(self, split="val"),
+                batch_size=self.config["train_config"]["batch_size"],
+                shuffle=False,
+                pin_memory=True,
+                num_workers=self.config["train_config"]["num_workers"],
+                worker_init_fn=worker_init_fn,
+            )
         else:
             print(
                 f"In epoch {self.trainer.current_epoch}, using all data for validation"
             )
-            val_data = self.val_dataset
-        return DataLoader(
-            val_data,
-            batch_size=self.config["train_config"]["batch_size"],
-            shuffle=False,
-            pin_memory=True,
-            num_workers=self.config["train_config"]["num_workers"],
-            worker_init_fn=worker_init_fn,
-        )
+            return DataLoader(
+                self.val_dataset,
+                batch_size=self.config["train_config"]["batch_size"],
+                shuffle=False,
+                pin_memory=True,
+                num_workers=self.config["train_config"]["num_workers"],
+                worker_init_fn=worker_init_fn,
+            )
 
     def test_dataloader(self):
         return DataLoader(
