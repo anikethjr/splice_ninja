@@ -172,6 +172,7 @@ def main():
         ],
         precision="32-true",
         strategy="ddp",
+        reload_dataloaders_every_n_epochs=1,
     )
 
     # train model
