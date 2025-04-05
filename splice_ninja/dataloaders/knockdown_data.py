@@ -269,6 +269,16 @@ class KnockdownDataset(Dataset):
         elif self.split == "test":
             self.data = self.data_module.test_data
 
+        if (
+            self.data_module.trainer.current_epoch
+            < self.data_module.num_epochs_for_training_on_control_data_only
+        ):
+            print(
+                f"Training on control data only for {self.data_module.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.data_module.trainer.current_epoch}"
+            )
+            # filter the data to only include control data
+            self.data = self.data[self.data["SAMPLE"] == "AV_Controls"]
+
     def __len__(self):
         return len(self.data)
 
@@ -2829,11 +2839,8 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.trainer.current_epoch}"
             )
-            train_data = self.train_dataset[
-                self.train_dataset.data["SAMPLE"] == "AV_Controls"
-            ].reset_index(drop=True)
             return DataLoader(
-                train_data,
+                KnockdownDataset(self, split="train"),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=True,
                 pin_memory=True,
@@ -2847,7 +2854,7 @@ class KnockdownData(LightningDataModule):
                 f"Not using ranking loss in epoch {self.trainer.current_epoch} as it is before the specified epoch {self.num_epochs_after_which_to_use_ranking_loss}, a random sampler will be used"
             )
             return DataLoader(
-                self.train_dataset.reset_index(drop=True),
+                self.train_dataset,
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=True,
                 pin_memory=True,
