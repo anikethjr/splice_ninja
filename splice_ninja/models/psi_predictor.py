@@ -289,6 +289,53 @@ class RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss(nn.Module):
         return loss
 
 
+class RankingAndBCEWithLogitsLossEventLevelRankingOnly(nn.Module):
+    def __init__(self, dPSI_threshold, margin=0, ranking_loss_weight_multiplier=1):
+        super().__init__()
+        self.dPSI_threshold = dPSI_threshold
+        self.margin = margin
+        self.ranking_loss_weight_multiplier = ranking_loss_weight_multiplier
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        # Compute BCEWithLogits loss
+        loss = F.binary_cross_entropy_with_logits(
+            pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
+        )
+
+        if kwargs["use_BCE_loss_only"]:
+            return loss
+
+        event_id = kwargs["event_id"]
+
+        # Compute ranking loss efficiently
+        # Compute pairwise differences for samples from the same event
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+        pred_diff = pred_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
+        true_diff = true_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
+        ranking_labels = torch.sign(true_diff)
+        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+        pred_diff = pred_diff[valid_pairs]
+        ranking_labels = ranking_labels[valid_pairs]
+
+        # Apply margin ranking loss
+        if valid_pairs.any():
+            event_ranking_loss = F.margin_ranking_loss(
+                pred_diff,
+                torch.zeros_like(pred_diff),
+                ranking_labels,
+                margin=self.margin,
+                reduction="none",
+            )
+            loss += (
+                event_ranking_loss
+                * torch.abs(true_diff[valid_pairs])
+                * self.ranking_loss_weight_multiplier
+            ).mean()
+
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -406,6 +453,13 @@ class PSIPredictor(LightningModule):
             == "RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss"
         ):
             self.loss_fn = RankingAndBCEWithLogitsLossUsingControlDataAndWeightedLoss(
+                self.dPSI_threshold_for_significance
+            )
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "RankingAndBCEWithLogitsLossEventLevelRankingOnly"
+        ):
+            self.loss_fn = RankingAndBCEWithLogitsLossEventLevelRankingOnly(
                 self.dPSI_threshold_for_significance
             )
         else:
