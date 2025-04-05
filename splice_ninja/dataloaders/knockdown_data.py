@@ -2655,11 +2655,6 @@ class KnockdownData(LightningDataModule):
                 f"{event_type}: {test_value_counts[event_type]} ({test_value_counts[event_type] / full_value_counts[event_type] * 100:.2f}%)"
             )
 
-        # create datasets
-        self.train_dataset = KnockdownDataset(self, split="train")
-        self.val_dataset = KnockdownDataset(self, split="val")
-        self.test_dataset = KnockdownDataset(self, split="test")
-
         # get event ID to index mapping
         self.event_id_to_ind = {
             event_id: i for i, event_id in enumerate(self.event_info["EVENT"])
@@ -2850,7 +2845,7 @@ class KnockdownData(LightningDataModule):
                 f"Not using ranking loss in epoch {self.trainer.current_epoch} as it is before the specified epoch {self.num_epochs_after_which_to_use_ranking_loss}, a random sampler will be used"
             )
             return DataLoader(
-                self.train_dataset,
+                KnockdownDataset(self, split="train"),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=True,
                 pin_memory=True,
@@ -2862,7 +2857,7 @@ class KnockdownData(LightningDataModule):
                 f"Current epoch: {self.trainer.current_epoch}, using fully-fledged train dataloader"
             )
             return DataLoader(
-                self.train_dataset,
+                KnockdownDataset(self, split="train"),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=None
                 if ("N_events_per_batch" in self.config["train_config"])
@@ -2897,7 +2892,7 @@ class KnockdownData(LightningDataModule):
                 f"In epoch {self.trainer.current_epoch}, using all data for validation"
             )
             return DataLoader(
-                self.val_dataset,
+                KnockdownDataset(self, split="val"),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=False,
                 pin_memory=True,
@@ -2907,7 +2902,7 @@ class KnockdownData(LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(
-            self.test_dataset,
+            KnockdownDataset(self, split="test"),
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
