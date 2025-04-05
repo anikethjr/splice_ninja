@@ -250,9 +250,10 @@ class NEventsPerBatchDistributedSampler(
 
 # Datast for the knockdown data
 class KnockdownDataset(Dataset):
-    def __init__(self, data_module, split="train"):
+    def __init__(self, data_module, split="train", return_control_data_only=False):
         self.data_module = data_module
         self.split = split
+        self.return_control_data_only = return_control_data_only
         self.input_size = self.data_module.config["train_config"]["input_size"]
         self.genome_name = "GRCh38.p14"
         self.genomes_dir = os.path.join(self.data_module.cache_dir, "genomes")
@@ -269,13 +270,8 @@ class KnockdownDataset(Dataset):
         elif self.split == "test":
             self.data = self.data_module.test_data
 
-        if (
-            self.data_module.trainer.current_epoch
-            < self.data_module.num_epochs_for_training_on_control_data_only
-        ):
-            print(
-                f"Training on control data only for {self.data_module.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.data_module.trainer.current_epoch}"
-            )
+        if self.return_control_data_only:
+            print("Returning control data only")
             # filter the data to only include control data
             self.data = self.data[self.data["SAMPLE"] == "AV_Controls"]
 
@@ -2840,7 +2836,7 @@ class KnockdownData(LightningDataModule):
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.trainer.current_epoch}"
             )
             return DataLoader(
-                KnockdownDataset(self, split="train"),
+                KnockdownDataset(self, split="train", return_control_data_only=True),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=True,
                 pin_memory=True,
@@ -2889,7 +2885,7 @@ class KnockdownData(LightningDataModule):
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs, using control data for validation. Current epoch: {self.trainer.current_epoch}"
             )
             return DataLoader(
-                KnockdownDataset(self, split="val"),
+                KnockdownDataset(self, split="val", return_control_data_only=True),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=False,
                 pin_memory=True,
