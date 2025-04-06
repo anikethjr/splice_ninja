@@ -502,6 +502,8 @@ class PSIPredictor(LightningModule):
         self.val_samples = []
         self.val_psi_vals = []
         self.val_pred_psi_vals = []
+        self.val_controls_avg_psi = []
+        self.val_num_controls = []
 
         # optimizer params
         self.optimizer_name = config["train_config"]["optimizer"]
@@ -680,6 +682,8 @@ class PSIPredictor(LightningModule):
         self.val_samples.extend(batch["sample"].detach().cpu())
         self.val_psi_vals.extend(batch["psi_val"].detach().cpu())
         self.val_pred_psi_vals.extend(pred_psi_val.detach().cpu())
+        self.val_controls_avg_psi.extend(batch["event_controls_avg_psi"].detach().cpu())
+        self.val_num_controls.extend(batch["event_num_controls"].detach().cpu())
 
         return loss
 
@@ -695,6 +699,8 @@ class PSIPredictor(LightningModule):
         val_samples = torch.tensor(self.val_samples)
         val_psi_vals = torch.tensor(self.val_psi_vals)
         val_pred_psi_vals = torch.tensor(self.val_pred_psi_vals)
+        val_controls_avg_psi = torch.tensor(self.val_controls_avg_psi)
+        val_num_controls = torch.tensor(self.val_num_controls)
 
         # determine the max length across all processes
         local_size = val_pred_psi_vals.shape[0]
@@ -720,6 +726,12 @@ class PSIPredictor(LightningModule):
         val_pred_psi_vals = F.pad(
             val_pred_psi_vals, (0, max_size - local_size), value=pad_value
         )
+        val_controls_avg_psi = F.pad(
+            val_controls_avg_psi, (0, max_size - local_size), value=pad_value
+        )
+        val_num_controls = F.pad(
+            val_num_controls, (0, max_size - local_size), value=pad_value
+        )
 
         # gather all predictions across all processes
         val_event_ids = self.all_gather(val_event_ids)
@@ -728,6 +740,8 @@ class PSIPredictor(LightningModule):
         val_samples = self.all_gather(val_samples)
         val_psi_vals = self.all_gather(val_psi_vals)
         val_pred_psi_vals = self.all_gather(val_pred_psi_vals)
+        val_controls_avg_psi = self.all_gather(val_controls_avg_psi)
+        val_num_controls = self.all_gather(val_num_controls)
 
         # Only compute metrics on rank 0
         if self.global_rank == 0:
@@ -738,6 +752,8 @@ class PSIPredictor(LightningModule):
             val_samples = val_samples.view(-1)
             val_psi_vals = val_psi_vals.view(-1)
             val_pred_psi_vals = val_pred_psi_vals.view(-1)
+            val_controls_avg_psi = val_controls_avg_psi.view(-1)
+            val_num_controls = val_num_controls.view(-1)
 
             # remove padding and convert to numpy
             val_event_ids = val_event_ids[~torch.isnan(val_event_ids)].cpu().numpy()
@@ -752,6 +768,12 @@ class PSIPredictor(LightningModule):
             val_pred_psi_vals = (
                 val_pred_psi_vals[~torch.isnan(val_pred_psi_vals)].cpu().numpy()
             )
+            val_controls_avg_psi = (
+                val_controls_avg_psi[~torch.isnan(val_controls_avg_psi)].cpu().numpy()
+            )
+            val_num_controls = (
+                val_num_controls[~torch.isnan(val_num_controls)].cpu().numpy()
+            )
 
             # create a dataframe to store all predictions
             preds_df = pd.DataFrame(
@@ -762,6 +784,8 @@ class PSIPredictor(LightningModule):
                     "sample": val_samples,
                     "psi_val": val_psi_vals,
                     "pred_psi_val": val_pred_psi_vals,
+                    "event_controls_avg_psi": val_controls_avg_psi,
+                    "event_num_controls": val_num_controls,
                 }
             )
             # drop duplicates that might have been created to have the same number of samples across all processes
@@ -809,36 +833,37 @@ class PSIPredictor(LightningModule):
                         ].reset_index(drop=True)
                         example_type_name = self.example_ind_to_type[example_type]
 
-                    # first compute average PSI prediction per event and compare with the ground truth
-                    avg_per_event = (
-                        subset_df[["event_id", "psi_val", "pred_psi_val"]]
-                        .groupby("event_id")
-                        .mean()
+                    # first compute the correlation between predicted and ground truth PSI values in the average control
+                    # sample 0 is the control sample
+                    control_df = subset_df[subset_df["sample"] == 0].reset_index(
+                        drop=True
                     )
-                    avg_per_event = avg_per_event.reset_index()
-                    avg_per_event_spearmanR = spearmanr(
-                        avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
+                    control_spearmanR = spearmanr(
+                        control_df["psi_val"], control_df["pred_psi_val"]
                     )[0]
-                    avg_per_event_pearsonR = pearsonr(
-                        avg_per_event["psi_val"], avg_per_event["pred_psi_val"]
+                    control_pearsonR = pearsonr(
+                        control_df["psi_val"], control_df["pred_psi_val"]
                     )[0]
+                    control_r2 = r2_score(
+                        control_df["psi_val"], control_df["pred_psi_val"]
+                    )
                     self.log(
-                        f"val/avg_per_{event_type_name}_event_in_{example_type_name}_examples_spearmanR",
-                        avg_per_event_spearmanR,
+                        f"val/control_{event_type_name}_{example_type_name}_examples_spearmanR",
+                        control_spearmanR,
                         on_step=False,
                         on_epoch=True,
                     )
                     self.log(
-                        f"val/avg_per_{event_type_name}_event_in_{example_type_name}_examples_pearsonR",
-                        avg_per_event_pearsonR,
+                        f"val/control_{event_type_name}_{example_type_name}_examples_pearsonR",
+                        control_pearsonR,
                         on_step=False,
                         on_epoch=True,
                     )
-                    print(
-                        f"SpearmanR between avg predicted PSI of an event across samples and the average ground truth in {example_type_name} examples: {avg_per_event_spearmanR}"
-                    )
-                    print(
-                        f"PearsonR between avg predicted PSI of an event across samples and the average ground truth in {example_type_name} examples: {avg_per_event_pearsonR}"
+                    self.log(
+                        f"val/control_{event_type_name}_{example_type_name}_examples_r2",
+                        control_r2,
+                        on_step=False,
+                        on_epoch=True,
                     )
 
                     # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
@@ -905,98 +930,90 @@ class PSIPredictor(LightningModule):
                         f"Average R2 score across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_r2}"
                     )
 
-                    # compute metrics for events with high standard deviation across samples (std > 0.2)
-                    high_std_events_mask = np.array(std_across_samples) > 0.2
-                    high_std_events_avg_spearmanR = np.mean(
-                        np.array(sample_wise_spearmanR)[high_std_events_mask]
-                    )
-                    high_std_events_avg_pearsonR = np.mean(
-                        np.array(sample_wise_pearsonR)[high_std_events_mask]
-                    )
-                    high_std_events_avg_r2 = np.mean(
-                        np.array(sample_wise_r2)[high_std_events_mask]
-                    )
+                    # next, we compute a similar correlation as above but only using samples that deviate from the control sample by at least 0.15
+                    # we want at least 10 samples to compute the correlation
+                    sample_wise_spearmanR = []
+                    sample_wise_pearsonR = []
+                    sample_wise_r2 = []
+                    for event_id in tqdm(subset_df["event_id"].unique()):
+                        event_df = subset_df[subset_df["event_id"] == event_id]
+                        # get samples that deviate from the control sample by at least 0.15
+                        event_df = event_df[
+                            (
+                                (
+                                    event_df["psi_val"]
+                                    - event_df["event_controls_avg_psi"]
+                                ).abs()
+                            )
+                            >= 0.15
+                        ].reset_index(drop=True)
+                        if len(event_df) < 10:
+                            continue
+                        spearmanR = np.nan_to_num(
+                            spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                        )
+                        pearsonR = np.nan_to_num(
+                            pearsonr(event_df["psi_val"], event_df["pred_psi_val"])[0]
+                        )
+                        r2 = np.nan_to_num(
+                            r2_score(event_df["psi_val"], event_df["pred_psi_val"])
+                        )
+                        sample_wise_spearmanR.append(spearmanR)
+                        sample_wise_pearsonR.append(pearsonR)
+                        sample_wise_r2.append(r2)
+                    sample_wise_spearmanR = np.array(sample_wise_spearmanR)
+                    sample_wise_pearsonR = np.array(sample_wise_pearsonR)
+                    sample_wise_r2 = np.array(sample_wise_r2)
+                    avg_sample_wise_spearmanR = np.mean(sample_wise_spearmanR)
+                    avg_sample_wise_pearsonR = np.mean(sample_wise_pearsonR)
+                    avg_sample_wise_r2 = np.mean(sample_wise_r2)
                     self.log(
-                        f"val/avg_{event_type_name}_{example_type_name}_examples_high_std_events_spearmanR",
-                        high_std_events_avg_spearmanR,
+                        f"val/num_events_with_at_least_10_significant_perturbations_{event_type_name}_{example_type_name}_examples",
+                        len(sample_wise_spearmanR),
                         on_step=False,
                         on_epoch=True,
                     )
                     self.log(
-                        f"val/avg_{event_type_name}_{example_type_name}_examples_high_std_events_pearsonR",
-                        high_std_events_avg_pearsonR,
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_significant_perturbations_sample_wise_spearmanR",
+                        avg_sample_wise_spearmanR,
                         on_step=False,
                         on_epoch=True,
                     )
                     self.log(
-                        f"val/avg_{event_type_name}_{example_type_name}_examples_high_std_events_r2",
-                        high_std_events_avg_r2,
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_significant_perturbations_sample_wise_pearsonR",
+                        avg_sample_wise_pearsonR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/avg_{event_type_name}_{example_type_name}_examples_significant_perturbations_sample_wise_r2",
+                        avg_sample_wise_r2,
                         on_step=False,
                         on_epoch=True,
                     )
                     print(
-                        f"Number of events with high standard deviation across samples (std > 0.2): {np.sum(high_std_events_mask)}"
+                        f"Number of events with at least 10 samples deviating from the control sample by at least 0.15: {len(sample_wise_spearmanR)}"
                     )
                     print(
-                        f"Average SpearmanR across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_spearmanR}"
+                        f"Average SpearmanR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_spearmanR}"
                     )
                     print(
-                        f"Average PearsonR across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_pearsonR}"
+                        f"Average PearsonR across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_pearsonR}"
                     )
                     print(
-                        f"Average R2 score across events with high std between predicted PSI and ground truth in different conditions: {high_std_events_avg_r2}"
+                        f"Average R2 score across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_r2}"
                     )
 
-                    # compute metrics for events with most variance (top 25%)
-                    most_var_events = np.argsort(std_across_samples)[
-                        -int(0.25 * len(std_across_samples)) :
-                    ]
-                    most_var_events_avg_spearmanR = np.mean(
-                        np.array(sample_wise_spearmanR)[most_var_events]
-                    )
-                    most_var_events_avg_pearsonR = np.mean(
-                        np.array(sample_wise_pearsonR)[most_var_events]
-                    )
-                    most_var_events_avg_r2 = np.mean(
-                        np.array(sample_wise_r2)[most_var_events]
-                    )
-                    self.log(
-                        f"val/avg_{event_type_name}_{example_type_name}_examples_most_var_events_spearmanR",
-                        most_var_events_avg_spearmanR,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    self.log(
-                        f"val/avg_{event_type_name}_{example_type_name}_examples_most_var_events_pearsonR",
-                        most_var_events_avg_pearsonR,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    self.log(
-                        f"val/avg_{event_type_name}_{example_type_name}_examples_most_var_events_r2",
-                        most_var_events_avg_r2,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    print(
-                        f"Number of events with most variance (top 25%): {len(most_var_events)}, avg std: {np.mean(np.array(std_across_samples)[most_var_events])}"
-                    )
-                    print(
-                        f"Average SpearmanR across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_spearmanR}"
-                    )
-                    print(
-                        f"Average PearsonR across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_pearsonR}"
-                    )
-                    print(
-                        f"Average R2 score across events with most variance between predicted PSI and ground truth in different conditions: {most_var_events_avg_r2}"
-                    )
+                    # classification metrics to determine whether the model can predict when PSI deviates significantly from the controls in some samples
+                    # we also want to see whether the model can detect which events are unaffected by perturbations
 
-                    # classification metrics to determine whether the model can predict when PSI deviates significantly from the mean in some samples
-                    # we also want to see whether the model detect which events are unaffected by perturbations
-
-                    # classification task #1 - for events with relatively low standard deviation across samples (std < 0.01)
-                    # can the model detect samples for which the PSI is significantly different from the mean?
-                    # we define significant difference as 0.1
+                    # classification task #1 - can we predict which samples have significantly different PSI values from the control sample?
+                    # we define significant as having a PSI value that deviates from the control sample by at least 0.15
+                    # we also want to see if the model can predict the direction of the deviation
+                    print(
+                        "Classification task #1 - predicting significant deviations from the control sample"
+                    )
+                    ### TODO
 
                     # first get low std events
                     print(
@@ -1226,12 +1243,16 @@ class PSIPredictor(LightningModule):
         self.val_samples.clear()
         self.val_psi_vals.clear()
         self.val_pred_psi_vals.clear()
+        self.val_controls_avg_psi.clear()
+        self.val_num_controls.clear()
         self.val_event_ids = []
         self.val_event_types = []
         self.val_example_types = []
         self.val_samples = []
         self.val_psi_vals = []
         self.val_pred_psi_vals = []
+        self.val_controls_avg_psi = []
+        self.val_num_controls = []
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         if self.predict_mean_std_psi_and_delta:
