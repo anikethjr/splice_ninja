@@ -2299,6 +2299,28 @@ class KnockdownData(LightningDataModule):
                 os.path.join(self.cache_dir, "event_info_filtered.parquet")
             )
 
+        # filter out events that are not in the event types to model
+        if self.event_types_to_model != "ALL":
+            original_flattened_inclusion_levels_full_len = len(
+                self.flattened_inclusion_levels_full
+            )
+            self.flattened_inclusion_levels_full = self.flattened_inclusion_levels_full[
+                self.flattened_inclusion_levels_full["EVENT_TYPE"].isin(
+                    self.event_types_to_model
+                )
+            ].reset_index(drop=True)
+            print(
+                f"Filtered flattened inclusion levels data to only include event types {self.event_types_to_model} ({100 * len(self.flattened_inclusion_levels_full) / original_flattened_inclusion_levels_full_len:.2f}% of the original data)"
+            )
+
+            original_event_info_len = len(self.event_info)
+            self.event_info = self.event_info[
+                self.event_info["EVENT_TYPE"].isin(self.event_types_to_model)
+            ].reset_index(drop=True)
+            print(
+                f"Filtered event info data to only include event types {self.event_types_to_model} ({100 * len(self.event_info) / original_event_info_len:.2f}% of the original data)"
+            )
+
         self.splicing_factor_expression_levels = pd.read_parquet(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.parquet")
         )
@@ -2415,14 +2437,6 @@ class KnockdownData(LightningDataModule):
         print(
             f"Merged gene expression values with unified data ({100 * (original_unified_data_len - len(self.unified_data)) / original_unified_data_len:.2f}% of events without gene expression data)"
         )
-        if self.event_types_to_model != "ALL":
-            original_unified_data_len = len(self.unified_data)
-            self.unified_data = self.unified_data[
-                self.unified_data["EVENT_TYPE"].isin(self.event_types_to_model)
-            ].reset_index(drop=True)
-            print(
-                f"Filtered unified data to only include event types {self.event_types_to_model} ({100 * len(self.unified_data) / original_unified_data_len:.2f}% of the original data)"
-            )
 
         # create datasets for training, validation, and testing
         if self.split_type == "chromosome":
