@@ -4,7 +4,14 @@ import os
 import pdb
 import json
 from tqdm import tqdm
-from sklearn.metrics import r2_score
+from sklearn.metrics import (
+    r2_score,
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
 from scipy.stats import spearmanr, pearsonr
 
 import torch
@@ -693,14 +700,16 @@ class PSIPredictor(LightningModule):
         """
         print("Computing final validation metrics...")
         # convert lists to torch tensors
-        val_event_ids = torch.tensor(self.val_event_ids)
-        val_event_types = torch.tensor(self.val_event_types)
-        val_example_types = torch.tensor(self.val_example_types)
-        val_samples = torch.tensor(self.val_samples)
-        val_psi_vals = torch.tensor(self.val_psi_vals)
-        val_pred_psi_vals = torch.tensor(self.val_pred_psi_vals)
-        val_controls_avg_psi = torch.tensor(self.val_controls_avg_psi)
-        val_num_controls = torch.tensor(self.val_num_controls)
+        val_event_ids = torch.tensor(self.val_event_ids, dtype=torch.float32)
+        val_event_types = torch.tensor(self.val_event_types, dtype=torch.float32)
+        val_example_types = torch.tensor(self.val_example_types, dtype=torch.float32)
+        val_samples = torch.tensor(self.val_samples, dtype=torch.float32)
+        val_psi_vals = torch.tensor(self.val_psi_vals, dtype=torch.float32)
+        val_pred_psi_vals = torch.tensor(self.val_pred_psi_vals, dtype=torch.float32)
+        val_controls_avg_psi = torch.tensor(
+            self.val_controls_avg_psi, dtype=torch.float32
+        )
+        val_num_controls = torch.tensor(self.val_num_controls, dtype=torch.float32)
 
         # determine the max length across all processes
         local_size = val_pred_psi_vals.shape[0]
@@ -756,14 +765,21 @@ class PSIPredictor(LightningModule):
             val_num_controls = val_num_controls.view(-1)
 
             # remove padding and convert to numpy
-            val_event_ids = val_event_ids[~torch.isnan(val_event_ids)].cpu().numpy()
+            val_event_ids = (
+                val_event_ids[~torch.isnan(val_event_ids)]
+                .cpu()
+                .numpy()
+                .astype(np.int32)
+            )
             val_event_types = (
                 val_event_types[~torch.isnan(val_event_types)].cpu().numpy()
-            )
+            ).astype(np.int32)
             val_example_types = (
                 val_example_types[~torch.isnan(val_example_types)].cpu().numpy()
+            ).astype(np.int32)
+            val_samples = (
+                val_samples[~torch.isnan(val_samples)].cpu().numpy().astype(np.int32)
             )
-            val_samples = val_samples[~torch.isnan(val_samples)].cpu().numpy()
             val_psi_vals = val_psi_vals[~torch.isnan(val_psi_vals)].cpu().numpy()
             val_pred_psi_vals = (
                 val_pred_psi_vals[~torch.isnan(val_pred_psi_vals)].cpu().numpy()
@@ -773,7 +789,7 @@ class PSIPredictor(LightningModule):
             )
             val_num_controls = (
                 val_num_controls[~torch.isnan(val_num_controls)].cpu().numpy()
-            )
+            ).astype(np.int32)
 
             # create a dataframe to store all predictions
             preds_df = pd.DataFrame(
@@ -790,6 +806,24 @@ class PSIPredictor(LightningModule):
             )
             # drop duplicates that might have been created to have the same number of samples across all processes
             preds_df = preds_df.drop_duplicates().reset_index(drop=True)
+            # add the predicted control PSI values - the control sample is always sample 0
+            control_preds = preds_df[preds_df["sample"] == 0].copy()
+            control_preds = control_preds.rename(
+                columns={"pred_psi_val": "pred_event_controls_avg_psi"}
+            )
+            assert np.all(
+                control_preds["psi_val"] == control_preds["event_controls_avg_psi"]
+            ), "Control PSI values do not match the average control PSI values."
+            ori_num_examples = preds_df.shape[0]
+            preds_df = preds_df.merge(
+                control_preds[["event_id", "pred_event_controls_avg_psi"]],
+                on="event_id",
+                how="inner",
+            ).reset_index(drop=True)
+            assert (
+                preds_df.shape[0] == ori_num_examples
+            ), "Number of examples after merging control predictions does not match the original number of examples."
+            # save the predictions to a csv file
             preds_df.to_csv(
                 os.path.join(
                     self.config["train_config"]["saved_models_dir"],
@@ -865,6 +899,15 @@ class PSIPredictor(LightningModule):
                         on_step=False,
                         on_epoch=True,
                     )
+
+                    if (
+                        self.trainer.current_epoch
+                        < self.num_epochs_for_training_on_control_data_only
+                    ):
+                        print(
+                            f"Skipping further metrics computation as we are still training on control data only."
+                        )
+                        continue
 
                     # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
                     # if an event is observed in less than 10 samples, we skip it
@@ -1007,233 +1050,217 @@ class PSIPredictor(LightningModule):
                     # classification metrics to determine whether the model can predict when PSI deviates significantly from the controls in some samples
                     # we also want to see whether the model can detect which events are unaffected by perturbations
 
-                    # classification task #1 - can we predict which samples have significantly different PSI values from the control sample?
-                    # we define significant as having a PSI value that deviates from the control sample by at least 0.15
-                    # we also want to see if the model can predict the direction of the deviation
-                    print(
-                        "Classification task #1 - predicting significant deviations from the control sample"
-                    )
-                    ### TODO
+                    subset_df["sample_has_sig_lower_PSI_than_control"] = (
+                        subset_df["psi_val"] - subset_df["event_controls_avg_psi"]
+                    ) < -0.15
+                    subset_df["sample_has_sig_higher_PSI_than_control"] = (
+                        subset_df["psi_val"] - subset_df["event_controls_avg_psi"]
+                    ) > 0.15
+                    subset_df["sample_has_sig_different_PSI_than_control"] = (
+                        subset_df["psi_val"] - subset_df["event_controls_avg_psi"]
+                    ).abs() > 0.15
+                    subset_df["sample_has_sig_lower_predicted_PSI_than_control"] = (
+                        subset_df["pred_psi_val"]
+                        - subset_df["pred_event_controls_avg_psi"]
+                    ) < -0.15
+                    subset_df["sample_has_sig_higher_predicted_PSI_than_control"] = (
+                        subset_df["pred_psi_val"]
+                        - subset_df["pred_event_controls_avg_psi"]
+                    ) > 0.15
+                    subset_df["sample_has_sig_different_predicted_PSI_than_control"] = (
+                        subset_df["pred_psi_val"]
+                        - subset_df["pred_event_controls_avg_psi"]
+                    ).abs() > 0.15
 
-                    # first get low std events
-                    print(
-                        "Classification task #1 - identifying significant deviations from the mean in low std events"
+                    # compute metrics
+                    # 1. predicting samples with significantly different PSI than the control sample
+                    subset_df["label_sig_different_PSI_than_control"] = 0
+                    subset_df["predicted_label_sig_different_PSI_than_control"] = 0
+                    subset_df.loc[
+                        subset_df["sample_has_sig_different_PSI_than_control"],
+                        "label_sig_different_PSI_than_control",
+                    ] = 1
+                    subset_df.loc[
+                        subset_df[
+                            "sample_has_sig_different_predicted_PSI_than_control"
+                        ],
+                        "predicted_label_sig_different_PSI_than_control",
+                    ] = 1
+                    accuracy = accuracy_score(
+                        y_true=subset_df["label_sig_different_PSI_than_control"],
+                        y_pred=subset_df[
+                            "predicted_label_sig_different_PSI_than_control"
+                        ],
                     )
-                    low_std_events_mask = np.array(std_across_samples) < 0.01
-                    low_std_events = [
-                        event_id
-                        for i, event_id in enumerate(sample_counts)
-                        if low_std_events_mask[i]
-                    ]
-                    print(f"Number of low std events: {len(low_std_events)}")
-                    low_std_events_df = subset_df[
-                        subset_df["event_id"].isin(low_std_events)
-                    ].reset_index(drop=True)
-
-                    # now add the mean and std PSI for these events to the dataframe
-                    low_std_events_mean_psi = low_std_events_df.groupby("event_id")[
-                        "psi_val"
-                    ].mean()
-                    low_std_events_std_psi = low_std_events_df.groupby("event_id")[
-                        "psi_val"
-                    ].std()
-                    low_std_events_mean_psi = low_std_events_mean_psi.reset_index()
-                    low_std_events_std_psi = low_std_events_std_psi.reset_index()
-                    low_std_events_mean_psi.columns = ["event_id", "mean_psi_val"]
-                    low_std_events_std_psi.columns = ["event_id", "std_psi_val"]
-                    low_std_events_df = low_std_events_df.merge(
-                        low_std_events_mean_psi, on="event_id", how="inner"
+                    adjusted_balanced_accuracy = balanced_accuracy_score(
+                        y_true=subset_df["label_sig_different_PSI_than_control"],
+                        y_pred=subset_df[
+                            "predicted_label_sig_different_PSI_than_control"
+                        ],
+                        adjusted=True,
                     )
-                    low_std_events_df = low_std_events_df.merge(
-                        low_std_events_std_psi, on="event_id", how="inner"
+                    precision = precision_score(
+                        y_true=subset_df["label_sig_different_PSI_than_control"],
+                        y_pred=subset_df[
+                            "predicted_label_sig_different_PSI_than_control"
+                        ],
                     )
-                    assert np.all(
-                        low_std_events_df["std_psi_val"] < 0.01
-                    ), "Some events have std > 0.01, should not happen"
-
-                    # find samples where psi_val > (mean_psi_val + 0.1) or psi_val < (mean_psi_val - 0.1)
-                    low_std_events_df["sample_has_sig_lower_PSI"] = low_std_events_df[
-                        "psi_val"
-                    ] < (low_std_events_df["mean_psi_val"] - 0.1)
-                    low_std_events_df["sample_has_sig_higher_PSI"] = low_std_events_df[
-                        "psi_val"
-                    ] > (low_std_events_df["mean_psi_val"] + 0.1)
-
-                    # we check for 4 things:
-                    # 1. does the model predict the mean PSI correctly? (should be within 0.01 of the ground truth)
-                    # 2. does the model predict the std PSI correctly? (should be within 0.01 of the ground truth)
-                    # 3. does the model correctly identify samples with significantly different PSI values? track the average percentile of the samples that are predicted to be significantly different from the mean - ranking should be based on the absolute difference between the predicted PSI and the mean predicted PSI.
-                    # 4. does the model correctly predict the direction of the deviation? track the average percentile of the samples that are predicted to be significantly different from the mean - ranking should be based on the signed difference between the predicted PSI and the mean predicted PSI.
-
-                    # check if the model predicts the mean PSI correctly
-                    mean_predicted_psi = low_std_events_df.groupby("event_id")[
-                        "pred_psi_val"
-                    ].mean()
-                    mean_predicted_psi = mean_predicted_psi.reset_index()
-                    mean_predicted_psi.columns = ["event_id", "mean_predicted_psi"]
-                    low_std_events_df = low_std_events_df.merge(
-                        mean_predicted_psi, on="event_id", how="inner"
+                    recall = recall_score(
+                        y_true=subset_df["label_sig_different_PSI_than_control"],
+                        y_pred=subset_df[
+                            "predicted_label_sig_different_PSI_than_control"
+                        ],
                     )
-                    low_std_events_df["|mean_predicted_psi - mean_psi_val|"] = (
-                        low_std_events_df["mean_predicted_psi"]
-                        - low_std_events_df["mean_psi_val"]
-                    ).abs()
-                    temp = (
-                        low_std_events_df[
-                            ["event_id", "|mean_predicted_psi - mean_psi_val|"]
-                        ]
-                        .drop_duplicates()
-                        .reset_index(drop=True)
+                    f1 = f1_score(
+                        y_true=subset_df["label_sig_different_PSI_than_control"],
+                        y_pred=subset_df[
+                            "predicted_label_sig_different_PSI_than_control"
+                        ],
                     )
-                    accuracy = (
-                        temp["|mean_predicted_psi - mean_psi_val|"] < 0.01
-                    ).sum() / len(temp)
                     self.log(
-                        f"val/{event_type_name}_{example_type_name}_low_std_events_mean_psi_accuracy",
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_accuracy",
                         accuracy,
                         on_step=False,
                         on_epoch=True,
                     )
-                    print(
-                        f"Mean PSI prediction accuracy for low std events: {accuracy}"
-                    )
-                    # check if the model predicts the std PSI correctly
-                    std_predicted_psi = low_std_events_df.groupby("event_id")[
-                        "pred_psi_val"
-                    ].std()
-                    std_predicted_psi = std_predicted_psi.reset_index()
-                    std_predicted_psi.columns = ["event_id", "std_predicted_psi"]
-                    low_std_events_df = low_std_events_df.merge(
-                        std_predicted_psi, on="event_id", how="inner"
-                    )
-                    low_std_events_df["|std_predicted_psi - std_psi_val|"] = (
-                        low_std_events_df["std_predicted_psi"]
-                        - low_std_events_df["std_psi_val"]
-                    ).abs()
-                    temp = (
-                        low_std_events_df[
-                            ["event_id", "|std_predicted_psi - std_psi_val|"]
-                        ]
-                        .drop_duplicates()
-                        .reset_index(drop=True)
-                    )
-                    accuracy = (
-                        temp["|std_predicted_psi - std_psi_val|"] < 0.01
-                    ).sum() / len(temp)
                     self.log(
-                        f"val/{event_type_name}_{example_type_name}_low_std_events_std_psi_accuracy",
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_adjusted_balanced_accuracy",
+                        adjusted_balanced_accuracy,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_precision",
+                        precision,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_recall",
+                        recall,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_f1",
+                        f1,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Accuracy of predicting samples with significantly different PSI than the control sample: {accuracy}"
+                    )
+                    print(
+                        f"Adjusted balanced accuracy of predicting samples with significantly different PSI than the control sample: {adjusted_balanced_accuracy}"
+                    )
+                    print(
+                        f"Precision of predicting samples with significantly different PSI than the control sample: {precision}"
+                    )
+                    print(
+                        f"Recall of predicting samples with significantly different PSI than the control sample: {recall}"
+                    )
+                    print(
+                        f"F1 score of predicting samples with significantly different PSI than the control sample: {f1}"
+                    )
+
+                    # 2. predicting direction of deviation
+                    subset_df["label_sig_different_PSI_direction"] = 0
+                    subset_df["predicted_label_sig_different_PSI_direction"] = 0
+                    subset_df.loc[
+                        subset_df["sample_has_sig_lower_PSI_than_control"],
+                        "label_sig_different_PSI_direction",
+                    ] = 1
+                    subset_df.loc[
+                        subset_df["sample_has_sig_higher_PSI_than_control"],
+                        "label_sig_different_PSI_direction",
+                    ] = 2
+                    subset_df.loc[
+                        subset_df["sample_has_sig_lower_predicted_PSI_than_control"],
+                        "predicted_label_sig_different_PSI_direction",
+                    ] = 1
+                    subset_df.loc[
+                        subset_df["sample_has_sig_higher_predicted_PSI_than_control"],
+                        "predicted_label_sig_different_PSI_direction",
+                    ] = 2
+                    accuracy = accuracy_score(
+                        y_true=subset_df["label_sig_different_PSI_direction"],
+                        y_pred=subset_df["predicted_label_sig_different_PSI_direction"],
+                    )
+                    adjusted_balanced_accuracy = balanced_accuracy_score(
+                        y_true=subset_df["label_sig_different_PSI_direction"],
+                        y_pred=subset_df["predicted_label_sig_different_PSI_direction"],
+                        adjusted=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_direction_accuracy",
                         accuracy,
                         on_step=False,
                         on_epoch=True,
                     )
-                    print(f"Std PSI prediction accuracy for low std events: {accuracy}")
-                    # check if the model correctly identifies samples with significantly different PSI values
-                    # track the average percentile of the samples that are predicted to be significantly different from the mean
-                    low_std_events_df["|predicted_psi_val - mean_predicted_psi|"] = (
-                        low_std_events_df["pred_psi_val"]
-                        - low_std_events_df["mean_predicted_psi"]
-                    ).abs()
-                    avg_percentile = 0.0
-                    total_num_events = 0.0
-                    for event_id in low_std_events_df["event_id"].unique():
-                        event_df = low_std_events_df[
-                            low_std_events_df["event_id"] == event_id
-                        ]
-                        if (
-                            event_df["sample_has_sig_lower_PSI"]
-                            | event_df["sample_has_sig_higher_PSI"]
-                        ).sum() == 0:
-                            continue
-                        total_num_events += 1
-                        event_df = event_df.sort_values(
-                            "|predicted_psi_val - mean_predicted_psi|",
-                            ascending=False,
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_sig_different_PSI_direction_adjusted_balanced_accuracy",
+                        adjusted_balanced_accuracy,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Accuracy of predicting direction of deviation from the control sample: {accuracy}"
+                    )
+                    print(
+                        f"Adjusted balanced accuracy of predicting direction of deviation from the control sample: {adjusted_balanced_accuracy}"
+                    )
+
+                    # finally, compute average percentiles of samples that have significantly lower or higher PSI than the control sample
+                    # percentiles are computed using the predicted PSI values
+                    # percentiles are computed across all samples for each event
+                    average_percentile_of_samples_with_sig_lower_PSI = []
+                    average_percentile_of_samples_with_sig_higher_PSI = []
+                    for event_id in subset_df["event_id"].unique():
+                        event_df = subset_df[subset_df["event_id"] == event_id]
+                        # remove control sample
+                        event_df = event_df[(event_df["sample"] != 0)].reset_index(
+                            drop=True
                         )
-                        event_df = event_df.reset_index(drop=True)
-                        event_df["percentile"] = (event_df.index / len(event_df)) * 100
-                        avg_percentile += event_df[
-                            event_df["sample_has_sig_lower_PSI"]
-                            | event_df["sample_has_sig_higher_PSI"]
-                        ]["percentile"].mean()
-                    if total_num_events > 0:
-                        avg_percentile /= total_num_events
-                    else:
-                        avg_percentile = -1.0
-
-                    self.log(
-                        f"val/{event_type_name}_{example_type_name}_low_std_events_num_events_with_sig_deviations",
-                        total_num_events,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    self.log(
-                        f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_abs_deviations",
-                        avg_percentile,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    print(
-                        f"Number of events with significant deviations from the mean in low std events: {total_num_events}"
-                    )
-                    print(
-                        f"Average percentile of samples with significant deviations from the mean in low std events: {avg_percentile}"
-                    )
-
-                    # check if the model correctly predicts the direction of the deviation
-                    # track the average percentile of the samples that are predicted to be significantly different from the mean
-                    low_std_events_df["predicted_psi_val - mean_predicted_psi"] = (
-                        low_std_events_df["pred_psi_val"]
-                        - low_std_events_df["mean_predicted_psi"]
-                    )
-                    avg_percentile_lower = 0.0
-                    avg_percentile_higher = 0.0
-                    total_num_events = 0.0
-                    for event_id in low_std_events_df["event_id"].unique():
-                        event_df = low_std_events_df[
-                            low_std_events_df["event_id"] == event_id
-                        ]
-                        if (
-                            event_df["sample_has_sig_lower_PSI"]
-                            | event_df["sample_has_sig_higher_PSI"]
-                        ).sum() == 0:
-                            continue
-                        total_num_events += 1
-                        event_df = event_df.sort_values(
-                            "predicted_psi_val - mean_predicted_psi",
-                            ascending=False,
+                        event_df["percentile"] = event_df["pred_psi_val"].rank(pct=True)
+                        average_percentile_of_samples_with_sig_lower_PSI.append(
+                            event_df[event_df["sample_has_sig_lower_PSI_than_control"]][
+                                "percentile"
+                            ].mean()
                         )
-                        event_df = event_df.reset_index(drop=True)
-                        event_df["percentile"] = (event_df.index / len(event_df)) * 100
-                        avg_percentile_lower += event_df[
-                            event_df["sample_has_sig_lower_PSI"]
-                        ]["percentile"].mean()
-                        avg_percentile_higher += event_df[
-                            event_df["sample_has_sig_higher_PSI"]
-                        ]["percentile"].mean()
-                    if total_num_events > 0:
-                        avg_percentile_lower /= total_num_events
-                        avg_percentile_higher /= total_num_events
-                    else:
-                        avg_percentile_lower = -1.0
-                        avg_percentile_higher = -1.0
-
+                        average_percentile_of_samples_with_sig_higher_PSI.append(
+                            event_df[
+                                event_df["sample_has_sig_higher_PSI_than_control"]
+                            ]["percentile"].mean()
+                        )
+                    average_percentile_of_samples_with_sig_lower_PSI = np.array(
+                        average_percentile_of_samples_with_sig_lower_PSI
+                    )
+                    average_percentile_of_samples_with_sig_higher_PSI = np.array(
+                        average_percentile_of_samples_with_sig_higher_PSI
+                    )
+                    avg_percentile_of_samples_with_sig_lower_PSI = np.mean(
+                        average_percentile_of_samples_with_sig_lower_PSI
+                    )
+                    avg_percentile_of_samples_with_sig_higher_PSI = np.mean(
+                        average_percentile_of_samples_with_sig_higher_PSI
+                    )
                     self.log(
-                        f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_lower_deviations",
-                        avg_percentile_lower,
+                        f"val/avg_percentile_of_samples_with_sig_lower_PSI_{event_type_name}_{example_type_name}_examples",
+                        avg_percentile_of_samples_with_sig_lower_PSI,
                         on_step=False,
                         on_epoch=True,
                     )
                     self.log(
-                        f"val/{event_type_name}_{example_type_name}_low_std_events_avg_percentile_of_significant_higher_deviations",
-                        avg_percentile_higher,
+                        f"val/avg_percentile_of_samples_with_sig_higher_PSI_{event_type_name}_{example_type_name}_examples",
+                        avg_percentile_of_samples_with_sig_higher_PSI,
                         on_step=False,
                         on_epoch=True,
                     )
                     print(
-                        f"Average percentile of samples with significant lower deviations from the mean in low std events: {avg_percentile_lower}"
+                        f"Average percentile of samples with significantly lower PSI than the control sample: {avg_percentile_of_samples_with_sig_lower_PSI}"
                     )
                     print(
-                        f"Average percentile of samples with significant higher deviations from the mean in low std events: {avg_percentile_higher}"
+                        f"Average percentile of samples with significantly higher PSI than the control sample: {avg_percentile_of_samples_with_sig_higher_PSI}"
                     )
 
         # clear the stored predictions
