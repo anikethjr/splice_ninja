@@ -70,7 +70,7 @@ class NEventsPerBatchDistributedSampler(
         # subset the data to only include the events in the event IDs
         # we only need the row idx, the event ID, and the sample name
         self.this_rank_data = data.loc[
-            data["EVENT"].isin(self.event_ids), ["EVENT", "SAMPLE"]
+            data["EVENT"].isin(self.event_ids)
         ]
 
         # compute length
