@@ -166,6 +166,12 @@ class NEventsPerBatchDistributedSampler(
             ]["dPSI_threshold_for_significance"]
         else:
             self.dPSI_threshold_for_significance = 0.0
+        if "upsample_significant_events" in self.data_module.config["train_config"]:
+            self.upsample_significant_events = self.data_module.config["train_config"][
+                "upsample_significant_events"
+            ]
+        else:
+            self.upsample_significant_events = False
 
         # split data among ranks
         self.epoch = self.data_module.trainer.current_epoch
@@ -216,15 +222,60 @@ class NEventsPerBatchDistributedSampler(
                     non_control_indices = event_data[
                         event_data["SAMPLE"] != "AV_Controls"
                     ].index
-                    current_batch_idxs[
-                        self.examples_per_event[cur_event_idx][1:]
-                    ] = np.random.choice(
-                        non_control_indices,
-                        size=examples_needed_from_event,
-                        replace=False
-                        if len(event_data) >= examples_needed_from_event
-                        else True,
-                    )
+                    # if we are upsampling significant events, we sample 2/3 of the examples from significant events and 1/3 from non-significant events
+                    if self.upsample_significant_events:
+                        significant_event_indices = event_data[
+                            np.abs(event_data["PSI"] - event_data["CONTROLS_AVG_PSI"])
+                            > self.dPSI_threshold_for_significance
+                        ].index
+                        num_significant_events = len(significant_event_indices)
+                        if num_significant_events > 0:
+                            num_significant_events_to_sample = int(
+                                examples_needed_from_event * 2 / 3
+                            )
+                            current_batch_idxs[
+                                self.examples_per_event[cur_event_idx][1:]
+                            ] = np.random.choice(
+                                significant_event_indices,
+                                size=num_significant_events_to_sample,
+                                replace=False
+                                if len(significant_event_indices)
+                                >= num_significant_events_to_sample
+                                else True,
+                            )
+                            examples_needed_from_event -= (
+                                num_significant_events_to_sample
+                            )
+
+                        # sample the rest of the examples from non-significant events
+                        nonsignificant_event_indices = event_data[
+                            np.abs(event_data["PSI"] - event_data["CONTROLS_AVG_PSI"])
+                            <= self.dPSI_threshold_for_significance
+                        ].index
+                        if examples_needed_from_event > 0:
+                            current_batch_idxs[
+                                self.examples_per_event[cur_event_idx][
+                                    (1 + num_significant_events_to_sample) :
+                                ]
+                            ] = np.random.choice(
+                                nonsignificant_event_indices,
+                                size=examples_needed_from_event,
+                                replace=False
+                                if len(nonsignificant_event_indices)
+                                >= examples_needed_from_event
+                                else True,
+                            )
+                    else:
+                        current_batch_idxs[
+                            self.examples_per_event[cur_event_idx][1:]
+                        ] = np.random.choice(
+                            non_control_indices,
+                            size=examples_needed_from_event,
+                            replace=False
+                            if len(event_data) >= examples_needed_from_event
+                            else True,
+                        )
+
                 cur_event_idx += 1
 
                 # if N events have been sampled, yield the indices

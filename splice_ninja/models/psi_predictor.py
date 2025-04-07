@@ -820,6 +820,9 @@ class PSIPredictor(LightningModule):
                 on="event_id",
                 how="inner",
             ).reset_index(drop=True)
+            preds_df = preds_df.sort_values(
+                by=["event_id", "event_type", "example_type", "sample"]
+            ).reset_index(drop=True)
             if preds_df.shape[0] != ori_num_examples:
                 print(
                     "Likely that this is a sanity check, not saving predictions and skipping metrics computation."
@@ -1239,17 +1242,28 @@ class PSIPredictor(LightningModule):
                         event_df = event_df[(event_df["sample"] != 0)].reset_index(
                             drop=True
                         )
-                        event_df["percentile"] = event_df["pred_psi_val"].rank(pct=True)
-                        average_percentile_of_samples_with_sig_lower_PSI.append(
-                            event_df[event_df["sample_has_sig_lower_PSI_than_control"]][
-                                "percentile"
-                            ].mean()
-                        )
-                        average_percentile_of_samples_with_sig_higher_PSI.append(
-                            event_df[
-                                event_df["sample_has_sig_higher_PSI_than_control"]
-                            ]["percentile"].mean()
-                        )
+                        # only compute percentiles if there are samples with significantly lower or higher PSI than the control sample
+                        if (
+                            event_df["sample_has_sig_lower_PSI_than_control"].sum() > 0
+                        ) or (
+                            event_df["sample_has_sig_higher_PSI_than_control"].sum() > 0
+                        ):
+                            # compute percentiles using the predicted PSI values
+                            # rank the predicted PSI values
+                            event_df["percentile"] = event_df["pred_psi_val"].rank(
+                                pct=True
+                            )
+                            average_percentile_of_samples_with_sig_lower_PSI.append(
+                                event_df[
+                                    event_df["sample_has_sig_lower_PSI_than_control"]
+                                ]["percentile"].mean()
+                            )
+                            average_percentile_of_samples_with_sig_higher_PSI.append(
+                                event_df[
+                                    event_df["sample_has_sig_higher_PSI_than_control"]
+                                ]["percentile"].mean()
+                            )
+
                     average_percentile_of_samples_with_sig_lower_PSI = np.array(
                         average_percentile_of_samples_with_sig_lower_PSI
                     )
