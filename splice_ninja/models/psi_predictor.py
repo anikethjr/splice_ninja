@@ -807,7 +807,7 @@ class PSIPredictor(LightningModule):
             # drop duplicates that might have been created to have the same number of samples across all processes
             preds_df = preds_df.drop_duplicates().reset_index(drop=True)
             # add the predicted control PSI values - the control sample is always sample 0
-            control_preds = preds_df[preds_df["sample"] == 0].copy()
+            control_preds = preds_df[preds_df["sample"] == 0].reset_index(drop=True)
             control_preds = control_preds.rename(
                 columns={"pred_psi_val": "pred_event_controls_avg_psi"}
             )
