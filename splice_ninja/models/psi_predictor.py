@@ -1253,16 +1253,18 @@ class PSIPredictor(LightningModule):
                             event_df["percentile"] = event_df["pred_psi_val"].rank(
                                 pct=True
                             )
-                            average_percentile_of_samples_with_sig_lower_PSI.append(
-                                event_df[
-                                    event_df["sample_has_sig_lower_PSI_than_control"]
-                                ]["percentile"].mean()
-                            )
-                            average_percentile_of_samples_with_sig_higher_PSI.append(
-                                event_df[
-                                    event_df["sample_has_sig_higher_PSI_than_control"]
-                                ]["percentile"].mean()
-                            )
+                            if event_df["sample_has_sig_lower_PSI_than_control"].sum() > 0:
+                                average_percentile_of_samples_with_sig_lower_PSI.append(
+                                    event_df[
+                                        event_df["sample_has_sig_lower_PSI_than_control"]
+                                    ]["percentile"].mean()
+                                )
+                            if event_df["sample_has_sig_higher_PSI_than_control"].sum() > 0:
+                                average_percentile_of_samples_with_sig_higher_PSI.append(
+                                    event_df[
+                                        event_df["sample_has_sig_higher_PSI_than_control"]
+                                    ]["percentile"].mean()
+                                )
 
                     average_percentile_of_samples_with_sig_lower_PSI = np.array(
                         average_percentile_of_samples_with_sig_lower_PSI
