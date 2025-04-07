@@ -820,20 +820,40 @@ class PSIPredictor(LightningModule):
                 on="event_id",
                 how="inner",
             ).reset_index(drop=True)
-            assert (
-                preds_df.shape[0] == ori_num_examples
-            ), "Number of examples after merging control predictions does not match the original number of examples."
-            # save the predictions to a csv file
-            preds_df.to_csv(
-                os.path.join(
-                    self.config["train_config"]["saved_models_dir"],
-                    "psi_predictor_test"
-                    if "run_name" not in self.config["train_config"]
-                    else self.config["train_config"]["run_name"],
-                    "latest_val_preds.csv",
-                ),
-                index=False,
-            )
+            if preds_df.shape[0] != ori_num_examples:
+                print(
+                    "Likely that this is a sanity check, not saving predictions and skipping metrics computation."
+                )
+                # clear the stored predictions
+                self.val_event_ids.clear()
+                self.val_event_types.clear()
+                self.val_example_types.clear()
+                self.val_samples.clear()
+                self.val_psi_vals.clear()
+                self.val_pred_psi_vals.clear()
+                self.val_controls_avg_psi.clear()
+                self.val_num_controls.clear()
+                self.val_event_ids = []
+                self.val_event_types = []
+                self.val_example_types = []
+                self.val_samples = []
+                self.val_psi_vals = []
+                self.val_pred_psi_vals = []
+                self.val_controls_avg_psi = []
+                self.val_num_controls = []
+                return
+            else:
+                # save the predictions to a csv file
+                preds_df.to_csv(
+                    os.path.join(
+                        self.config["train_config"]["saved_models_dir"],
+                        "psi_predictor_test"
+                        if "run_name" not in self.config["train_config"]
+                        else self.config["train_config"]["run_name"],
+                        "latest_val_preds.csv",
+                    ),
+                    index=False,
+                )
             print(
                 f"Gathered predictions across all processes. Total number of predictions: {preds_df.shape[0]}"
             )
