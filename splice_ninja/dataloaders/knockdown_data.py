@@ -234,7 +234,7 @@ class NEventsPerBatchDistributedSampler(
                                 examples_needed_from_event * 2 / 3
                             )
                             current_batch_idxs[
-                                self.examples_per_event[cur_event_idx][1:]
+                                self.examples_per_event[cur_event_idx][1: (1 + num_significant_events_to_sample)]
                             ] = np.random.choice(
                                 significant_event_indices,
                                 size=num_significant_events_to_sample,
