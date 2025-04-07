@@ -900,12 +900,10 @@ class PSIPredictor(LightningModule):
                         on_epoch=True,
                     )
 
-                    if (
-                        self.trainer.current_epoch
-                        < self.num_epochs_for_training_on_control_data_only
-                    ):
+                    # if we only have control samples, we skip the rest of the metrics
+                    if (subset_df["sample"] != 0).sum() == 0:
                         print(
-                            f"Skipping further metrics computation as we are still training on control data only."
+                            f"Only control samples for event type: {event_type}, example type: {example_type}. Skipping rest of the metrics."
                         )
                         continue
 
