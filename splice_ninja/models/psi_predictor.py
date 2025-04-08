@@ -521,14 +521,14 @@ class PSIPredictor(LightningModule):
             )
         elif (
             self.config["train_config"]["loss_fn"]
-            == "RankingAndBCEWithLogitsLossEventLevelRankingOnlyUsingControlData"
+            == "PairwiseMSELossAndBiasedBCEWithLogitsLoss"
         ):
-            self.loss_fn = RankingAndBCEWithLogitsLossEventLevelRankingOnly(
+            self.loss_fn = PairwiseMSELossAndBiasedBCEWithLogitsLoss(
                 self.dPSI_threshold_for_significance
             )
         else:
             raise ValueError(
-                f"Loss function {self.config['train_config']['loss_fn']} not found. Available loss functions: MSELoss, BiasedMSELoss, BiasedMSELossBasedOnEventStd, BiasedMSELossBasedOnNumSamplesEventObserved, RankingAndMSELoss, BCEWithLogitsLoss, BiasedBCEWithLogitsLossBasedOnEventStd, RankingAndBCEWithLogitsLoss."
+                f"Loss function {self.config['train_config']['loss_fn']} not found."
             )
 
         if self.predict_mean_std_psi_and_delta:
