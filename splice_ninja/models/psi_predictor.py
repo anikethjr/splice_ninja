@@ -343,6 +343,56 @@ class RankingAndBCEWithLogitsLossEventLevelRankingOnly(nn.Module):
         return loss
 
 
+class PairwiseMSELossAndBiasedBCEWithLogitsLoss(nn.Module):
+    def __init__(
+        self, dPSI_threshold, mse_loss_weight_multiplier=10, scaling_for_bias=1000.0
+    ):
+        super().__init__()
+        self.dPSI_threshold = dPSI_threshold
+        self.mse_loss_weight_multiplier = mse_loss_weight_multiplier
+        self.scaling_for_bias = scaling_for_bias
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        # Compute BCEWithLogits loss
+        loss = F.binary_cross_entropy_with_logits(
+            pred_psi_val.view(-1, 1), psi_val.view(-1, 1), reduction="none"
+        )
+        # bias the loss towards intermediate PSI values
+        # we want to increase the loss for PSI values that are closer to 0.5
+        deviation_from_half = torch.abs(psi_val.view(-1, 1) - 0.5)
+        # so we divide by ((the deviation from 0.5 + 1) * self.scaling_for_bias) to make the loss larger
+        # for values closer to 0.5
+        loss = loss / ((deviation_from_half + 1) * self.scaling_for_bias)
+        loss = loss.mean()
+
+        if kwargs["use_BCE_loss_only"]:
+            return loss
+
+        event_id = kwargs["event_id"]
+
+        # Compute pairwise MSE loss efficiently
+        # first, the ground truth PSI values need to be converted to logits
+        # as the model outputs logits
+        psi_val = torch.special.logit(psi_val, eps=1e-7)
+        # Compute pairwise differences for samples from the same event
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+        pred_diff = pred_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
+        true_diff = true_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
+        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+
+        pred_diff = pred_diff[valid_pairs]
+        true_diff = true_diff[valid_pairs]
+        # Apply MSE loss
+        if valid_pairs.any():
+            pairwise_mse_loss = (
+                F.mse_loss(pred_diff, true_diff) * self.mse_loss_weight_multiplier
+            )
+            loss += pairwise_mse_loss
+
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -465,6 +515,13 @@ class PSIPredictor(LightningModule):
         elif (
             self.config["train_config"]["loss_fn"]
             == "RankingAndBCEWithLogitsLossEventLevelRankingOnly"
+        ):
+            self.loss_fn = RankingAndBCEWithLogitsLossEventLevelRankingOnly(
+                self.dPSI_threshold_for_significance
+            )
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "RankingAndBCEWithLogitsLossEventLevelRankingOnlyUsingControlData"
         ):
             self.loss_fn = RankingAndBCEWithLogitsLossEventLevelRankingOnly(
                 self.dPSI_threshold_for_significance
