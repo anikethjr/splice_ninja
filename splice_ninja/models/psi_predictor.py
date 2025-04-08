@@ -345,7 +345,7 @@ class RankingAndBCEWithLogitsLossEventLevelRankingOnly(nn.Module):
 
 class PairwiseMSELossAndBiasedBCEWithLogitsLoss(nn.Module):
     def __init__(
-        self, dPSI_threshold, mse_loss_weight_multiplier=10, scaling_for_bias=1000.0
+        self, dPSI_threshold, mse_loss_weight_multiplier=10, scaling_for_bias=1e-2
     ):
         super().__init__()
         self.dPSI_threshold = dPSI_threshold
@@ -1310,16 +1310,26 @@ class PSIPredictor(LightningModule):
                             event_df["percentile"] = event_df["pred_psi_val"].rank(
                                 pct=True
                             )
-                            if event_df["sample_has_sig_lower_PSI_than_control"].sum() > 0:
+                            if (
+                                event_df["sample_has_sig_lower_PSI_than_control"].sum()
+                                > 0
+                            ):
                                 average_percentile_of_samples_with_sig_lower_PSI.append(
                                     event_df[
-                                        event_df["sample_has_sig_lower_PSI_than_control"]
+                                        event_df[
+                                            "sample_has_sig_lower_PSI_than_control"
+                                        ]
                                     ]["percentile"].mean()
                                 )
-                            if event_df["sample_has_sig_higher_PSI_than_control"].sum() > 0:
+                            if (
+                                event_df["sample_has_sig_higher_PSI_than_control"].sum()
+                                > 0
+                            ):
                                 average_percentile_of_samples_with_sig_higher_PSI.append(
                                     event_df[
-                                        event_df["sample_has_sig_higher_PSI_than_control"]
+                                        event_df[
+                                            "sample_has_sig_higher_PSI_than_control"
+                                        ]
                                     ]["percentile"].mean()
                                 )
 
