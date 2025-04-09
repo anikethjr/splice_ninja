@@ -6,6 +6,16 @@ import json
 from argparse import ArgumentParser, BooleanOptionalAction
 from tqdm import tqdm
 
+from sklearn.metrics import (
+    r2_score,
+    accuracy_score,
+    balanced_accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+)
+from scipy.stats import spearmanr, pearsonr
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -162,6 +172,193 @@ def find_best_checkpoint_and_verify_that_training_is_complete(
         print(f"Created a copy of the best checkpoint at {best_ckpt_copy_path}")
 
     return os.path.join(checkpoint_dir, best_checkpoint)
+
+
+def compute_and_save_validation_metrics(preds_df, summary_save_path):
+    """
+    Compute validation metrics and save them to a results file.
+    """
+    metrics = {}
+
+    # compute metrics for all event types and example types
+    unique_event_types = preds_df["EVENT_TYPE"].unique().tolist()
+    if len(unique_event_types) > 1:
+        unique_event_types.append("ALL")
+    unique_example_types = preds_df["example_type"].unique().tolist()
+    if len(unique_example_types) > 1:
+        unique_example_types.append("ALL")
+
+    for event_type in unique_event_types:
+        if event_type == "ALL":
+            event_type_df = preds_df
+            event_type_name = "ALL"
+        else:
+            event_type_df = preds_df[preds_df["EVENT_TYPE"] == event_type].reset_index(
+                drop=True
+            )
+            event_type_name = f"event_type_{event_type}"
+
+        for example_type in unique_example_types:
+            if example_type == "ALL":
+                subset_df = event_type_df
+                example_type_name = "ALL"
+            else:
+                subset_df = event_type_df[
+                    event_type_df["example_type"] == example_type
+                ].reset_index(drop=True)
+                example_type_name = f"example_type_{example_type}"
+
+            # compute correlation metrics for control samples
+            control_df = subset_df[subset_df["SAMPLE"] == 0].reset_index(drop=True)
+            control_spearmanR = spearmanr(control_df["PSI"], control_df["PSI_PREDS"])[0]
+            control_pearsonR = pearsonr(control_df["PSI"], control_df["PSI_PREDS"])[0]
+            control_r2 = r2_score(control_df["PSI"], control_df["PSI_PREDS"])
+
+            metrics[
+                f"control_{event_type_name}_{example_type_name}_spearmanR"
+            ] = control_spearmanR
+            metrics[
+                f"control_{event_type_name}_{example_type_name}_pearsonR"
+            ] = control_pearsonR
+            metrics[f"control_{event_type_name}_{example_type_name}_r2"] = control_r2
+
+            # if we only have control samples, skip the rest of the metrics
+            if (subset_df["SAMPLE"] != 0).sum() == 0:
+                continue
+
+            # compute sample-wise correlation metrics for events observed in at least 10 samples
+            sample_counts = subset_df["EVENT"].value_counts()
+            sample_counts = sample_counts[sample_counts >= 10]
+            sample_counts = sample_counts.index
+
+            sample_wise_spearmanR = []
+            sample_wise_pearsonR = []
+            sample_wise_r2 = []
+
+            for event_id in tqdm(sample_counts):
+                event_df = subset_df[subset_df["EVENT"] == event_id]
+                spearmanR = np.nan_to_num(
+                    spearmanr(event_df["PSI"], event_df["PSI_PREDS"])[0]
+                )
+                pearsonR = np.nan_to_num(
+                    pearsonr(event_df["PSI"], event_df["PSI_PREDS"])[0]
+                )
+                r2 = np.nan_to_num(r2_score(event_df["PSI"], event_df["PSI_PREDS"]))
+
+                sample_wise_spearmanR.append(spearmanR)
+                sample_wise_pearsonR.append(pearsonR)
+                sample_wise_r2.append(r2)
+
+            sample_wise_spearmanR = np.array(sample_wise_spearmanR)
+            sample_wise_pearsonR = np.array(sample_wise_pearsonR)
+            sample_wise_r2 = np.array(sample_wise_r2)
+
+            metrics[
+                f"avg_{event_type_name}_{example_type_name}_sample_wise_spearmanR"
+            ] = np.mean(sample_wise_spearmanR)
+            metrics[
+                f"avg_{event_type_name}_{example_type_name}_sample_wise_pearsonR"
+            ] = np.mean(sample_wise_pearsonR)
+            metrics[
+                f"avg_{event_type_name}_{example_type_name}_sample_wise_r2"
+            ] = np.mean(sample_wise_r2)
+
+            # compute correlation metrics for significant perturbations
+            sample_wise_spearmanR = []
+            sample_wise_pearsonR = []
+            sample_wise_r2 = []
+
+            for event_id in tqdm(subset_df["EVENT"].unique()):
+                event_df = subset_df[subset_df["EVENT"] == event_id]
+                event_df = event_df[
+                    (event_df["PSI"] - event_df["CONTROLS_AVG_PSI"]).abs() >= 0.15
+                ].reset_index(drop=True)
+                if len(event_df) < 10:
+                    continue
+
+                spearmanR = np.nan_to_num(
+                    spearmanr(event_df["PSI"], event_df["PSI_PREDS"])[0]
+                )
+                pearsonR = np.nan_to_num(
+                    pearsonr(event_df["PSI"], event_df["PSI_PREDS"])[0]
+                )
+                r2 = np.nan_to_num(r2_score(event_df["PSI"], event_df["PSI_PREDS"]))
+
+                sample_wise_spearmanR.append(spearmanR)
+                sample_wise_pearsonR.append(pearsonR)
+                sample_wise_r2.append(r2)
+
+            sample_wise_spearmanR = np.array(sample_wise_spearmanR)
+            sample_wise_pearsonR = np.array(sample_wise_pearsonR)
+            sample_wise_r2 = np.array(sample_wise_r2)
+
+            metrics[
+                f"num_events_with_at_least_10_significant_perturbations_{event_type_name}_{example_type_name}"
+            ] = len(sample_wise_spearmanR)
+            metrics[
+                f"avg_{event_type_name}_{example_type_name}_significant_perturbations_sample_wise_spearmanR"
+            ] = np.mean(sample_wise_spearmanR)
+            metrics[
+                f"avg_{event_type_name}_{example_type_name}_significant_perturbations_sample_wise_pearsonR"
+            ] = np.mean(sample_wise_pearsonR)
+            metrics[
+                f"avg_{event_type_name}_{example_type_name}_significant_perturbations_sample_wise_r2"
+            ] = np.mean(sample_wise_r2)
+
+            # compute classification metrics
+            subset_df["sample_has_sig_different_PSI_than_control"] = (
+                subset_df["PSI"] - subset_df["CONTROLS_AVG_PSI"]
+            ).abs() > 0.15
+            subset_df["sample_has_sig_different_predicted_PSI_than_control"] = (
+                subset_df["PSI_PREDS"] - subset_df["PRED_CONTROLS_AVG_PSI"]
+            ).abs() > 0.15
+
+            accuracy = accuracy_score(
+                y_true=subset_df["sample_has_sig_different_PSI_than_control"],
+                y_pred=subset_df["sample_has_sig_different_predicted_PSI_than_control"],
+            )
+            adjusted_balanced_accuracy = balanced_accuracy_score(
+                y_true=subset_df["sample_has_sig_different_PSI_than_control"],
+                y_pred=subset_df["sample_has_sig_different_predicted_PSI_than_control"],
+                adjusted=True,
+            )
+            precision = precision_score(
+                y_true=subset_df["sample_has_sig_different_PSI_than_control"],
+                y_pred=subset_df["sample_has_sig_different_predicted_PSI_than_control"],
+            )
+            recall = recall_score(
+                y_true=subset_df["sample_has_sig_different_PSI_than_control"],
+                y_pred=subset_df["sample_has_sig_different_predicted_PSI_than_control"],
+            )
+            f1 = f1_score(
+                y_true=subset_df["sample_has_sig_different_PSI_than_control"],
+                y_pred=subset_df["sample_has_sig_different_predicted_PSI_than_control"],
+            )
+
+            metrics[
+                f"{event_type_name}_{example_type_name}_sig_different_PSI_accuracy"
+            ] = accuracy
+            metrics[
+                f"{event_type_name}_{example_type_name}_sig_different_PSI_adjusted_balanced_accuracy"
+            ] = adjusted_balanced_accuracy
+            metrics[
+                f"{event_type_name}_{example_type_name}_sig_different_PSI_precision"
+            ] = precision
+            metrics[
+                f"{event_type_name}_{example_type_name}_sig_different_PSI_recall"
+            ] = recall
+            metrics[f"{event_type_name}_{example_type_name}_sig_different_PSI_f1"] = f1
+
+    # save metrics to a JSON file
+    with open(summary_save_path, "w") as f:
+        json.dump(metrics, f, indent=4)
+
+    # print metrics
+    print("\nValidation Metrics:")
+    for metric_name, value in metrics.items():
+        print(f"{metric_name}: {value}")
+
+    return metrics
 
 
 def parse_args():
@@ -343,8 +540,19 @@ def main():
         assert np.allclose(
             df["PSI"].values, psi_vals * 100
         ), "Ground truth PSI values do not match."
+
+        # add the predicted avg control PSI values to the dataframe
+        # the control is the sample with SAMPLE == "AV_Controls"
+        control_df = df[df["SAMPLE"] == "AV_Controls"][["EVENT", "PSI_PREDS"]]
+        control_df.columns = ["EVENT", "PRED_CONTROLS_AVG_PSI"]
+        df = df.merge(control_df, on="EVENT", how="inner", validate="one_to_one")
         df.to_csv(os.path.join(predictions_dir, "preds.csv"), index=False)
         print(f"Predictions saved to {predictions_dir}/preds.csv")
+
+        # compute and save validation metrics
+        compute_and_save_validation_metrics(
+            df, os.path.join(predictions_dir, "validation_metrics.json")
+        )
 
 
 if __name__ == "__main__":
