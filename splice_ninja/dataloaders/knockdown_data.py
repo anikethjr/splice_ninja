@@ -51,14 +51,6 @@ class NEventsPerBatchDistributedSampler(
                 f"NEventsPerBatchDistributedSampler should only be used with the train split, not {self.split}"
             )
 
-        # this sampler should not be used if only training on control data or if the ranking loss is not used
-        if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
-            self.epoch < self.num_epochs_after_which_to_use_ranking_loss
-        ):
-            raise Exception(
-                "This sampler should not be used if only training on control data or if the ranking loss is not used"
-            )
-
         # get unique event IDs
         self.event_ids = data["EVENT"].unique()
         # shuffle the event IDs
@@ -69,9 +61,7 @@ class NEventsPerBatchDistributedSampler(
 
         # subset the data to only include the events in the event IDs
         # we only need the row idx, the event ID, and the sample name
-        self.this_rank_data = data.loc[
-            data["EVENT"].isin(self.event_ids)
-        ]
+        self.this_rank_data = data.loc[data["EVENT"].isin(self.event_ids)]
 
         # compute length
         self.length = len(data) // self.num_replicas
@@ -100,43 +90,6 @@ class NEventsPerBatchDistributedSampler(
     ):
         self.data_module = data_module
         self.split = split
-
-        # get the number of replicas and rank if not provided
-        if num_replicas is None:
-            if not dist.is_available():
-                raise RuntimeError("Requires distributed package to be available")
-            num_replicas = dist.get_world_size()
-        if rank is None:
-            if not dist.is_available():
-                raise RuntimeError("Requires distributed package to be available")
-            rank = dist.get_rank()
-        if rank >= num_replicas or rank < 0:
-            raise ValueError(
-                f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]"
-            )
-        self.num_replicas = num_replicas
-        self.rank = rank
-
-        # get N
-        assert (
-            "N_events_per_batch" in self.data_module.config["train_config"]
-        ), "N_events_per_batch should be in the config to use NEventsPerBatchDistributedSampler"
-        self.N_events_per_batch = self.data_module.config["train_config"][
-            "N_events_per_batch"
-        ]
-
-        # get batch size
-        self.batch_size = self.data_module.config["train_config"]["batch_size"]
-
-        # compute examples per event
-        if self.batch_size % self.N_events_per_batch != 0:
-            print(
-                "WARNING: Batch size is not a multiple of N_events_per_batch, all events might not have the same number of examples in a batch"
-            )
-        self.examples_per_event = np.array_split(
-            np.arange(self.batch_size), self.N_events_per_batch
-        )
-        print(f"Examples per event: {self.examples_per_event}")
 
         # hyperparam that affects when we use the ranking loss and this determines when
         # we return a specific number of events per batch
@@ -173,6 +126,51 @@ class NEventsPerBatchDistributedSampler(
         else:
             self.upsample_significant_events = False
 
+        # get the number of replicas and rank if not provided
+        if num_replicas is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            num_replicas = dist.get_world_size()
+        if rank is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            rank = dist.get_rank()
+        if rank >= num_replicas or rank < 0:
+            raise ValueError(
+                f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]"
+            )
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+        # get batch size
+        self.batch_size = self.data_module.config["train_config"]["batch_size"]
+
+        # get N
+        if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
+            self.epoch < self.num_epochs_after_which_to_use_ranking_loss
+        ):
+            assert (
+                self.upsample_significant_events
+            ), "upsample_significant_events should be True to use NEventsPerBatchDistributedSampler with control data or when ranking loss is not used"
+            self.N_events_per_batch = self.batch_size
+        else:
+            assert (
+                "N_events_per_batch" in self.data_module.config["train_config"]
+            ), "N_events_per_batch should be in the config to use NEventsPerBatchDistributedSampler"
+            self.N_events_per_batch = self.data_module.config["train_config"][
+                "N_events_per_batch"
+            ]
+
+        # compute examples per event
+        if self.batch_size % self.N_events_per_batch != 0:
+            print(
+                "WARNING: Batch size is not a multiple of N_events_per_batch, all events might not have the same number of examples in a batch"
+            )
+        self.examples_per_event = np.array_split(
+            np.arange(self.batch_size), self.N_events_per_batch
+        )
+        print(f"Examples per event: {self.examples_per_event}")
+
         # split data among ranks
         self.epoch = self.data_module.trainer.current_epoch
         self.split_data_among_ranks()
@@ -188,13 +186,22 @@ class NEventsPerBatchDistributedSampler(
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
 
-        # this sampler should not be used if only training on control data or if the ranking loss is not used
+        # upsample events with intermediate PSI values
         if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
             self.epoch < self.num_epochs_after_which_to_use_ranking_loss
         ):
-            raise Exception(
-                "This sampler should not be used if only training on control data or if the ranking loss is not used"
+            assert (
+                self.upsample_significant_events
+            ), "upsample_significant_events should be True to use NEventsPerBatchDistributedSampler with control data or when ranking loss is not used"
+            # sample events with intermediate PSI values
+            sample_weights = (
+                0.5 - np.abs(self.this_rank_data["PSI"] - 0.5)
+            ) + 1  # max is 1.5, min is 1
+            sample_weights = sample_weights**10.0
+            self.this_rank_data = self.this_rank_data.sample(
+                frac=1, weights=sample_weights, random_state=self.seed
             )
+            return iter(self.this_rank_data.index)
 
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
@@ -225,9 +232,13 @@ class NEventsPerBatchDistributedSampler(
                     # if we are upsampling significant events, we sample 2/3 of the examples from significant events and 1/3 from non-significant events
                     if self.upsample_significant_events:
                         significant_event_indices = event_data[
-                            (np.abs(event_data["PSI"] - event_data["CONTROLS_AVG_PSI"])
-                            >= self.dPSI_threshold_for_significance) &
-                            (event_data["SAMPLE"] != "AV_Controls")
+                            (
+                                np.abs(
+                                    event_data["PSI"] - event_data["CONTROLS_AVG_PSI"]
+                                )
+                                >= self.dPSI_threshold_for_significance
+                            )
+                            & (event_data["SAMPLE"] != "AV_Controls")
                         ].index
                         num_significant_events = len(significant_event_indices)
                         if num_significant_events > 0:
@@ -235,7 +246,9 @@ class NEventsPerBatchDistributedSampler(
                                 (examples_needed_from_event * 2.0) / 3.0
                             )
                             current_batch_idxs[
-                                self.examples_per_event[cur_event_idx][1: (1 + num_significant_events_to_sample)]
+                                self.examples_per_event[cur_event_idx][
+                                    1 : (1 + num_significant_events_to_sample)
+                                ]
                             ] = np.random.choice(
                                 significant_event_indices,
                                 size=num_significant_events_to_sample,
@@ -250,14 +263,20 @@ class NEventsPerBatchDistributedSampler(
 
                         # sample the rest of the examples from non-significant events
                         nonsignificant_event_indices = event_data[
-                            (np.abs(event_data["PSI"] - event_data["CONTROLS_AVG_PSI"])
-                            < self.dPSI_threshold_for_significance) & 
-                            (event_data["SAMPLE"] != "AV_Controls")
+                            (
+                                np.abs(
+                                    event_data["PSI"] - event_data["CONTROLS_AVG_PSI"]
+                                )
+                                < self.dPSI_threshold_for_significance
+                            )
+                            & (event_data["SAMPLE"] != "AV_Controls")
                         ].index
                         if examples_needed_from_event > 0:
                             if len(nonsignificant_event_indices) > 0:
                                 current_batch_idxs[
-                                    self.examples_per_event[cur_event_idx][-examples_needed_from_event:]
+                                    self.examples_per_event[cur_event_idx][
+                                        -examples_needed_from_event:
+                                    ]
                                 ] = np.random.choice(
                                     nonsignificant_event_indices,
                                     size=examples_needed_from_event,
@@ -266,9 +285,11 @@ class NEventsPerBatchDistributedSampler(
                                     >= examples_needed_from_event
                                     else True,
                                 )
-                            else: # probably never happens, but just in case, sample from the non-control indices
+                            else:  # probably never happens, but just in case, sample from the non-control indices
                                 current_batch_idxs[
-                                    self.examples_per_event[cur_event_idx][-examples_needed_from_event:]
+                                    self.examples_per_event[cur_event_idx][
+                                        -examples_needed_from_event:
+                                    ]
                                 ] = np.random.choice(
                                     non_control_indices,
                                     size=examples_needed_from_event,
@@ -2897,6 +2918,12 @@ class KnockdownData(LightningDataModule):
             ]
         else:
             self.dPSI_threshold_for_significance = 0.0
+        if "upsample_significant_events" in self.data_module.config["train_config"]:
+            self.upsample_significant_events = self.data_module.config["train_config"][
+                "upsample_significant_events"
+            ]
+        else:
+            self.upsample_significant_events = False
 
     def train_dataloader(self):
         if (
@@ -2906,14 +2933,32 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.trainer.current_epoch}"
             )
-            return DataLoader(
-                KnockdownDataset(self, split="train", return_control_data_only=True),
-                batch_size=self.config["train_config"]["batch_size"],
-                shuffle=True,
-                pin_memory=True,
-                num_workers=self.config["train_config"]["num_workers"],
-                worker_init_fn=worker_init_fn,
-            )
+            if self.upsample_significant_events:
+                print(
+                    f"Upsampling significant control events in epoch {self.trainer.current_epoch} - this upsamples events with intermediate PSI values"
+                )
+                return DataLoader(
+                    KnockdownDataset(
+                        self, split="train", return_control_data_only=True
+                    ),
+                    batch_size=self.config["train_config"]["batch_size"],
+                    shuffle=None,
+                    pin_memory=True,
+                    num_workers=self.config["train_config"]["num_workers"],
+                    worker_init_fn=worker_init_fn,
+                    sampler=NEventsPerBatchDistributedSampler(self),
+                )
+            else:
+                return DataLoader(
+                    KnockdownDataset(
+                        self, split="train", return_control_data_only=True
+                    ),
+                    batch_size=self.config["train_config"]["batch_size"],
+                    shuffle=True,
+                    pin_memory=True,
+                    num_workers=self.config["train_config"]["num_workers"],
+                    worker_init_fn=worker_init_fn,
+                )
         elif (
             self.trainer.current_epoch < self.num_epochs_after_which_to_use_ranking_loss
         ):

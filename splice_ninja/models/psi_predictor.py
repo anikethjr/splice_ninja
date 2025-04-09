@@ -861,6 +861,7 @@ class PSIPredictor(LightningModule):
                     "event_num_controls": val_num_controls,
                 }
             )
+
             # drop duplicates that might have been created to have the same number of samples across all processes
             preds_df = preds_df.drop_duplicates().reset_index(drop=True)
             # add the predicted control PSI values - the control sample is always sample 0
@@ -880,6 +881,7 @@ class PSIPredictor(LightningModule):
             preds_df = preds_df.sort_values(
                 by=["event_id", "event_type", "example_type", "sample"]
             ).reset_index(drop=True)
+
             if preds_df.shape[0] != ori_num_examples:
                 print(
                     "Likely that this is a sanity check, not saving predictions and skipping metrics computation."
@@ -902,6 +904,7 @@ class PSIPredictor(LightningModule):
                 self.val_controls_avg_psi = []
                 self.val_num_controls = []
                 return
+
             else:
                 # save the predictions to a csv file
                 preds_df.to_csv(
@@ -914,6 +917,7 @@ class PSIPredictor(LightningModule):
                     ),
                     index=False,
                 )
+
             print(
                 f"Gathered predictions across all processes. Total number of predictions: {preds_df.shape[0]}"
             )
