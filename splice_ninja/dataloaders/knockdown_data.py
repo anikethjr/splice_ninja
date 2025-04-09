@@ -2918,8 +2918,8 @@ class KnockdownData(LightningDataModule):
             ]
         else:
             self.dPSI_threshold_for_significance = 0.0
-        if "upsample_significant_events" in self.data_module.config["train_config"]:
-            self.upsample_significant_events = self.data_module.config["train_config"][
+        if "upsample_significant_events" in self.config["train_config"]:
+            self.upsample_significant_events = self.config["train_config"][
                 "upsample_significant_events"
             ]
         else:
