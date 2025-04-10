@@ -44,7 +44,9 @@ class NEventsPerBatchDistributedSampler(
         self.seed = self.data_module.config["train_config"]["seed"] + self.epoch
         np.random.seed(self.seed)
         # get full data
-        if self.split == "train":
+        if self.dataset is not None:
+            data = self.dataset
+        elif self.split == "train":
             data = self.data_module.train_data
         else:
             raise ValueError(
@@ -84,11 +86,13 @@ class NEventsPerBatchDistributedSampler(
     def __init__(
         self,
         data_module: LightningDataModule,
+        dataset=None,
         num_replicas=None,
         rank=None,
         split="train",
     ):
         self.data_module = data_module
+        self.dataset = dataset
         self.split = split
         self.epoch = self.data_module.trainer.current_epoch
 
@@ -2948,16 +2952,17 @@ class KnockdownData(LightningDataModule):
                 print(
                     f"Upsampling significant control events in epoch {self.trainer.current_epoch} - this upsamples events with intermediate PSI values"
                 )
+                dataset = KnockdownDataset(
+                    self, split="train", return_control_data_only=True
+                )
                 return DataLoader(
-                    KnockdownDataset(
-                        self, split="train", return_control_data_only=True
-                    ),
+                    dataset,
                     batch_size=self.config["train_config"]["batch_size"],
                     shuffle=None,
                     pin_memory=True,
                     num_workers=self.config["train_config"]["num_workers"],
                     worker_init_fn=worker_init_fn,
-                    sampler=NEventsPerBatchDistributedSampler(self),
+                    sampler=NEventsPerBatchDistributedSampler(self, dataset=dataset),
                 )
             else:
                 return DataLoader(
