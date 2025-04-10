@@ -90,6 +90,7 @@ class NEventsPerBatchDistributedSampler(
     ):
         self.data_module = data_module
         self.split = split
+        self.epoch = self.data_module.trainer.current_epoch
 
         # hyperparam that affects when we use the ranking loss and this determines when
         # we return a specific number of events per batch
@@ -172,7 +173,6 @@ class NEventsPerBatchDistributedSampler(
         print(f"Examples per event: {self.examples_per_event}")
 
         # split data among ranks
-        self.epoch = self.data_module.trainer.current_epoch
         self.split_data_among_ranks()
 
     def set_epoch(self, epoch):
