@@ -271,7 +271,7 @@ def compute_and_save_validation_metrics(preds_df, summary_save_path):
             for event_id in tqdm(subset_df["EVENT"].unique()):
                 event_df = subset_df[subset_df["EVENT"] == event_id]
                 event_df = event_df[
-                    (event_df["PSI"] - event_df["CONTROLS_AVG_PSI"]).abs() >= 0.15
+                    (event_df["PSI"] - event_df["CONTROLS_AVG_PSI"]).abs() >= 15.0
                 ].reset_index(drop=True)
                 if len(event_df) < 10:
                     continue
@@ -308,10 +308,10 @@ def compute_and_save_validation_metrics(preds_df, summary_save_path):
             # compute classification metrics
             subset_df["sample_has_sig_different_PSI_than_control"] = (
                 subset_df["PSI"] - subset_df["CONTROLS_AVG_PSI"]
-            ).abs() > 0.15
+            ).abs() > 15.0
             subset_df["sample_has_sig_different_predicted_PSI_than_control"] = (
                 subset_df["PSI_PREDS"] - subset_df["PRED_CONTROLS_AVG_PSI"]
-            ).abs() > 0.15
+            ).abs() > 15.0
 
             accuracy = accuracy_score(
                 y_true=subset_df["sample_has_sig_different_PSI_than_control"],
@@ -536,7 +536,7 @@ def main():
         assert len(df) == len(
             psi_vals
         ), f"Length of dataframe ({len(df)}) and PSI values ({len(psi_vals)}) do not match."
-        df["PSI_PREDS"] = pred_psi_vals
+        df["PSI_PREDS"] = pred_psi_vals * 100
         assert np.allclose(
             df["PSI"].values, psi_vals * 100
         ), "Ground truth PSI values do not match."
