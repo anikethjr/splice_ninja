@@ -371,7 +371,9 @@ class KnockdownDataset(Dataset):
         if self.return_control_data_only:
             print("Returning control data only")
             # filter the data to only include control data
-            self.data = self.data[self.data["SAMPLE"] == "AV_Controls"]
+            self.data = self.data[self.data["SAMPLE"] == "AV_Controls"].reset_index(
+                drop=True
+            )
 
     def __len__(self):
         return len(self.data)
