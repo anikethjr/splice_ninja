@@ -45,7 +45,7 @@ class NEventsPerBatchDistributedSampler(
         np.random.seed(self.seed)
         # get full data
         if self.dataset is not None:
-            data = self.dataset
+            data = self.dataset.data
         elif self.split == "train":
             data = self.data_module.train_data
         else:
