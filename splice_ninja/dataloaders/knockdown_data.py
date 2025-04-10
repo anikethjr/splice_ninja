@@ -195,7 +195,7 @@ class NEventsPerBatchDistributedSampler(
             ), "upsample_significant_events should be True to use NEventsPerBatchDistributedSampler with control data or when ranking loss is not used"
             # sample events with intermediate PSI values
             sample_weights = (
-                0.5 - np.abs(self.this_rank_data["PSI"] - 0.5)
+                0.5 - np.abs((self.this_rank_data["PSI"] / 100.0) - 0.5)
             ) + 1  # max is 1.5, min is 1
             sample_weights = sample_weights**10.0
             self.this_rank_data = self.this_rank_data.sample(
@@ -233,8 +233,12 @@ class NEventsPerBatchDistributedSampler(
                     if self.upsample_significant_events:
                         significant_event_indices = event_data[
                             (
-                                np.abs(
-                                    event_data["PSI"] - event_data["CONTROLS_AVG_PSI"]
+                                (
+                                    np.abs(
+                                        event_data["PSI"]
+                                        - event_data["CONTROLS_AVG_PSI"]
+                                    )
+                                    / 100.0
                                 )
                                 >= self.dPSI_threshold_for_significance
                             )
@@ -264,8 +268,12 @@ class NEventsPerBatchDistributedSampler(
                         # sample the rest of the examples from non-significant events
                         nonsignificant_event_indices = event_data[
                             (
-                                np.abs(
-                                    event_data["PSI"] - event_data["CONTROLS_AVG_PSI"]
+                                (
+                                    np.abs(
+                                        event_data["PSI"]
+                                        - event_data["CONTROLS_AVG_PSI"]
+                                    )
+                                    / 100.0
                                 )
                                 < self.dPSI_threshold_for_significance
                             )
