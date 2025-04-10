@@ -198,10 +198,13 @@ class NEventsPerBatchDistributedSampler(
                 0.5 - np.abs((self.this_rank_data["PSI"] / 100.0) - 0.5)
             ) + 1  # max is 1.5, min is 1
             sample_weights = sample_weights**10.0
-            self.this_rank_data = self.this_rank_data.sample(
-                frac=1, weights=sample_weights, random_state=self.seed
+            sample = self.this_rank_data.sample(
+                n=self.length,
+                replace=True,
+                weights=sample_weights,
+                random_state=self.seed,
             )
-            return iter(self.this_rank_data.index)
+            return iter(sample.index)
 
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
