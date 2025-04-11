@@ -254,6 +254,19 @@ class NEventsPerBatchDistributedSampler(
                 len(resampled_value_indices) == n_total
             ), f"Resampled value indices length is {len(resampled_value_indices)} but expected length is {n_total}"
 
+            number_of_samples_from_bins = []
+            sampled_values = self.this_rank_data.loc[
+                resampled_value_indices, "PSI"
+            ].values
+            for i in range(1, n_bins + 1):
+                number_of_samples_from_bins.append(
+                    np.sum(
+                        (sampled_values >= bin_edges[i - 1])
+                        & (sampled_values <= bin_edges[i])
+                    )
+                )
+            print(f"Number of samples from bins: {number_of_samples_from_bins}")
+
             return iter(resampled_value_indices)
 
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
