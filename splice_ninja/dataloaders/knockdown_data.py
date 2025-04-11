@@ -250,6 +250,9 @@ class NEventsPerBatchDistributedSampler(
 
             # shuffle the resampled value indices
             np.random.shuffle(resampled_value_indices)
+            assert (
+                len(resampled_value_indices) == n_total
+            ), f"Resampled value indices length is {len(resampled_value_indices)} but expected length is {n_total}"
 
             return iter(resampled_value_indices)
 
