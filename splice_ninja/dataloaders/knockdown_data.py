@@ -255,9 +255,9 @@ class NEventsPerBatchDistributedSampler(
             ), f"Resampled value indices length is {len(resampled_value_indices)} but expected length is {n_total}"
 
             number_of_samples_from_bins = []
-            sampled_values = self.this_rank_data.loc[
-                resampled_value_indices, "PSI"
-            ].values
+            sampled_values = (
+                self.this_rank_data.loc[resampled_value_indices, "PSI"].values / 100.0
+            )
             for i in range(1, n_bins + 1):
                 number_of_samples_from_bins.append(
                     np.sum(
