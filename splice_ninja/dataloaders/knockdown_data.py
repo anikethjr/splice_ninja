@@ -31,6 +31,135 @@ def worker_init_fn(worker_id):
     )
 
 
+# DistributedSampler if we want to have a uniform distribution of PSI values in an epoch
+class UniformPSIDistributionDistributedSampler(
+    torch.utils.data.distributed.DistributedSampler
+):
+    def __init__(self, data_module: LightningDataModule, dataset=None, num_replicas=None):
+        self.data_module = data_module
+        self.dataset = dataset
+        self.epoch = self.data_module.trainer.current_epoch
+        self.set_epoch(self.epoch)
+
+        # get the number of replicas and rank if not provided
+        if num_replicas is None:
+            if not dist.is_available():
+                raise RuntimeError("Requires distributed package to be available")
+            num_replicas = dist.get_world_size()
+        rank = dist.get_rank()
+        if rank >= num_replicas or rank < 0:
+            raise ValueError(
+                f"Invalid rank {rank}, rank should be in the interval [0, {num_replicas - 1}]"
+            )
+        self.num_replicas = num_replicas
+        self.rank = rank
+
+        # get batch size
+        self.batch_size = self.data_module.config["train_config"]["batch_size"]
+
+        # get full data
+        if self.dataset is not None:
+            self.data = self.dataset.data
+        elif self.split == "train":
+            self.data = self.data_module.train_data
+        else:
+            raise ValueError(
+                f"UniformPSIDistributionDistributedSampler should only be used with the train split, not {self.split}"
+            )
+
+        # compute length
+        self.length = len(self.data) // self.num_replicas
+        assert (
+            self.length % self.batch_size == 0
+        ), f"Length is not a multiple of the batch size, length: {self.length}, batch size: {self.batch_size}"
+        print(
+            "Rank: {}, Seed: {}, Length: {}, Data length: {}".format(
+                self.rank, self.seed, self.length, len(self.data)
+            )
+        )
+
+    def set_epoch(self, epoch):
+        self.epoch = epoch
+
+        # set seed - add epoch to seed to shuffle differently each epoch
+        self.seed = self.data_module.config["train_config"]["seed"] + self.epoch
+        np.random.seed(self.seed)
+
+    def __len__(self):
+        return self.length
+    
+    def __iter__(self):
+        # resample events uniformly in the [0, 1]
+        print("Resampling PSI values so that they are uniformly distributed")
+        psi_values = self.data["PSI"].values / 100.0
+        n_total = self.length
+
+        # Define bins and bin edges
+        n_bins = 10
+        bin_edges = np.linspace(0, 1, n_bins + 1)
+        print(f"Bin edges: {bin_edges}")
+        bin_indices = np.digitize(psi_values, bin_edges, right=True)
+
+        # Create mapping from bin to values
+        bin_to_values = {
+            i: psi_values[bin_indices == i] for i in range(1, n_bins + 1)
+        }
+        bin_to_df_indices = {
+            i: self.data[bin_indices == i].index
+            for i in range(1, n_bins + 1)
+        }
+
+        # Remove empty bins
+        bin_to_values = {k: v for k, v in bin_to_values.items() if len(v) > 0}
+        bin_to_df_indices = {
+            k: v for k, v in bin_to_df_indices.items() if len(v) > 0
+        }
+        n_bins = len(bin_to_values)
+        print(f"Number of bins: {n_bins}")
+
+        # Determine how many samples to draw from each bin
+        samples_per_bin = n_total // n_bins
+        extra = n_total % n_bins  # in case n_total not divisible by n_bins
+
+        resampled_value_indices = []
+        for i in range(1, n_bins + 1):
+            values = bin_to_values[i]
+            df_indices = bin_to_df_indices[i]
+            count = samples_per_bin + (1 if extra > 0 else 0)
+            extra -= 1 if extra > 0 else 0
+
+            sampled = np.random.choice(df_indices, count, replace=True)
+
+            # assert that all sampled values are in the bin
+            sampled_values = self.data.loc[sampled, "PSI"].values / 100.0
+            assert np.all(sampled_values >= bin_edges[i - 1]) and np.all(
+                sampled_values <= bin_edges[i]
+            ), f"Sampled values are not in the bin, bin edges: {bin_edges[i - 1]}, {bin_edges[i]}"
+
+            resampled_value_indices.extend(sampled)
+
+        # shuffle the resampled value indices
+        np.random.shuffle(resampled_value_indices)
+        assert (
+            len(resampled_value_indices) == n_total
+        ), f"Resampled value indices length is {len(resampled_value_indices)} but expected length is {n_total}"
+
+        number_of_samples_from_bins = []
+        sampled_values = (
+            self.data.loc[resampled_value_indices, "PSI"].values / 100.0
+        )
+        for i in range(1, n_bins + 1):
+            number_of_samples_from_bins.append(
+                np.sum(
+                    (sampled_values >= bin_edges[i - 1])
+                    & (sampled_values <= bin_edges[i])
+                )
+            )
+        print(f"Number of samples from bins: {number_of_samples_from_bins}")
+
+        return iter(resampled_value_indices)   
+
+
 # DistributedSampler if we want to have N events per batch
 # Note that the corresponding control data will always be included in the batch as the first sample from an event.
 # This is important for the model to learn the difference between control and non-control data.
@@ -3000,6 +3129,15 @@ class KnockdownData(LightningDataModule):
             ]
         else:
             self.upsample_significant_events = False
+        if "create_uniform_train_PSI_distribution" in self.config["train_config"]:
+            self.create_uniform_train_PSI_distribution = self.config[
+                "train_config"
+            ]["create_uniform_train_PSI_distribution"]
+            if self.create_uniform_train_PSI_distribution:
+                assert self.upsample_significant_events is False, "Cannot use both upsampling and uniform distribution at the same time"
+                assert "N_events_per_batch" not in self.config["train_config"], "Cannot use both N_events_per_batch and uniform distribution at the same time"
+        else:
+            self.create_uniform_train_PSI_distribution = False
 
     def train_dataloader(self):
         if (
@@ -3009,7 +3147,21 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.trainer.current_epoch}"
             )
-            if self.upsample_significant_events:
+            if self.create_uniform_train_PSI_distribution:
+                print(
+                    f"Creating uniform distribution of control PSI values in epoch {self.trainer.current_epoch}"
+                )
+                dataset = KnockdownDataset(self, split="train", return_control_data_only=True)
+                return DataLoader(
+                    dataset,
+                    batch_size=self.config["train_config"]["batch_size"],
+                    shuffle=None,
+                    pin_memory=True,
+                    num_workers=self.config["train_config"]["num_workers"],
+                    worker_init_fn=worker_init_fn,
+                    sampler=UniformPSIDistributionDistributedSampler(self, dataset=dataset),
+                )
+            elif self.upsample_significant_events:
                 print(
                     f"Upsampling significant control events in epoch {self.trainer.current_epoch} - this upsamples events with intermediate PSI values"
                 )
@@ -3054,19 +3206,34 @@ class KnockdownData(LightningDataModule):
             print(
                 f"Current epoch: {self.trainer.current_epoch}, using fully-fledged train dataloader"
             )
-            return DataLoader(
-                KnockdownDataset(self, split="train"),
-                batch_size=self.config["train_config"]["batch_size"],
-                shuffle=None
-                if ("N_events_per_batch" in self.config["train_config"])
-                else True,
-                pin_memory=True,
-                num_workers=self.config["train_config"]["num_workers"],
-                worker_init_fn=worker_init_fn,
-                sampler=NEventsPerBatchDistributedSampler(self)
-                if ("N_events_per_batch" in self.config["train_config"])
-                else None,
-            )
+            if self.create_uniform_train_PSI_distribution:
+                print(
+                    f"Creating uniform distribution of PSI values in epoch {self.trainer.current_epoch}"
+                )
+                dataset = KnockdownDataset(self, split="train")
+                return DataLoader(
+                    dataset,
+                    batch_size=self.config["train_config"]["batch_size"],
+                    shuffle=None,
+                    pin_memory=True,
+                    num_workers=self.config["train_config"]["num_workers"],
+                    worker_init_fn=worker_init_fn,
+                    sampler=UniformPSIDistributionDistributedSampler(self, dataset=dataset),
+                )
+            else:
+                return DataLoader(
+                    KnockdownDataset(self, split="train"),
+                    batch_size=self.config["train_config"]["batch_size"],
+                    shuffle=None
+                    if ("N_events_per_batch" in self.config["train_config"])
+                    else True,
+                    pin_memory=True,
+                    num_workers=self.config["train_config"]["num_workers"],
+                    worker_init_fn=worker_init_fn,
+                    sampler=NEventsPerBatchDistributedSampler(self)
+                    if ("N_events_per_batch" in self.config["train_config"])
+                    else None,
+                )
 
     def val_dataloader(self):
         # if we are training on control data only, we only use the control data for validation
