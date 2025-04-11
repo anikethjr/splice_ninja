@@ -69,6 +69,7 @@ class UniformPSIDistributionDistributedSampler(
 
         # compute length
         self.length = len(self.data) // self.num_replicas
+        self.length = self.length - (self.length % self.batch_size) # make sure the length is a multiple of the batch size
         assert (
             self.length % self.batch_size == 0
         ), f"Length is not a multiple of the batch size, length: {self.length}, batch size: {self.batch_size}"
