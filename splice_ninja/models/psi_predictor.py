@@ -393,6 +393,46 @@ class PairwiseMSELossAndBiasedBCEWithLogitsLoss(nn.Module):
         return loss
 
 
+class PairwiseMSELossAndBCEWithLogitsLoss(nn.Module):
+    def __init__(self, dPSI_threshold, mse_loss_weight_multiplier=10):
+        super().__init__()
+        self.dPSI_threshold = dPSI_threshold
+        self.mse_loss_weight_multiplier = mse_loss_weight_multiplier
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        # Compute BCEWithLogits loss
+        loss = F.binary_cross_entropy_with_logits(
+            pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
+        )
+
+        if kwargs["use_BCE_loss_only"]:
+            return loss
+
+        event_id = kwargs["event_id"]
+
+        # Compute pairwise MSE loss efficiently
+        # first, the ground truth PSI values need to be converted to logits
+        # as the model outputs logits
+        psi_val = torch.special.logit(psi_val, eps=1e-7)
+        # Compute pairwise differences for samples from the same event
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+        pred_diff = pred_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
+        true_diff = true_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
+        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+
+        pred_diff = pred_diff[valid_pairs]
+        true_diff = true_diff[valid_pairs]
+        # Apply MSE loss
+        if valid_pairs.any():
+            pairwise_mse_loss = (
+                F.mse_loss(pred_diff, true_diff) * self.mse_loss_weight_multiplier
+            )
+            loss += pairwise_mse_loss
+
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -524,6 +564,13 @@ class PSIPredictor(LightningModule):
             == "PairwiseMSELossAndBiasedBCEWithLogitsLoss"
         ):
             self.loss_fn = PairwiseMSELossAndBiasedBCEWithLogitsLoss(
+                self.dPSI_threshold_for_significance
+            )
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "PairwiseMSELossAndBCEWithLogitsLoss"
+        ):
+            self.loss_fn = PairwiseMSELossAndBCEWithLogitsLoss(
                 self.dPSI_threshold_for_significance
             )
         else:
