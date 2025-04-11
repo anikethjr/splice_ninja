@@ -190,25 +190,68 @@ class NEventsPerBatchDistributedSampler(
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
 
-        # upsample events with intermediate PSI values
+        # resample events uniformly in the [0, 1]
         if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
             self.epoch < self.num_epochs_after_which_to_use_ranking_loss
         ):
             assert (
                 self.upsample_significant_events
             ), "upsample_significant_events should be True to use NEventsPerBatchDistributedSampler with control data or when ranking loss is not used"
-            # sample events with intermediate PSI values
-            sample_weights = (
-                0.5 - np.abs((self.this_rank_data["PSI"] / 100.0) - 0.5)
-            ) + 1  # max is 1.5, min is 1
-            sample_weights = sample_weights**10.0
-            sample = self.this_rank_data.sample(
-                n=self.length,
-                replace=True,
-                weights=sample_weights,
-                random_state=self.seed,
+            # resample PSI values uniformly in the [0, 1]
+            print(
+                "Resampling control data so that PSI values are uniformly distributed"
             )
-            return iter(sample.index)
+            psi_values = self.this_rank_data["PSI"].values / 100.0
+            n_total = self.length
+
+            # Define bins and bin edges
+            n_bins = 20
+            bin_edges = np.linspace(0, 1, n_bins + 1)
+            print(f"Bin edges: {bin_edges}")
+            bin_indices = np.digitize(psi_values, bin_edges, right=True)
+
+            # Create mapping from bin to values
+            bin_to_values = {
+                i: psi_values[bin_indices == i] for i in range(1, n_bins + 1)
+            }
+            bin_to_df_indices = {
+                i: self.this_rank_data[bin_indices == i].index
+                for i in range(1, n_bins + 1)
+            }
+
+            # Remove empty bins
+            bin_to_values = {k: v for k, v in bin_to_values.items() if len(v) > 0}
+            bin_to_df_indices = {
+                k: v for k, v in bin_to_df_indices.items() if len(v) > 0
+            }
+            n_bins = len(bin_to_values)
+            print(f"Number of bins: {n_bins}")
+
+            # Determine how many samples to draw from each bin
+            samples_per_bin = n_total // n_bins
+            extra = n_total % n_bins  # in case n_total not divisible by n_bins
+
+            resampled_value_indices = []
+            for i in range(1, n_bins + 1):
+                values = bin_to_values[i]
+                df_indices = bin_to_df_indices[i]
+                count = samples_per_bin + (1 if extra > 0 else 0)
+                extra -= 1 if extra > 0 else 0
+
+                sampled = np.random.choice(df_indices, count, replace=True)
+
+                # assert that all sampled values are in the bin
+                sampled_values = self.this_rank_data.loc[sampled, "PSI"].values / 100.0
+                assert np.all(sampled_values >= bin_edges[i - 1]) and np.all(
+                    sampled_values <= bin_edges[i]
+                ), f"Sampled values are not in the bin, bin edges: {bin_edges[i - 1]}, {bin_edges[i]}"
+
+                resampled_value_indices.extend(sampled)
+
+            # shuffle the resampled value indices
+            np.random.shuffle(resampled_value_indices)
+
+            return iter(resampled_value_indices)
 
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
