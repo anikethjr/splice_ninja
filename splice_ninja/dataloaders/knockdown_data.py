@@ -35,7 +35,9 @@ def worker_init_fn(worker_id):
 class UniformPSIDistributionDistributedSampler(
     torch.utils.data.distributed.DistributedSampler
 ):
-    def __init__(self, data_module: LightningDataModule, dataset=None, num_replicas=None):
+    def __init__(
+        self, data_module: LightningDataModule, dataset=None, num_replicas=None
+    ):
         self.data_module = data_module
         self.dataset = dataset
         self.epoch = self.data_module.trainer.current_epoch
@@ -69,7 +71,9 @@ class UniformPSIDistributionDistributedSampler(
 
         # compute length
         self.length = len(self.data) // self.num_replicas
-        self.length = self.length - (self.length % self.batch_size) # make sure the length is a multiple of the batch size
+        self.length = self.length - (
+            self.length % self.batch_size
+        )  # make sure the length is a multiple of the batch size
         assert (
             self.length % self.batch_size == 0
         ), f"Length is not a multiple of the batch size, length: {self.length}, batch size: {self.batch_size}"
@@ -88,7 +92,7 @@ class UniformPSIDistributionDistributedSampler(
 
     def __len__(self):
         return self.length
-    
+
     def __iter__(self):
         # resample events uniformly in the [0, 1]
         print("Resampling PSI values so that they are uniformly distributed")
@@ -102,28 +106,26 @@ class UniformPSIDistributionDistributedSampler(
         bin_indices = np.digitize(psi_values, bin_edges, right=True)
 
         # Create mapping from bin to values
-        bin_to_values = {
-            i: psi_values[bin_indices == i] for i in range(1, n_bins + 1)
-        }
+        bin_to_values = {i: psi_values[bin_indices == i] for i in range(1, n_bins + 1)}
         bin_to_df_indices = {
-            i: self.data[bin_indices == i].index
-            for i in range(1, n_bins + 1)
+            i: self.data[bin_indices == i].index for i in range(1, n_bins + 1)
+        }
+        bin_to_edges = {
+            k: [bin_edges[k - 1], bin_edges[k]] for k in bin_to_values.keys()
         }
 
         # Remove empty bins
         bin_to_values = {k: v for k, v in bin_to_values.items() if len(v) > 0}
-        bin_to_df_indices = {
-            k: v for k, v in bin_to_df_indices.items() if len(v) > 0
-        }
-        n_bins = len(bin_to_values)
-        print(f"Number of bins: {n_bins}")
+        bin_to_df_indices = {k: v for k, v in bin_to_df_indices.items() if len(v) > 0}
+        final_n_bins = len(bin_to_values)
+        print(f"Number of nonzero bins: {final_n_bins} out of {n_bins}")
 
         # Determine how many samples to draw from each bin
-        samples_per_bin = n_total // n_bins
-        extra = n_total % n_bins  # in case n_total not divisible by n_bins
+        samples_per_bin = n_total // final_n_bins
+        extra = n_total % final_n_bins  # in case n_total not divisible by final_n_bins
 
         resampled_value_indices = []
-        for i in range(1, n_bins + 1):
+        for i in bin_to_values:
             values = bin_to_values[i]
             df_indices = bin_to_df_indices[i]
             count = samples_per_bin + (1 if extra > 0 else 0)
@@ -133,9 +135,10 @@ class UniformPSIDistributionDistributedSampler(
 
             # assert that all sampled values are in the bin
             sampled_values = self.data.loc[sampled, "PSI"].values / 100.0
-            assert np.all(sampled_values >= bin_edges[i - 1]) and np.all(
-                sampled_values <= bin_edges[i]
-            ), f"Sampled values are not in the bin, bin edges: {bin_edges[i - 1]}, {bin_edges[i]}"
+            this_bin_edges = bin_to_edges[i]
+            assert np.all(sampled_values >= this_bin_edges[0]) and np.all(
+                sampled_values <= this_bin_edges[1]
+            ), f"Sampled values are not in the bin, bin edges: {this_bin_edges}"
 
             resampled_value_indices.extend(sampled)
 
@@ -146,9 +149,7 @@ class UniformPSIDistributionDistributedSampler(
         ), f"Resampled value indices length is {len(resampled_value_indices)} but expected length is {n_total}"
 
         number_of_samples_from_bins = []
-        sampled_values = (
-            self.data.loc[resampled_value_indices, "PSI"].values / 100.0
-        )
+        sampled_values = self.data.loc[resampled_value_indices, "PSI"].values / 100.0
         for i in range(1, n_bins + 1):
             number_of_samples_from_bins.append(
                 np.sum(
@@ -158,7 +159,7 @@ class UniformPSIDistributionDistributedSampler(
             )
         print(f"Number of samples from bins: {number_of_samples_from_bins}")
 
-        return iter(resampled_value_indices)   
+        return iter(resampled_value_indices)
 
 
 # DistributedSampler if we want to have N events per batch
@@ -348,21 +349,26 @@ class NEventsPerBatchDistributedSampler(
                 i: self.this_rank_data[bin_indices == i].index
                 for i in range(1, n_bins + 1)
             }
+            bin_to_edges = {
+                k: [bin_edges[k - 1], bin_edges[k]] for k in bin_to_values.keys()
+            }
 
             # Remove empty bins
             bin_to_values = {k: v for k, v in bin_to_values.items() if len(v) > 0}
             bin_to_df_indices = {
                 k: v for k, v in bin_to_df_indices.items() if len(v) > 0
             }
-            n_bins = len(bin_to_values)
-            print(f"Number of bins: {n_bins}")
+            final_n_bins = len(bin_to_values)
+            print(f"Final number of non-zero bins: {final_n_bins} out of {n_bins}")
 
             # Determine how many samples to draw from each bin
-            samples_per_bin = n_total // n_bins
-            extra = n_total % n_bins  # in case n_total not divisible by n_bins
+            samples_per_bin = n_total // final_n_bins
+            extra = (
+                n_total % final_n_bins
+            )  # in case n_total not divisible by final_n_bins
 
             resampled_value_indices = []
-            for i in range(1, n_bins + 1):
+            for i in bin_to_values:
                 values = bin_to_values[i]
                 df_indices = bin_to_df_indices[i]
                 count = samples_per_bin + (1 if extra > 0 else 0)
@@ -372,9 +378,10 @@ class NEventsPerBatchDistributedSampler(
 
                 # assert that all sampled values are in the bin
                 sampled_values = self.this_rank_data.loc[sampled, "PSI"].values / 100.0
-                assert np.all(sampled_values >= bin_edges[i - 1]) and np.all(
-                    sampled_values <= bin_edges[i]
-                ), f"Sampled values are not in the bin, bin edges: {bin_edges[i - 1]}, {bin_edges[i]}"
+                this_bin_edges = bin_to_edges[i]
+                assert np.all(sampled_values >= this_bin_edges[0]) and np.all(
+                    sampled_values <= this_bin_edges[1]
+                ), f"Sampled values are not in the bin, bin edges: {this_bin_edges}"
 
                 resampled_value_indices.extend(sampled)
 
@@ -3131,12 +3138,16 @@ class KnockdownData(LightningDataModule):
         else:
             self.upsample_significant_events = False
         if "create_uniform_train_PSI_distribution" in self.config["train_config"]:
-            self.create_uniform_train_PSI_distribution = self.config[
-                "train_config"
-            ]["create_uniform_train_PSI_distribution"]
+            self.create_uniform_train_PSI_distribution = self.config["train_config"][
+                "create_uniform_train_PSI_distribution"
+            ]
             if self.create_uniform_train_PSI_distribution:
-                assert self.upsample_significant_events is False, "Cannot use both upsampling and uniform distribution at the same time"
-                assert "N_events_per_batch" not in self.config["train_config"], "Cannot use both N_events_per_batch and uniform distribution at the same time"
+                assert (
+                    self.upsample_significant_events is False
+                ), "Cannot use both upsampling and uniform distribution at the same time"
+                assert (
+                    "N_events_per_batch" not in self.config["train_config"]
+                ), "Cannot use both N_events_per_batch and uniform distribution at the same time"
         else:
             self.create_uniform_train_PSI_distribution = False
 
@@ -3152,7 +3163,9 @@ class KnockdownData(LightningDataModule):
                 print(
                     f"Creating uniform distribution of control PSI values in epoch {self.trainer.current_epoch}"
                 )
-                dataset = KnockdownDataset(self, split="train", return_control_data_only=True)
+                dataset = KnockdownDataset(
+                    self, split="train", return_control_data_only=True
+                )
                 return DataLoader(
                     dataset,
                     batch_size=self.config["train_config"]["batch_size"],
@@ -3160,7 +3173,9 @@ class KnockdownData(LightningDataModule):
                     pin_memory=True,
                     num_workers=self.config["train_config"]["num_workers"],
                     worker_init_fn=worker_init_fn,
-                    sampler=UniformPSIDistributionDistributedSampler(self, dataset=dataset),
+                    sampler=UniformPSIDistributionDistributedSampler(
+                        self, dataset=dataset
+                    ),
                 )
             elif self.upsample_significant_events:
                 print(
@@ -3219,7 +3234,9 @@ class KnockdownData(LightningDataModule):
                     pin_memory=True,
                     num_workers=self.config["train_config"]["num_workers"],
                     worker_init_fn=worker_init_fn,
-                    sampler=UniformPSIDistributionDistributedSampler(self, dataset=dataset),
+                    sampler=UniformPSIDistributionDistributedSampler(
+                        self, dataset=dataset
+                    ),
                 )
             else:
                 return DataLoader(
