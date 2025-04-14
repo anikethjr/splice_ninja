@@ -636,6 +636,8 @@ class PSIPredictor(LightningModule):
                 self.scheduler_name in self.name_to_scheduler
             ), f"Scheduler {self.scheduler_name} not found. Available schedulers: {self.name_to_scheduler.keys()}"
 
+        self.current_val_metrics = {}
+
     def configure_optimizers(self):
         optimizer = self.name_to_optimizer[self.optimizer_name](
             filter(lambda p: p.requires_grad, self.parameters()),
@@ -1432,6 +1434,13 @@ class PSIPredictor(LightningModule):
         self.val_pred_psi_vals = []
         self.val_controls_avg_psi = []
         self.val_num_controls = []
+
+        # store all current epoch validation metrics
+        self.current_val_metrics = {
+            "epoch": self.current_epoch,
+        }
+        for key, value in self.trainer.callback_metrics.items():
+            self.current_val_metrics[key] = value.cpu().numpy()
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         if self.predict_mean_std_psi_and_delta:
