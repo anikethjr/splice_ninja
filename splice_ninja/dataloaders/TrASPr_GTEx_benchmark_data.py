@@ -867,8 +867,8 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
         dataset = TrASPrGTExBenchmarkDataset(self)
         return DataLoader(
             dataset,
-            batch_size=self.config["test_config"]["batch_size"],
-            num_workers=self.config["test_config"]["num_workers"],
+            batch_size=self.config["train_config"]["batch_size"],
+            num_workers=self.config["train_config"]["num_workers"],
             shuffle=False,
             pin_memory=True,
         )
@@ -877,8 +877,8 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
         dataset = TrASPrGTExBenchmarkDataset(self)
         return DataLoader(
             dataset,
-            batch_size=self.config["test_config"]["batch_size"],
-            num_workers=self.config["test_config"]["num_workers"],
+            batch_size=self.config["train_config"]["batch_size"],
+            num_workers=self.config["train_config"]["num_workers"],
             shuffle=False,
             pin_memory=True,
         )
