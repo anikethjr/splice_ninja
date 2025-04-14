@@ -635,7 +635,7 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
             core_benchmark_data = pd.read_csv(
                 os.path.join(self.cache_dir, "TrASPr_GTEx_benchmark_data", "final.csv"),
             )
-            unique_tissues = core_benchmark_data["Tissue"].unique()
+            unique_tissues = core_benchmark_data["TISSUE"].unique()
 
             # download gene counts for each tissue
             for tissue in unique_tissues:
