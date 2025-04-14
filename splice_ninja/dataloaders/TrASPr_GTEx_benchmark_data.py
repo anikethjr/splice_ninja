@@ -59,7 +59,6 @@ class TrASPrGTExBenchmarkDataset(Dataset):
         ].values
 
         # get the event information for sequence construction
-        gene_id = row["GENE_ID"]
         chrom = row["CHR"][3:]  # remove "chr" prefix
         strand = row["STRAND"]
 
@@ -537,7 +536,6 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
             core_benchmark_data_final["CHANGE_CASE"] = []
             core_benchmark_data_final["TISSUE"] = []
             core_benchmark_data_final["PSI"] = []
-            core_benchmark_data_final["GENE_ID"] = []
             core_benchmark_data_final["CHR"] = []
             core_benchmark_data_final["STRAND"] = []
             core_benchmark_data_final["SPLICED_IN_EVENT_SEGMENTS"] = []
@@ -551,7 +549,6 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
                 core_benchmark_data_final["CHANGE_CASE"].append(row["Change_case"])
                 core_benchmark_data_final["TISSUE"].append(row["Tissue"])
                 core_benchmark_data_final["PSI"].append(row["Label"])
-                core_benchmark_data_final["GENE_ID"].append(row["gene_id"])
                 core_benchmark_data_final["CHR"].append(row["Chr"])
                 core_benchmark_data_final["STRAND"].append(
                     "." if row["Strand"] == "+" else "-"
