@@ -636,6 +636,7 @@ class PSIPredictor(LightningModule):
                 self.scheduler_name in self.name_to_scheduler
             ), f"Scheduler {self.scheduler_name} not found. Available schedulers: {self.name_to_scheduler.keys()}"
 
+        # create a directory to save the model metrics
         self.current_val_metrics = {}
 
     def configure_optimizers(self):
@@ -1441,6 +1442,9 @@ class PSIPredictor(LightningModule):
         }
         for key, value in self.trainer.callback_metrics.items():
             self.current_val_metrics[key] = value.cpu().numpy()
+
+    def on_save_checkpoint(self, checkpoint):
+        checkpoint["val_metrics"] = self.current_val_metrics
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         if self.predict_mean_std_psi_and_delta:
