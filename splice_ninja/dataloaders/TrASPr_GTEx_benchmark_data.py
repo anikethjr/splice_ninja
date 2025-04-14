@@ -885,6 +885,7 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
             num_workers=self.config["train_config"]["num_workers"],
             shuffle=False,
             pin_memory=True,
+            worker_init_fn=worker_init_fn,
         )
 
     def predict_dataloader(self):
@@ -895,4 +896,5 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
             num_workers=self.config["train_config"]["num_workers"],
             shuffle=False,
             pin_memory=True,
+            worker_init_fn=worker_init_fn,
         )
