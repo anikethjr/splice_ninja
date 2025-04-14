@@ -604,7 +604,7 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
                         for x in spliced_in_event_segments
                     ]
                 )
-                full_event_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
+                full_event_coord = f"{row['Chr']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
                 core_benchmark_data_final["FULL_EVENT_COORD"].append(full_event_coord)
 
             core_benchmark_data_final = pd.DataFrame(core_benchmark_data_final)
