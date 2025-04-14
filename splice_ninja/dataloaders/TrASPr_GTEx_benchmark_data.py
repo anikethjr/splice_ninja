@@ -553,7 +553,7 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
                 core_benchmark_data_final["STRAND"].append(
                     "." if row["Strand"] == "+" else "-"
                 )
-                core_benchmark_data_final["FULL_EVENT_COORD"].append(row["FullCO"])
+                core_benchmark_data_final["FULL_EVENT_COORD"].append(row["FULL_CO"])
 
                 # get the spliced in and out segments
                 if row["Strand"] == "+":
