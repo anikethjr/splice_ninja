@@ -53,30 +53,28 @@ class CustomWriter(BasePredictionWriter):
         )
 
 
-def find_best_checkpoint_and_verify_that_training_is_complete(
+def find_best_checkpoint(
     checkpoint_dir,
-    early_stopping_mode,
-    patience=10,
-    max_train_epochs=100,
-    proceed_even_if_training_incomplete=False,
+    metric_name,
+    optimal_direction="max",
     create_best_ckpt_copy=False,
 ):
     """
-    Find the best checkpoint in the directory and verify that the training is complete.
-    Verfication is done by checking if there are at least `patience` number of checkpoints with worse metrics than the best checkpoint.
+    Find the best checkpoint in the directory.
     Args:
         checkpoint_dir: Directory containing the checkpoints.
-        early_stopping_mode: Mode of the early stopping metric. One of "min" or "max".
-        patience: Patience for checking if the training is complete.
-        max_train_epochs: Maximum number of training epochs
-        proceed_even_if_training_incomplete: If True, the function will not raise an error if the training is not complete.
+        metric_name: Name of the metric to use for finding the best checkpoint.
+        optimal_direction: Direction of the metric to use for finding the best checkpoint. Can be "max" or "min".
         create_best_ckpt_copy: If True, the function will create a copy of the best checkpoint in the same directory with the name "best.ckpt".
     """
+    assert optimal_direction in [
+        "max",
+        "min",
+    ], f"Invalid optimal direction: {optimal_direction}. Must be 'max' or 'min'."
+
     # find the best checkpoint
-    best_checkpoint = None
-    best_metric = None
-    best_metric_epoch = None
-    max_epoch = -1  # epoch number of the last checkpoint
+    file_name_to_metric = {}
+    file_name_to_epoch = {}
     for f in os.listdir(checkpoint_dir):
         if not f.endswith(".ckpt"):
             continue
@@ -87,91 +85,69 @@ def find_best_checkpoint_and_verify_that_training_is_complete(
             )
             continue
 
-        max_epoch = max(max_epoch, int(f.split("epoch=")[1].split("-")[0]))
-        ckpt_metric = None
+        # load the ckpt file to get the epoch number and the metric
+        ckpt = torch.load(os.path.join(checkpoint_dir, f), map_location="cpu")
 
-        # names are of the form "epoch={epoch}-step={step}-metric={early_stopping_metric:.6f}.ckpt"
-        # split on "-" if there are version numbers in the file name (they are added at the end)
-        ckpt_metric = f.split("metric=")[1].split(".ckpt")[0].split("-")[0]
-        ckpt_metric = float(ckpt_metric)
+        if metric_name == "epoch":
+            # if the metric is epoch, just use the epoch number
+            file_name_to_metric[f] = ckpt["epoch"]
+            file_name_to_epoch[f] = ckpt["epoch"]
+            continue
 
-        ckpt_is_better_than_best = False
+        val_metrics = ckpt["val_metrics"]
+        if metric_name not in val_metrics.keys():
+            print(
+                f"WARNING: No metric named {metric_name} found in the checkpoint file {f}. Skipping it."
+            )
+            continue
+        file_name_to_epoch[f] = ckpt["epoch"]
+        file_name_to_metric[f] = val_metrics[metric_name]
+
+    if len(file_name_to_epoch) is None:
+        raise ValueError("No valid checkpoints found in the directory.")
+
+    best_ckpt_path = None
+    best_metric = None
+    best_epoch = None
+    for f, metric in file_name_to_metric.items():
+        epoch = file_name_to_epoch[f]
         if best_metric is None:
-            ckpt_is_better_than_best = True
-        elif early_stopping_mode == "min" and ckpt_metric <= best_metric:
-            ckpt_is_better_than_best = True
-        elif early_stopping_mode == "max" and ckpt_metric >= best_metric:
-            ckpt_is_better_than_best = True
-
-        if ckpt_is_better_than_best:
-            if best_metric is not None and ckpt_metric == best_metric:
-                # open the ckpt files to compare the exact metric values
-                best_ckpt_so_far = torch.load(
-                    os.path.join(checkpoint_dir, best_checkpoint),
-                    map_location="cpu",
-                )
-                ckpt = torch.load(os.path.join(checkpoint_dir, f), map_location="cpu")
-
-                check = False
-                for key in ckpt["callbacks"].keys():
-                    if (
-                        key.startswith("ModelCheckpoint")
-                        and ckpt["callbacks"][key]["current_score"] is not None
-                    ):
-                        print(
-                            f"Using scores from ckpts to compare the following ckpt files: {best_checkpoint} and {f}"
-                        )
-                        ckpt_metric = ckpt["callbacks"][key]["current_score"]
-                        best_metric = best_ckpt_so_far["callbacks"][key][
-                            "current_score"
-                        ]
-                        if (
-                            best_metric is None
-                        ):  # if the best ckpt metric is None, then the current ckpt is better because checkpoints with metrics are logged only if they are better than the best checkpoint
-                            check = True
-                            break
-                        if (
-                            early_stopping_mode == "min" and ckpt_metric < best_metric
-                        ) or (
-                            early_stopping_mode == "max" and ckpt_metric > best_metric
-                        ):
-                            check = True
-                        break
-
-                if not check:
-                    continue
-
-            best_metric = ckpt_metric
-            best_checkpoint = f
-            best_metric_epoch = int(f.split("epoch=")[1].split("-")[0])
-
-    # check if the training is complete
-    if best_checkpoint is None:
-        raise ValueError("No checkpoint found in the directory.")
-    if max_epoch - best_metric_epoch < patience:
-        if max_epoch == (max_train_epochs - 1):
-            print("WARNING: Max training epochs completed, so patience ignored")
+            best_metric = metric
+            best_ckpt_path = f
+            best_epoch = epoch
         else:
-            if not proceed_even_if_training_incomplete:
-                raise ValueError(
-                    f"Training may not be complete. Current best checkpoint is from epoch {best_metric_epoch} and the last checkpoint is from epoch {max_epoch}."
-                )
+            if optimal_direction == "max":
+                if metric > best_metric:
+                    best_metric = metric
+                    best_ckpt_path = f
+                    best_epoch = epoch
+                if (
+                    metric == best_metric
+                ):  # if the metric is the same, prefer the one with the higher epoch number
+                    if epoch > best_epoch:
+                        best_ckpt_path = f
+                        best_epoch = epoch
             else:
-                print(
-                    "WARNING: Training may not be complete. Current best checkpoint is from epoch",
-                    best_metric_epoch,
-                    "and the last checkpoint is from epoch",
-                    max_epoch,
-                )
+                if metric < best_metric:
+                    best_metric = metric
+                    best_ckpt_path = f
+                    best_epoch = epoch
+                if (
+                    metric == best_metric
+                ):  # if the metric is the same, prefer the one with the higher epoch number
+                    if epoch > best_epoch:
+                        best_ckpt_path = f
+                        best_epoch = epoch
+
+    best_ckpt_path = os.path.join(checkpoint_dir, best_ckpt_path)
 
     # create a copy of the best checkpoint
     if create_best_ckpt_copy:
-        best_ckpt_path = os.path.join(checkpoint_dir, best_checkpoint)
         best_ckpt_copy_path = os.path.join(checkpoint_dir, "best.ckpt")
         os.system(f"cp {best_ckpt_path} {best_ckpt_copy_path}")
         print(f"Created a copy of the best checkpoint at {best_ckpt_copy_path}")
 
-    return os.path.join(checkpoint_dir, best_checkpoint)
+    return os.path.join(checkpoint_dir, best_ckpt_path)
 
 
 def compute_and_save_validation_metrics(preds_df, summary_save_path):
@@ -380,11 +356,10 @@ def parse_args():
         default=None,
         help="Directory to save predictions.",
     )
-    parser.add_argument(
-        "--proceed_even_if_training_incomplete", action="store_true", default=False
-    )
     parser.add_argument("--create_best_ckpt_copy", action="store_true", default=False)
     parser.add_argument("--overwrite_predictions", action="store_true", default=False)
+    parser.add_argument("--metric_name", type=str, default=None)
+    parser.add_argument("--optimal_direction", type=str, default="max")
     return parser.parse_args()
 
 
@@ -463,13 +438,24 @@ def main():
     ):
         print("Predictions already exist, skipping prediction step.")
     else:
-        # find the best checkpoint and verify that the training is complete
-        best_ckpt_path = find_best_checkpoint_and_verify_that_training_is_complete(
+        # find the best checkpoint
+        metric_name = args.metric_name
+        if metric_name is None:
+            if "early_stopping_metric" in config["train_config"]:
+                metric_name = config["train_config"]["early_stopping_metric"]
+            else:
+                metric_name = "epoch"
+        optimal_direction = args.optimal_direction
+        if optimal_direction is None:
+            if "early_stopping_mode" in config["train_config"]:
+                optimal_direction = config["train_config"]["early_stopping_mode"]
+            else:
+                optimal_direction = "max"
+
+        best_ckpt_path = find_best_checkpoint(
             ckpts_dir,
-            config["train_config"]["early_stopping_mode"],
-            patience=config["train_config"]["patience"],
-            max_train_epochs=config["train_config"]["max_epochs"],
-            proceed_even_if_training_incomplete=args.proceed_even_if_training_incomplete,
+            metric_name=metric_name,
+            optimal_direction=optimal_direction,
             create_best_ckpt_copy=args.create_best_ckpt_copy,
         )
 
