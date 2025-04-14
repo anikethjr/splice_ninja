@@ -186,7 +186,9 @@ def main():
 
     predictions_dir = args.predictions_dir
     if predictions_dir is None:
-        predictions_dir = os.path.join(run_save_dir, "predictions", args.split_name)
+        predictions_dir = os.path.join(
+            run_save_dir, "TrASPr_GTEx_benchmark_predictions", args.split_name
+        )
     os.makedirs(predictions_dir, exist_ok=True)
 
     if (
