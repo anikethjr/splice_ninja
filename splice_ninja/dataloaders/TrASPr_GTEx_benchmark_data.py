@@ -799,6 +799,8 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
         self.event_id_to_ind = {event_id: i for i, event_id in enumerate(event_ids)}
         print(f"Number of unique events: {len(event_ids)}")
 
+        self.num_splicing_factors = self.splicing_factor_expression_levels.shape[0]
+
     def __init__(self, config: dict | str):
         super().__init__()
         if isinstance(config, str):
@@ -837,6 +839,11 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
             "ALTD": 2,
             "ALTA": 3,
         }
+
+        self.example_type_to_ind = {
+            "test": 0,
+        }
+        self.example_types_in_this_split_type = ["test"]
 
     def train_dataloader(self):
         raise NotImplementedError("This dataset does not support training.")
