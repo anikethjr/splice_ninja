@@ -553,7 +553,6 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
                 core_benchmark_data_final["STRAND"].append(
                     "." if row["Strand"] == "+" else "-"
                 )
-                core_benchmark_data_final["FULL_EVENT_COORD"].append(row["FULL_CO"])
 
                 # get the spliced in and out segments
                 if row["Strand"] == "+":
@@ -592,6 +591,21 @@ class TrASPrGTExBenchmarkData(LightningDataModule):
                 core_benchmark_data_final["SPLICED_OUT_EVENT_SEGMENTS"].append(
                     ",".join(spliced_out_event_segments)
                 )
+
+                spliced_in_event_segments_min_coord = min(
+                    [
+                        int(x.strip().split(":")[1].split("-")[0])
+                        for x in spliced_in_event_segments
+                    ]
+                )
+                spliced_in_event_segments_max_coord = max(
+                    [
+                        int(x.strip().split(":")[1].split("-")[1])
+                        for x in spliced_in_event_segments
+                    ]
+                )
+                full_event_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
+                core_benchmark_data_final["FULL_EVENT_COORD"].append(full_event_coord)
 
             core_benchmark_data_final = pd.DataFrame(core_benchmark_data_final)
 
