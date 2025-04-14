@@ -390,39 +390,6 @@ class TrASPrGTExBenchmarkDataset(Dataset):
             spliced_in_mask = spliced_in_mask[::-1].copy()  # reverse
             spliced_out_mask = spliced_out_mask[::-1].copy()  # reverse
 
-        if self.split == "train" and self.use_shifts_during_training:
-            shift = np.random.randint(-self.shift_max, self.shift_max + 1)
-            # shift sequence/masks and pad with zeros
-            if shift > 0:
-                sequence_inds = np.concatenate(
-                    [np.zeros(shift), sequence_inds[:-shift]]
-                )
-                spliced_in_mask = np.concatenate(
-                    [np.zeros(shift), spliced_in_mask[:-shift]]
-                )
-                spliced_out_mask = np.concatenate(
-                    [np.zeros(shift), spliced_out_mask[:-shift]]
-                )
-            elif shift < 0:
-                sequence_inds = np.concatenate(
-                    [sequence_inds[-shift:], np.zeros(-shift)]
-                )
-                spliced_in_mask = np.concatenate(
-                    [spliced_in_mask[-shift:], np.zeros(-shift)]
-                )
-                spliced_out_mask = np.concatenate(
-                    [spliced_out_mask[-shift:], np.zeros(-shift)]
-                )
-            assert (
-                len(sequence_inds) == self.input_size
-            ), f"Sequence length is {len(sequence_inds)} but expected length is {self.input_size}, idx: {idx}"
-            assert (
-                len(spliced_in_mask) == self.input_size
-            ), f"Spliced-in mask length is {len(spliced_in_mask)} but expected length is {self.input_size}, idx: {idx}"
-            assert (
-                len(spliced_out_mask) == self.input_size
-            ), f"Spliced-out mask length is {len(spliced_out_mask)} but expected length is {self.input_size}, idx: {idx}"
-
         return {
             "sequence": sequence_inds.astype(np.int8),
             "spliced_in_mask": spliced_in_mask.astype(np.int8),
