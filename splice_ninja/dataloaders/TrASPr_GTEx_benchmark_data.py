@@ -395,7 +395,7 @@ class TrASPrGTExBenchmarkDataset(Dataset):
             "spliced_in_mask": spliced_in_mask.astype(np.int8),
             "spliced_out_mask": spliced_out_mask.astype(np.int8),
             "psi_val": psi_val.astype(np.float32),
-            "gene_exp": (-1.0).astype(np.float32),
+            "gene_exp": -1.0,
             "splicing_factor_exp_values": splicing_factor_exp_values.astype(np.float32),
             "event_type": self.data_module.event_type_to_ind[event_type],
             "event_id": self.data_module.event_id_to_ind[event_id],
