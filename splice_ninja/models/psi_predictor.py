@@ -1488,6 +1488,7 @@ class PSIPredictor(LightningModule):
         }
         for key, value in self.trainer.callback_metrics.items():
             self.current_val_metrics[key] = value.cpu().numpy()
+        print("All current val metrics:", self.current_val_metrics)
 
     def on_save_checkpoint(self, checkpoint):
         checkpoint["val_metrics"] = self.current_val_metrics
