@@ -433,6 +433,45 @@ class PairwiseMSELossAndBCEWithLogitsLoss(nn.Module):
         return loss
 
 
+class AllExamplesPairwiseMSELossAndBCEWithLogitsLoss(nn.Module):
+    def __init__(self, dPSI_threshold, mse_loss_weight_multiplier=10):
+        super().__init__()
+        self.dPSI_threshold = dPSI_threshold
+        self.mse_loss_weight_multiplier = mse_loss_weight_multiplier
+
+    def forward(self, pred_psi_val, psi_val, **kwargs):
+        # Compute BCEWithLogits loss
+        loss = F.binary_cross_entropy_with_logits(
+            pred_psi_val.view(-1, 1), psi_val.view(-1, 1)
+        )
+
+        if kwargs["use_BCE_loss_only"]:
+            return loss
+
+        # Compute pairwise MSE loss efficiently
+        # first, the ground truth PSI values need to be converted to logits
+        # as the model outputs logits
+        psi_val = torch.special.logit(psi_val, eps=1e-7)
+        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
+        true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+
+        # Keep significant pairs
+        pred_diff = pred_diff.flatten()
+        true_diff = true_diff.flatten()
+        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+        pred_diff = pred_diff[valid_pairs]
+        true_diff = true_diff[valid_pairs]
+
+        # Apply MSE loss
+        if valid_pairs.any():
+            pairwise_mse_loss = (
+                F.mse_loss(pred_diff, true_diff) * self.mse_loss_weight_multiplier
+            )
+            loss += pairwise_mse_loss
+
+        return loss
+
+
 class PSIPredictor(LightningModule):
     def __init__(
         self,
@@ -571,6 +610,13 @@ class PSIPredictor(LightningModule):
             == "PairwiseMSELossAndBCEWithLogitsLoss"
         ):
             self.loss_fn = PairwiseMSELossAndBCEWithLogitsLoss(
+                self.dPSI_threshold_for_significance
+            )
+        elif (
+            self.config["train_config"]["loss_fn"]
+            == "AllExamplesPairwiseMSELossAndBCEWithLogitsLoss"
+        ):
+            self.loss_fn = AllExamplesPairwiseMSELossAndBCEWithLogitsLoss(
                 self.dPSI_threshold_for_significance
             )
         else:
