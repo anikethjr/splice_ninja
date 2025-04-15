@@ -758,9 +758,7 @@ class PSIPredictor(LightningModule):
             event_num_controls=batch["event_num_controls"],
         )
         if self.predict_mean_std_psi_and_delta:
-            self.log(
-                "train/psi_val_loss", loss, on_step=True, on_epoch=True
-            )
+            self.log("train/psi_val_loss", loss, on_step=True, on_epoch=True)
             mean_psi_loss = self.mean_delta_psi_loss_fn(
                 pred_mean_psi_val, batch["event_mean_psi"]
             )
@@ -771,9 +769,7 @@ class PSIPredictor(LightningModule):
             self.log("train/mean_psi_loss", mean_psi_loss, on_step=True, on_epoch=True)
             self.log("train/std_psi_loss", std_psi_loss, on_step=True, on_epoch=True)
         if self.predict_controls_avg_psi_and_delta:
-            self.log(
-                "train/psi_val_loss", loss, on_step=True, on_epoch=True
-            )
+            self.log("train/psi_val_loss", loss, on_step=True, on_epoch=True)
             controls_avg_psi_loss = self.controls_avg_psi_loss_fn(
                 pred_controls_avg_psi_val, batch["event_controls_avg_psi"]
             )
@@ -1550,6 +1546,11 @@ class PSIPredictor(LightningModule):
             pred_mean_psi_val = preds[:, 1]
             pred_std_psi_val = preds[:, 2]
             pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
+        elif self.predict_controls_avg_psi_and_delta:
+            preds = self(batch)
+            pred_delta_psi_val = preds[:, 0]
+            pred_controls_avg_psi_val = preds[:, 1]
+            pred_psi_val = pred_controls_avg_psi_val + pred_delta_psi_val
         else:
             pred_psi_val = self(batch)
 
