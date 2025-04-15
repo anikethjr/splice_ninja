@@ -555,6 +555,11 @@ class PSIPredictor(LightningModule):
         self.predict_mean_std_psi_and_delta = self.config["train_config"][
             "predict_mean_std_psi_and_delta"
         ]
+        if "predict_controls_avg_psi_and_delta" not in self.config["train_config"]:
+            self.config["train_config"]["predict_controls_avg_psi_and_delta"] = False
+        self.predict_controls_avg_psi_and_delta = self.config["train_config"][
+            "predict_controls_avg_psi_and_delta"
+        ]
         self.model = self.name_to_model[self.config["train_config"]["model_name"]](
             self.config, self.num_splicing_factors, self.has_gene_exp_values
         )
@@ -629,6 +634,11 @@ class PSIPredictor(LightningModule):
                 self.mean_delta_psi_loss_fn = MSELoss()
             else:
                 self.mean_delta_psi_loss_fn = BCEWithLogitsLoss()
+        if self.predict_controls_avg_psi_and_delta:
+            if "Logits" not in self.config["train_config"]["loss_fn"]:
+                self.controls_avg_psi_loss_fn = MSELoss()
+            else:
+                self.controls_avg_psi_loss_fn = BCEWithLogitsLoss()
 
         # define metrics
         # no spearmanR for train metrics to avoid memory issues
@@ -722,6 +732,11 @@ class PSIPredictor(LightningModule):
             pred_mean_psi_val = preds[:, 1]
             pred_std_psi_val = preds[:, 2]
             pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
+        elif self.predict_controls_avg_psi_and_delta:
+            preds = self(batch)
+            pred_delta_psi_val = preds[:, 0]
+            pred_controls_avg_psi_val = preds[:, 1]
+            pred_psi_val = pred_controls_avg_psi_val + pred_delta_psi_val
         else:
             pred_psi_val = self(batch)
 
@@ -744,7 +759,7 @@ class PSIPredictor(LightningModule):
         )
         if self.predict_mean_std_psi_and_delta:
             self.log(
-                "train/psi_val_loss", loss, on_step=True, on_epoch=True, sync_dist=True
+                "train/psi_val_loss", loss, on_step=True, on_epoch=True
             )
             mean_psi_loss = self.mean_delta_psi_loss_fn(
                 pred_mean_psi_val, batch["event_mean_psi"]
@@ -755,6 +770,21 @@ class PSIPredictor(LightningModule):
             loss = loss + mean_psi_loss + std_psi_loss
             self.log("train/mean_psi_loss", mean_psi_loss, on_step=True, on_epoch=True)
             self.log("train/std_psi_loss", std_psi_loss, on_step=True, on_epoch=True)
+        if self.predict_controls_avg_psi_and_delta:
+            self.log(
+                "train/psi_val_loss", loss, on_step=True, on_epoch=True
+            )
+            controls_avg_psi_loss = self.controls_avg_psi_loss_fn(
+                pred_controls_avg_psi_val, batch["event_controls_avg_psi"]
+            )
+            loss = loss + controls_avg_psi_loss
+            self.log(
+                "train/controls_avg_psi_loss",
+                controls_avg_psi_loss,
+                on_step=True,
+                on_epoch=True,
+            )
+
         self.log("train/loss", loss, on_step=True, on_epoch=True)
 
         if "Logits" in self.config["train_config"]["loss_fn"]:
@@ -782,6 +812,11 @@ class PSIPredictor(LightningModule):
             pred_mean_psi_val = preds[:, 1]
             pred_std_psi_val = preds[:, 2]
             pred_psi_val = pred_mean_psi_val + (pred_delta_psi_val * pred_std_psi_val)
+        elif self.predict_controls_avg_psi_and_delta:
+            preds = self(batch)
+            pred_delta_psi_val = preds[:, 0]
+            pred_controls_avg_psi_val = preds[:, 1]
+            pred_psi_val = pred_controls_avg_psi_val + pred_delta_psi_val
         else:
             pred_psi_val = self(batch)
 
@@ -820,6 +855,21 @@ class PSIPredictor(LightningModule):
             self.log(
                 "val/std_psi_loss",
                 std_psi_loss,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=True,
+            )
+        if self.predict_controls_avg_psi_and_delta:
+            self.log(
+                "val/psi_val_loss", loss, on_step=False, on_epoch=True, sync_dist=True
+            )
+            controls_avg_psi_loss = self.controls_avg_psi_loss_fn(
+                pred_controls_avg_psi_val, batch["event_controls_avg_psi"]
+            )
+            loss = loss + controls_avg_psi_loss
+            self.log(
+                "val/controls_avg_psi_loss",
+                controls_avg_psi_loss,
                 on_step=False,
                 on_epoch=True,
                 sync_dist=True,

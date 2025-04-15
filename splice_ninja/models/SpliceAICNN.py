@@ -152,6 +152,9 @@ class SpliceAI10k(nn.Module):
         self.predict_mean_std_psi_and_delta = self.config["train_config"][
             "predict_mean_std_psi_and_delta"
         ]
+        self.predict_controls_avg_psi_and_delta = self.config["train_config"][
+            "predict_controls_avg_psi_and_delta"
+        ]
         self.predict_logits = "Logits" in self.config["train_config"]["loss_fn"]
 
         self.num_splicing_factors = num_splicing_factors
@@ -272,6 +275,8 @@ class SpliceAI10k(nn.Module):
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
         if self.predict_mean_std_psi_and_delta:
             self.mean_std_output_layer = nn.Linear(32, 2)
+        if self.predict_controls_avg_psi_and_delta:
+            self.controls_avg_output_layer = nn.Linear(32, 1)
         self.output_layer = nn.Linear(32 + self.conditioning_dim, 1)
 
     def forward(self, batch):
@@ -334,6 +339,12 @@ class SpliceAI10k(nn.Module):
                 x_mean_std = F.sigmoid(
                     x_mean_std
                 )  # (B, 2) - first value is mean, second value is std
+        if self.predict_controls_avg_psi_and_delta:
+            x_controls_avg = self.controls_avg_output_layer(x)
+            if not self.predict_logits:
+                x_controls_avg = F.sigmoid(
+                    x_controls_avg
+                )
         x = torch.cat([x, conditioning], dim=1)
         x = self.output_layer(x)
         if not self.predict_logits:
@@ -345,4 +356,9 @@ class SpliceAI10k(nn.Module):
             x = torch.cat(
                 [x.unsqueeze(1), x_mean_std], dim=1
             )  # (B, 3) - first value is delta psi, second value is mean, third value is std
+        if self.predict_controls_avg_psi_and_delta:
+            x = torch.cat(
+                [x.unsqueeze(1), x_controls_avg], dim=1
+            )
+            # (B, 2) - first value is delta psi, second value is controls avg psi
         return x
