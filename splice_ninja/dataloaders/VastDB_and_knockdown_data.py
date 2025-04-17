@@ -2678,7 +2678,92 @@ class VastDBData(LightningDataModule):
 
             print("Flattened data cached")
 
-        if "min_samples_for_event_to_be_considered" in self.config["data_config"]:
+        if (
+            "min_knockdown_samples_for_event_to_be_considered"
+            in self.config["data_config"]
+        ) and (
+            "min_VastDB_samples_for_event_to_be_considered"
+            in self.config["data_config"]
+        ):
+            min_knockdown_samples_for_event_to_be_considered = self.config[
+                "data_config"
+            ]["min_knockdown_samples_for_event_to_be_considered"]
+            min_VastDB_samples_for_event_to_be_considered = self.config["data_config"][
+                "min_VastDB_samples_for_event_to_be_considered"
+            ]
+            if not os.path.exists(
+                os.path.join(
+                    self.cache_dir,
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_knockdown_samples_for_event_to_be_considered}_knockdown_samples_or_min_{min_VastDB_samples_for_event_to_be_considered}_VastDB_samples_VastDB_and_knockdown_data.parquet",
+                )
+            ) or not os.path.exists(
+                os.path.join(
+                    self.cache_dir,
+                    f"event_info_events_observed_in_min_{min_knockdown_samples_for_event_to_be_considered}_knockdown_samples_or_min_{min_VastDB_samples_for_event_to_be_considered}_VastDB_samples_VastDB_and_knockdown_data.parquet",
+                )
+            ):
+                # filter out events that are not observed in the minimum number of samples
+                print(
+                    f"Filtering out events that are not observed in at least {min_knockdown_samples_for_event_to_be_considered} knockdown samples or {min_VastDB_samples_for_event_to_be_considered} VastDB samples"
+                )
+                flattened_inclusion_levels_full = pd.read_parquet(
+                    os.path.join(
+                        self.cache_dir,
+                        "flattened_inclusion_levels_full_filtered_VastDB_and_knockdown_data.parquet",
+                    )
+                )
+                event_info = pd.read_parquet(
+                    os.path.join(
+                        self.cache_dir,
+                        "event_info_filtered_VastDB_and_knockdown_data.parquet",
+                    )
+                )
+
+                print("Number of events of each type before filtering:")
+                print(event_info["EVENT_TYPE"].value_counts())
+
+                print("Number of PSI values of each type before filtering:")
+                print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+                event_info = event_info.loc[
+                    (
+                        event_info["NUM_SAMPLES_OBSERVED_KNOCKDOWN_EXPERIMENTS"]
+                        >= min_knockdown_samples_for_event_to_be_considered
+                    )
+                    | (
+                        event_info["NUM_SAMPLES_OBSERVED_VASTDB"]
+                        >= min_VastDB_samples_for_event_to_be_considered
+                    )
+                ].reset_index(drop=True)
+                flattened_inclusion_levels_full = flattened_inclusion_levels_full.loc[
+                    flattened_inclusion_levels_full["EVENT"].isin(event_info["EVENT"])
+                ].reset_index(drop=True)
+
+                print("Number of events of each type after filtering:")
+                print(event_info["EVENT_TYPE"].value_counts())
+
+                print("Number of PSI values of each type after filtering:")
+                print(flattened_inclusion_levels_full["EVENT_TYPE"].value_counts())
+
+                flattened_inclusion_levels_full.to_parquet(
+                    os.path.join(
+                        self.cache_dir,
+                        f"flattened_inclusion_levels_events_observed_in_min_{min_knockdown_samples_for_event_to_be_considered}_knockdown_samples_or_min_{min_VastDB_samples_for_event_to_be_considered}_VastDB_samples_VastDB_and_knockdown_data.parquet",
+                    ),
+                    index=False,
+                )
+
+                event_info.to_parquet(
+                    os.path.join(
+                        self.cache_dir,
+                        f"event_info_events_observed_in_min_{min_knockdown_samples_for_event_to_be_considered}_knockdown_samples_or_min_{min_VastDB_samples_for_event_to_be_considered}_VastDB_samples_VastDB_and_knockdown_data.parquet",
+                    ),
+                    index=False,
+                )
+
+                print("Filtered data cached")
+
+        elif "min_samples_for_event_to_be_considered" in self.config["data_config"]:
             min_samples_for_event_to_be_considered = self.config["data_config"][
                 "min_samples_for_event_to_be_considered"
             ]
@@ -2772,7 +2857,32 @@ class VastDBData(LightningDataModule):
         # fill missing values with 0
         self.normalized_gene_expression = self.normalized_gene_expression.fillna(0)
 
-        if "min_samples_for_event_to_be_considered" in self.config["data_config"]:
+        if (
+            "min_knockdown_samples_for_event_to_be_considered"
+            in self.config["data_config"]
+            and "min_VastDB_samples_for_event_to_be_considered"
+            in self.config["data_config"]
+        ):
+            min_knockdown_samples_for_event_to_be_considered = self.config[
+                "data_config"
+            ]["min_knockdown_samples_for_event_to_be_considered"]
+            min_VastDB_samples_for_event_to_be_considered = self.config["data_config"][
+                "min_VastDB_samples_for_event_to_be_considered"
+            ]
+            self.flattened_inclusion_levels_full = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_knockdown_samples_for_event_to_be_considered}_knockdown_samples_or_min_{min_VastDB_samples_for_event_to_be_considered}_VastDB_samples_VastDB_and_knockdown_data.parquet",
+                )
+            )
+            self.event_info = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    f"event_info_events_observed_in_min_{min_knockdown_samples_for_event_to_be_considered}_knockdown_samples_or_min_{min_VastDB_samples_for_event_to_be_considered}_VastDB_samples_VastDB_and_knockdown_data.parquet",
+                )
+            )
+
+        elif "min_samples_for_event_to_be_considered" in self.config["data_config"]:
             min_samples_for_event_to_be_considered = self.config["data_config"][
                 "min_samples_for_event_to_be_considered"
             ]
@@ -2788,6 +2898,7 @@ class VastDBData(LightningDataModule):
                     f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                 )
             )
+
         else:
             self.flattened_inclusion_levels_full = pd.read_parquet(
                 os.path.join(
