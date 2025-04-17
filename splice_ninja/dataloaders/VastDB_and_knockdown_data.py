@@ -1,4 +1,4 @@
-# Processes data published by Rogalska et al. (2024) - Transcriptome-wide splicing network reveals specialized regulatory functions of the core spliceosome
+# Processes data published on VastDB and by Rogalska et al. (2024) - Transcriptome-wide splicing network reveals specialized regulatory functions of the core spliceosome
 
 import numpy as np
 import pandas as pd
@@ -35,8 +35,8 @@ def worker_init_fn(worker_id):
     )
 
 
-# Datast for the knockdown data
-class KnockdownDataset(Dataset):
+# Datast for the combined data
+class VastDBDataset(Dataset):
     def __init__(self, data_module, split="train", return_control_data_only=False):
         self.data_module = data_module
         self.split = split
@@ -56,13 +56,6 @@ class KnockdownDataset(Dataset):
 
         elif self.split == "test":
             self.data = self.data_module.test_data
-
-        if self.return_control_data_only:
-            print("Returning control data only")
-            # filter the data to only include control data
-            self.data = self.data[self.data["SAMPLE"] == "AV_Controls"].reset_index(
-                drop=True
-            )
 
     def __len__(self):
         return len(self.data)
@@ -480,8 +473,8 @@ class KnockdownDataset(Dataset):
         return self.get_psi_val(idx)
 
 
-# DataModule for the knockdown data
-class KnockdownData(LightningDataModule):
+# DataModule for the combined data
+class VastDBData(LightningDataModule):
     def prepare_data(self):
         # download the genome if it does not exist
         if not os.path.exists(os.path.join(self.cache_dir, "genomes", "GRCh38.p14")):
@@ -497,7 +490,7 @@ class KnockdownData(LightningDataModule):
             )
             print("Genome downloaded")
 
-        # load/create the filtered splicing data
+        # load/create the filtered splicing data from the knockdown experiments
         if not os.path.exists(
             os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
         ) or not os.path.exists(
@@ -1433,12 +1426,493 @@ class KnockdownData(LightningDataModule):
                 splicing_factor_expression_levels.shape,
             )
 
+        # now download and process the VastDB data
+        if (
+            not os.path.exists(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "inclusion_levels_full_filtered.parquet",
+                )
+            )
+        ) or (
+            not os.path.exists(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "normalized_gene_expression.parquet",
+                )
+            )
+        ):
+            print("Downloading and processing VastDB PSI and expression data")
+
+            # download PSI and expression data from VastDB
+            os.makedirs(os.path.join(self.cache_dir, "VastDB", "hg38"), exist_ok=True)
+            if not os.path.exists(
+                os.path.join(
+                    self.cache_dir, "VastDB", "hg38", "EXPRESSION_TABLE-hg38.tab.gz"
+                )
+            ):
+                print("Downloading expression data from VastDB")
+                url = (
+                    "https://vastdb.crg.eu/downloads/hg38/EXPRESSION_TABLE-hg38.tab.gz"
+                )
+                urllib.request.urlretrieve(
+                    url,
+                    os.path.join(
+                        self.cache_dir, "VastDB", "hg38", "EXPRESSION_TABLE-hg38.tab.gz"
+                    ),
+                )
+                print("Expression data downloaded")
+            if not os.path.exists(
+                os.path.join(self.cache_dir, "VastDB", "hg38", "PSI_TABLE-hg38.tab.gz")
+            ):
+                print("Downloading PSI data from VastDB")
+                url = "https://vastdb.crg.eu/downloads/hg38/PSI_TABLE-hg38.tab.gz"
+                urllib.request.urlretrieve(
+                    url,
+                    os.path.join(
+                        self.cache_dir, "VastDB", "hg38", "PSI_TABLE-hg38.tab.gz"
+                    ),
+                )
+                print("PSI data downloaded")
+
+            # load gene expression data
+            gene_counts = pd.read_csv(
+                os.path.join(
+                    self.cache_dir, "VastDB", "hg38", "EXPRESSION_TABLE-hg38.tab.gz"
+                ),
+                sep="\t",
+            )
+            # load PSI data
+            inclusion_levels_full = pd.read_csv(
+                os.path.join(self.cache_dir, "VastDB", "hg38", "PSI_TABLE-hg38.tab.gz"),
+                sep="\t",
+            )
+
+            psi_vals_columns = [
+                i for i in inclusion_levels_full.columns[6:] if (not i.endswith("-Q"))
+            ]
+            quality_columns = [
+                i for i in inclusion_levels_full.columns[6:] if i.endswith("-Q")
+            ]
+
+            # print some statistics about the data
+            print(f"Number of samples: {len(psi_vals_columns)}")
+            initial_num_PSI_vals = (
+                (~np.isnan(inclusion_levels_full[psi_vals_columns])).sum().sum()
+            )
+            print(f"Initial number of PSI values: {initial_num_PSI_vals}")
+            number_of_PSI_vals_of_each_type = {}
+            for event_type in inclusion_levels_full["COMPLEX"].unique():
+                number_of_PSI_vals_of_each_type[event_type] = (
+                    (
+                        ~np.isnan(
+                            inclusion_levels_full.loc[
+                                inclusion_levels_full["COMPLEX"] == event_type,
+                                psi_vals_columns,
+                            ]
+                        )
+                    )
+                    .sum()
+                    .sum()
+                )
+            print(
+                f"Number of PSI values of each type:\n{number_of_PSI_vals_of_each_type}"
+            )
+
+            # remove events with NaN PSI values in all samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
+            # filter out PSI values which did not pass the quality control
+            # first value of the first comma-separated list of values in the quality column is the quality control flag
+            for i in quality_columns:
+                inclusion_levels_full.loc[
+                    inclusion_levels_full[i].apply(
+                        lambda x: "OK" not in x.split(",")[0]
+                    ),
+                    i[:-2],
+                ] = np.nan
+            num_PSI_vals_after_quality_control_filtering = (
+                (~np.isnan(inclusion_levels_full[psi_vals_columns])).sum().sum()
+            )
+            percent_events_filtered = (
+                100
+                * (initial_num_PSI_vals - num_PSI_vals_after_quality_control_filtering)
+                / initial_num_PSI_vals
+            )
+            print(
+                f"Number of PSI values after filtering events which did not pass the quality control: {num_PSI_vals_after_quality_control_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+            )
+            num_PSI_vals_of_each_type_after_quality_control_filtering = {}
+            for event_type in inclusion_levels_full["COMPLEX"].unique():
+                num_PSI_vals_of_each_type_after_quality_control_filtering[
+                    event_type
+                ] = (
+                    (
+                        ~np.isnan(
+                            inclusion_levels_full.loc[
+                                inclusion_levels_full["COMPLEX"] == event_type,
+                                psi_vals_columns,
+                            ]
+                        )
+                    )
+                    .sum()
+                    .sum()
+                )
+            print(
+                f"Number of PSI values of each type after filtering events which did not pass the quality control:\n{num_PSI_vals_of_each_type_after_quality_control_filtering}"
+            )
+
+            # remove events with NaN PSI values in all samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
+            # filter out intron retention (IR) PSI values where the corrected p-value of a binomial test of balance between reads mapping to the upstream and downstream exon-intron junctions is less than 0.05,
+            # indicating a significant imbalance in the reads mapping to the two junctions and therefore a false positive IR event
+            # the raw p-value is stored in the quality column for each PSI value - last number before the @ symbol in the string (@ separates two comma-separated lists of values)
+            # correction is performed using the Holm method by pooling p-values across all events observed in the same sample
+            # (from https://github.com/estepi/SpliceNet/blob/main/replaceNAI.R#L71-L78)
+            is_IR = inclusion_levels_full["COMPLEX"] == "IR"
+            for i in quality_columns:
+                IR_events_raw_pvals = inclusion_levels_full.loc[is_IR, i].apply(
+                    lambda x: float(x.split("@")[0].split(",")[-1])
+                    if x.split("@")[0].split(",")[-1] != "NA"
+                    else 1
+                )
+                IR_events_corrected_pvals = multipletests(
+                    IR_events_raw_pvals, alpha=0.05, method="holm"
+                )[1]
+                # replace the PSI values of IR events with NaN if the corrected p-value is less than 0.05
+                filter_out = np.zeros(inclusion_levels_full.shape[0], dtype=bool)
+                filter_out[is_IR] = IR_events_corrected_pvals < 0.05
+                inclusion_levels_full.loc[filter_out, i[:-2]] = np.nan
+            num_PSI_vals_after_IR_filtering = (
+                (~np.isnan(inclusion_levels_full[psi_vals_columns])).sum().sum()
+            )
+            percent_events_filtered = (
+                100
+                * (initial_num_PSI_vals - num_PSI_vals_after_IR_filtering)
+                / initial_num_PSI_vals
+            )
+            print(
+                f"Number of PSI values after filtering IR events: {num_PSI_vals_after_IR_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+            )
+            num_PSI_vals_of_each_type_after_IR_filtering = {}
+            for event_type in inclusion_levels_full["COMPLEX"].unique():
+                num_PSI_vals_of_each_type_after_IR_filtering[event_type] = (
+                    (
+                        ~np.isnan(
+                            inclusion_levels_full.loc[
+                                inclusion_levels_full["COMPLEX"] == event_type,
+                                psi_vals_columns,
+                            ]
+                        )
+                    )
+                    .sum()
+                    .sum()
+                )
+            print(
+                f"Number of PSI values of each type after filtering IR events:\n{num_PSI_vals_of_each_type_after_IR_filtering}"
+            )
+            # remove events with NaN PSI values in all samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
+            # filter out ALTA/ALTD events where either the start or end coordinates of the event are missing -- need to figure out why this happens, but for now we filter them out
+            filter_out_ALTA_ALTD_events_with_missing_coordinates = np.zeros(
+                inclusion_levels_full.shape[0], dtype=bool
+            )
+            for i, row in inclusion_levels_full.iterrows():
+                if "ALTA" in row["EVENT"] or "ALTD" in row["EVENT"]:
+                    coord = row["COORD"]  # format is chr:start-end
+                    start, end = coord.strip().split(":")[-1].split("-")
+                    if start == "" or end == "":
+                        filter_out_ALTA_ALTD_events_with_missing_coordinates[i] = True
+                    else:
+                        assert int(start) < int(end)
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_ALTA_ALTD_events_with_missing_coordinates
+            ].reset_index(drop=True)
+            num_PSI_vals_after_ALTA_ALTD_events_with_missing_coordinates_filtering = (
+                (~np.isnan(inclusion_levels_full[psi_vals_columns])).sum().sum()
+            )
+            percent_events_filtered = (
+                100
+                * (
+                    initial_num_PSI_vals
+                    - num_PSI_vals_after_ALTA_ALTD_events_with_missing_coordinates_filtering
+                )
+                / initial_num_PSI_vals
+            )
+            print(
+                f"Number of PSI values after filtering ALTA/ALTD events with missing start/end coordinates: {num_PSI_vals_after_ALTA_ALTD_events_with_missing_coordinates_filtering} ({percent_events_filtered:.2f}% of initial values filtered)"
+            )
+            num_PSI_vals_of_each_type_after_ALTA_ALTD_events_with_missing_coordinates_filtering = (
+                {}
+            )
+            for event_type in inclusion_levels_full["COMPLEX"].unique():
+                num_PSI_vals_of_each_type_after_ALTA_ALTD_events_with_missing_coordinates_filtering[
+                    event_type
+                ] = (
+                    (
+                        ~np.isnan(
+                            inclusion_levels_full.loc[
+                                inclusion_levels_full["COMPLEX"] == event_type,
+                                psi_vals_columns,
+                            ]
+                        )
+                    )
+                    .sum()
+                    .sum()
+                )
+            print(
+                f"Number of PSI values of each type after filtering ALTA/ALTD events with missing start/end coordinates:\n{num_PSI_vals_of_each_type_after_ALTA_ALTD_events_with_missing_coordinates_filtering}"
+            )
+            # remove events with NaN PSI values in all samples
+            filter_out_events_with_all_PSI_values_NaN = np.all(
+                inclusion_levels_full[psi_vals_columns].isna(), axis=1
+            )
+            inclusion_levels_full = inclusion_levels_full.loc[
+                ~filter_out_events_with_all_PSI_values_NaN
+            ].reset_index(drop=True)
+            print(
+                f"Number of events of each type after dropping events with no valid measurements:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
+            # drop all quality columns, we don't need them anymore
+            inclusion_levels_full = inclusion_levels_full.drop(
+                columns=[i for i in inclusion_levels_full.columns if i.endswith("-Q")]
+            )
+
+            # create dummy columns related to controls to maintain the same structure as the knockdown data
+            inclusion_levels_full["AV_Controls"] = -1.0
+            inclusion_levels_full["num_controls"] = 0
+
+            # print number of events of each type
+            print(
+                f"Final number of events of each type:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
+            )
+
+            # cache the filtered PSI data
+            inclusion_levels_full.to_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "inclusion_levels_full_filtered.parquet",
+                ),
+                index=False,
+            )
+
+            # from the gene counts data, calculate the normalized gene expression values - TPM and RPKM
+            print(
+                "Calculating normalized gene expression values from gene counts (TPM and RPKM)"
+            )
+
+            genome_annotation = genomepy.Annotation(
+                name="GRCh38.p14", genomes_dir=os.path.join(self.cache_dir, "genomes")
+            )
+
+            # calculate the length of each gene
+            # returns a pandas Series with gene IDs as the index and gene lengths as the values
+            gene_lengths: pd.Series = genome_annotation.lengths(attribute="gene_id")
+            # remove the version number from the gene IDs
+            gene_lengths.index = gene_lengths.index.str.split(".").str[0]
+            assert gene_lengths.index.is_unique, "Gene IDs are not unique"
+
+            # convert the gene lengths to a DataFrame
+            gene_lengths = gene_lengths.to_frame(name="length")
+            gene_lengths["gene_id"] = gene_lengths.index
+            gene_lengths = gene_lengths.reset_index(drop=True)
+
+            missing_genes = gene_counts[
+                ~gene_counts["gene_id"].isin(gene_lengths["gene_id"])
+            ]
+            if not missing_genes.empty:
+                print(
+                    f"Warning: {len(missing_genes)} genes are missing from gene length data, removing them"
+                )
+
+            normalized_gene_expression = gene_counts.merge(
+                gene_lengths, on="gene_id", how="inner", validate="1:1"
+            )
+            for sample in gene_counts.columns[2:]:
+                if not sample.endswith("-Counts"):
+                    continue
+
+                sample = sample[: -len("-Counts")]
+
+                # calculate the TPM values
+                normalized_gene_expression[sample + "_TPM"] = (
+                    normalized_gene_expression[sample]
+                    / normalized_gene_expression["length"]
+                )  # reads per base pair
+                rpk_sum = normalized_gene_expression[sample + "_TPM"].sum()
+                normalized_gene_expression[sample + "_TPM"] = (
+                    normalized_gene_expression[sample + "_TPM"] / rpk_sum
+                ) * 1e6  # normalize to TPM
+
+                # calculate log2(TPM + 1) values
+                normalized_gene_expression[sample + "_log2TPM"] = np.log2(
+                    normalized_gene_expression[sample + "_TPM"] + 1
+                )
+
+                # calculate the RPKM values
+                normalized_gene_expression[
+                    sample + "_RPKM"
+                ] = normalized_gene_expression[sample] / (
+                    normalized_gene_expression["length"] / 1e3
+                )  # reads per kilobase pair
+                normalized_gene_expression[sample + "_RPKM"] = (
+                    normalized_gene_expression[sample + "_RPKM"] * 1e6
+                )  # normalize to RPKM
+
+                # calculate log2(RPKM + 1) values
+                normalized_gene_expression[sample + "_log2RPKM"] = np.log2(
+                    normalized_gene_expression[sample + "_RPKM"] + 1
+                )
+
+            # drop all count, TPM, and RPKM columns, we don't support using them downstream
+            drop_columns = []
+            for col in gene_counts.columns[2:]:
+                if col.endswith("-Counts"):
+                    drop_columns.append(col)
+                    drop_columns.append(col[:-7] + "_TPM")
+                    drop_columns.append(col[:-7] + "_RPKM")
+            normalized_gene_expression = normalized_gene_expression.drop(
+                columns=drop_columns
+            )
+
+            # now just verify that every sample has both expression and PSI values
+            psi_vals_columns = [i for i in inclusion_levels_full.columns[6:-2]]
+            for sample in psi_vals_columns:
+                assert (sample + "_log2TPM" in normalized_gene_expression.columns) and (
+                    sample + "_log2RPKM" in normalized_gene_expression.columns
+                ), f"Sample {sample} does not have expression values"
+            expression_columns = [
+                i
+                for i in normalized_gene_expression.columns[2:]
+                if i.endswith("_log2TPM") or i.endswith("_log2RPKM")
+            ]
+            for col in expression_columns:
+                if col.endswith("_log2TPM"):
+                    sample = col[: -len("_log2TPM")]
+                elif col.endswith("_log2RPKM"):
+                    sample = col[: -len("_log2RPKM")]
+
+                assert (
+                    sample in psi_vals_columns
+                ), f"Sample {sample} does not have PSI values"
+
+            normalized_gene_expression.to_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "normalized_gene_expression.parquet",
+                ),
+                index=False,
+            )
+
         if not os.path.exists(
             os.path.join(
-                self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+                self.cache_dir,
+                "VastDB",
+                "hg38",
+                "splicing_factor_expression_levels.parquet",
+            )
+        ):
+            # from the normalized gene expression data, extract the expression levels of the splicing factors in each sample
+            # we will use the same splicing factors as in the knockdown data
+            print("Extracting splicing factor expression levels")
+
+            normalized_gene_expression = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "normalized_gene_expression.parquet",
+                )
+            )
+            splicing_factor_expression_levels_knockdown = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir, "splicing_factor_expression_levels.parquet"
+                )
+            )
+
+            splicing_factor_expression_levels = (
+                splicing_factor_expression_levels_knockdown[["gene_id"]].merge(
+                    normalized_gene_expression,
+                    on="gene_id",
+                    how="inner",
+                    validate="1:1",
+                )
+            )
+            assert (
+                splicing_factor_expression_levels.shape[0]
+                == splicing_factor_expression_levels_knockdown.shape[0]
+            ), "Number of splicing factors in the knockdown data and VastDB data do not match"
+
+            # compute normalized splicing factor expression levels so that they sum to 1 across all splicing factors in each sample
+            for sample in splicing_factor_expression_levels.columns:
+                if sample.endswith("_log2TPM"):
+                    sample = sample[: -len("_log2TPM")]
+                else:
+                    continue
+
+                splicing_factor_expression_levels[sample + "_log2TPM_rel_norm"] = (
+                    splicing_factor_expression_levels[sample + "_log2TPM"]
+                    / splicing_factor_expression_levels[sample + "_log2TPM"].sum()
+                )
+
+            splicing_factor_expression_levels.to_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "splicing_factor_expression_levels.parquet",
+                ),
+                index=False,
+            )
+            print(
+                "Splicing factor expression levels extracted - dataframe shape:",
+                splicing_factor_expression_levels.shape,
+            )
+
+        if not os.path.exists(
+            os.path.join(
+                self.cache_dir,
+                "flattened_inclusion_levels_full_filtered_VastDB_and_knockdown_data.parquet",
             )
         ) or not os.path.exists(
-            os.path.join(self.cache_dir, "event_info_filtered.parquet")
+            os.path.join(
+                self.cache_dir, "event_info_filtered_VastDB_and_knockdown_data.parquet"
+            )
         ):
             # flatten the filtered data - make a row for each sample for each event and remove NaN values
             # this makes it to create a dataset for training
@@ -1518,7 +1992,25 @@ class KnockdownData(LightningDataModule):
             inclusion_levels_full = pd.read_parquet(
                 os.path.join(self.cache_dir, "inclusion_levels_full_filtered.parquet")
             )
+            normalized_gene_expression_VastDB = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "normalized_gene_expression.parquet",
+                )
+            )
+            inclusion_levels_full_VastDB = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "inclusion_levels_full_filtered.parquet",
+                )
+            )
 
+            # first get event info for knkockdown data
+            print("First getting event info for knockdown data")
             # define samples
             control_samples_psi_vals_columns = [
                 "AA3",
@@ -1613,6 +2105,95 @@ class KnockdownData(LightningDataModule):
             print("Some genes for which gene ID was not found in VastDB:")
             print(temp[temp["GENE_ID"].isnull()].head())
 
+            # next get event info for VastDB data
+            print("Now getting event info for VastDB data")
+
+            # define samples
+            vastdb_psi_vals_columns = [
+                i for i in inclusion_levels_full_VastDB.columns[6:-2]
+            ]
+            assert inclusion_levels_full_VastDB.columns[-1] == "num_controls"
+            assert inclusion_levels_full_VastDB.columns[-2] == "AV_Controls"
+
+            # create a column for the chromosome
+            inclusion_levels_full_VastDB["CHR"] = inclusion_levels_full_VastDB[
+                "COORD"
+            ].apply(lambda x: x.split(":")[0])
+            # join inclusion levels data with event info to get reference exon coordinates
+            inclusion_levels_full_VastDB = inclusion_levels_full_VastDB.merge(
+                event_info_from_vastdb[["EVENT", "REF_CO", "CO_C1", "CO_A", "CO_C2"]],
+                on="EVENT",
+                how="left",
+            ).reset_index(drop=True)
+            event_found_mask = inclusion_levels_full_VastDB["REF_CO"].notnull()
+            print(
+                "Number of events found in VastDB: {} ({}%)".format(
+                    event_found_mask.sum(), 100 * event_found_mask.mean()
+                )
+            )
+            print(
+                "Number of events not found in VastDB: {} ({}%)".format(
+                    (~event_found_mask).sum(), 100 * (~event_found_mask).mean()
+                )
+            )
+            print("Some event IDs not found in VastDB:")
+            print(
+                inclusion_levels_full_VastDB.loc[~event_found_mask, "EVENT"].head()
+            )  # print some event IDs not found in VastDB
+            print("Per event type:")
+            for event_type in inclusion_levels_full_VastDB["COMPLEX"].unique():
+                event_found_mask = inclusion_levels_full_VastDB.loc[
+                    inclusion_levels_full_VastDB["COMPLEX"] == event_type, "CO_C1"
+                ].notnull()
+                print(
+                    f"{event_type}: {event_found_mask.sum()} ({100 * event_found_mask.mean():.2f}%), not found: {(~event_found_mask).sum()} ({100 * (~event_found_mask).mean():.2f}%)"
+                )
+                print(
+                    "Some event IDs not found in VastDB for {}: {}".format(
+                        event_type,
+                        inclusion_levels_full_VastDB.loc[
+                            (inclusion_levels_full_VastDB["COMPLEX"] == event_type)
+                            & (~event_found_mask),
+                            "EVENT",
+                        ].head(),
+                    )
+                )
+            # drop events not found in VastDB
+            inclusion_levels_full_VastDB = inclusion_levels_full_VastDB.loc[
+                inclusion_levels_full_VastDB["REF_CO"].notnull()
+            ].reset_index(drop=True)
+
+            # join inclusion levels data with gene info to get gene ID
+            inclusion_levels_full_VastDB = inclusion_levels_full_VastDB.merge(
+                gene_info_from_vastdb[["GeneID", "Gene_name"]],
+                left_on="GENE",
+                right_on="Gene_name",
+                how="left",
+            )
+            inclusion_levels_full_VastDB = inclusion_levels_full_VastDB.drop(
+                columns=["Gene_name"]
+            )
+            inclusion_levels_full_VastDB = inclusion_levels_full_VastDB.rename(
+                columns={"GeneID": "GENE_ID"}
+            )
+
+            temp = inclusion_levels_full_VastDB[["GENE", "GENE_ID"]].drop_duplicates()
+            print(
+                "Number of genes for which gene ID was found in VastDB: {} ({}%)".format(
+                    temp[temp["GENE_ID"].notnull()].shape[0],
+                    100 * temp[temp["GENE_ID"].notnull()].shape[0] / temp.shape[0],
+                )
+            )
+            print(
+                "Number of genes for which gene ID was not found in VastDB: {} ({}%)".format(
+                    temp[temp["GENE_ID"].isnull()].shape[0],
+                    100 * temp[temp["GENE_ID"].isnull()].shape[0] / temp.shape[0],
+                )
+            )
+            print("Some genes for which gene ID was not found in VastDB:")
+            print(temp[temp["GENE_ID"].isnull()].head())
+
+            print("Creating flattened data for VastDB and knockdown data")
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
             flattened_inclusion_levels_full["EVENT"] = []  # event ID
@@ -1621,6 +2202,9 @@ class KnockdownData(LightningDataModule):
                 "SAMPLE"
             ] = []  # knocked down splicing factor i.e. sample name
             flattened_inclusion_levels_full["PSI"] = []  # PSI value
+            flattened_inclusion_levels_full[
+                "DATA_SOURCE"
+            ] = []  # data source (Knockdown_Experiments or VastDB)
 
             event_info = {}
             event_info["EVENT"] = []  # event ID
@@ -1671,6 +2255,8 @@ class KnockdownData(LightningDataModule):
                 []
             )  # genomic segments for the spliced out the event: for exon skipping, this is the upstream exon and the downstream exon; for intron retention, this is the upstream exon and the downstream exon; for alternative splice site choice, this is the reference exon and the upstream/downstream exon
 
+            # first add the knockdown data
+            print("Adding knockdown data")
             all_gene_ids_with_expression_values = set(
                 normalized_gene_expression["gene_id"]
             )
@@ -1710,6 +2296,9 @@ class KnockdownData(LightningDataModule):
                         flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
                         flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
                         flattened_inclusion_levels_full["PSI"].append(row[psi_col])
+                        flattened_inclusion_levels_full["DATA_SOURCE"].append(
+                            "Knockdown_Experiments"
+                        )
 
                 event_info["GENE"].append(row["GENE"])
                 event_info["GENE_ID"].append(row["GENE_ID"])
@@ -1720,7 +2309,302 @@ class KnockdownData(LightningDataModule):
 
                 # stats about the PSI values
                 psi_vals = (
-                    row[knockdown_samples_psi_vals_columns]
+                    row[knockdown_samples_psi_vals_columns + vastdb_psi_vals_columns]
+                    .values.reshape(-1)
+                    .astype(float)
+                )
+                psi_vals = psi_vals[~np.isnan(psi_vals)]
+                event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
+                event_info["MEAN_PSI"].append(psi_vals.mean())
+                event_info["STD_PSI"].append(psi_vals.std())
+                event_info["MIN_PSI"].append(psi_vals.min())
+                event_info["MAX_PSI"].append(psi_vals.max())
+                event_info["CONTROLS_AVG_PSI"].append(row["AV_Controls"])
+                event_info["NUM_CONTROLS"].append(row["num_controls"])
+
+                event_info["FullCO"].append(row["FullCO"])
+                event_info["COMPLEX"].append(row["COMPLEX"])
+
+                # the FullCO format is as follows:
+                # - For EX: chromosome:C1donor,Aexon,C2acceptor. Where C1donor is the "reference" upstream exon's donor, C2acceptor the "reference" downstream exon's acceptor, and A the alternative exon.
+                # Strand is "+" if C1donor < C2acceptor. If multiple acceptor/donors exist in any of the exons, they are shown separated by "+".
+                # NOTE: The "reference" upstream and downstream C1/C2 coordinates are not necessarily the closest upstream and downstream C1/C2 exons, but the most external ones with sufficient support (to facilitate primer design, etc).                #
+                # - For ALTD: chromosome:Aexon,C2acceptor. Multiple donors of the event are separated by "+".
+                # - For ALTA: chromosome:C1donor,Aexon. Multiple acceptors of the event are separated by "+".
+                # - For INT: chromosome:C1exon=C2exon:strand.
+                event_info["CHR"].append(row["FullCO"].split(":")[0])
+                # REF_CO column contains reference exon coordinates + the strand
+                strand = row["REF_CO"].split(":")[-1]
+                strand = (
+                    "." if strand == "+" else "-"
+                )  # convert "+" to "." for consistency
+                event_info["STRAND"].append(strand)
+
+                # extract the genomic segments for the spliced in and spliced out events
+                spliced_in_event_segments = []
+                spliced_out_event_segments = []
+                if event_type == "EX":
+                    if strand == ".":
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        spliced_in_event_segments = [
+                            upstream_exon_coordinates,
+                            alternate_exon_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            upstream_exon_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                    else:
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
+                        spliced_in_event_segments = [
+                            downstream_exon_coordinates,
+                            alternate_exon_coordinates,
+                            upstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            downstream_exon_coordinates,
+                            upstream_exon_coordinates,
+                        ]
+
+                elif event_type == "INT":
+                    if strand == ".":
+                        upstream_exon_coordinates = row["CO_C1"]
+                        retained_intron_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        spliced_in_event_segments = [
+                            upstream_exon_coordinates,
+                            retained_intron_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            upstream_exon_coordinates,
+                            downstream_exon_coordinates,
+                        ]
+                    else:
+                        upstream_exon_coordinates = row["CO_C1"]
+                        retained_intron_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
+                        spliced_in_event_segments = [
+                            downstream_exon_coordinates,
+                            retained_intron_coordinates,
+                            upstream_exon_coordinates,
+                        ]
+                        spliced_out_event_segments = [
+                            downstream_exon_coordinates,
+                            upstream_exon_coordinates,
+                        ]
+
+                elif event_type == "ALTD":
+                    # for ALTD events, the CO_C1 is the reference exon, CO_A is the extra segment added in the event, and CO_C2 is the downstream exon
+                    if strand == ".":
+                        reference_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTD event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                downstream_exon_coordinates,
+                            ]
+                    else:
+                        reference_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        downstream_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTD event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                downstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                downstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                downstream_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                downstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+
+                elif event_type == "ALTA":
+                    # for ALTA events, the CO_C1 is the upstream exon, CO_A is the extra segment added in the event, and CO_C2 is the reference exon
+                    if strand == ".":
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        reference_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTA event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                upstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                upstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                upstream_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                upstream_exon_coordinates,
+                                reference_exon_coordinates,
+                            ]
+                    else:
+                        upstream_exon_coordinates = row["CO_C1"]
+                        alternate_exon_added_segment_coordinates = row["CO_A"]
+                        reference_exon_coordinates = row["CO_C2"]
+
+                        if pd.isna(alternate_exon_added_segment_coordinates):
+                            assert (
+                                "-1/" in row["EVENT"]
+                            ), "Only the first event in an ALTA event should have a missing CO_A"
+
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+                        else:
+                            spliced_in_event_segments = [
+                                reference_exon_coordinates,
+                                alternate_exon_added_segment_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+                            spliced_out_event_segments = [
+                                reference_exon_coordinates,
+                                upstream_exon_coordinates,
+                            ]
+
+                event_info["SPLICED_IN_EVENT_SEGMENTS"].append(
+                    ",".join(spliced_in_event_segments)
+                )
+                spliced_in_event_segments_min_coord = min(
+                    [
+                        int(x.strip().split(":")[1].split("-")[0])
+                        for x in spliced_in_event_segments
+                    ]
+                )
+                spliced_in_event_segments_max_coord = max(
+                    [
+                        int(x.strip().split(":")[1].split("-")[1])
+                        for x in spliced_in_event_segments
+                    ]
+                )
+                full_event_length = (
+                    spliced_in_event_segments_max_coord
+                    - spliced_in_event_segments_min_coord
+                    + 1
+                )
+                full_event_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
+                event_info["FULL_EVENT_LENGTH"].append(full_event_length)
+                event_info["FULL_EVENT_COORD"].append(full_event_coord)
+
+                event_info["SPLICED_OUT_EVENT_SEGMENTS"].append(
+                    ",".join(spliced_out_event_segments)
+                )
+
+            # add the VastDB data
+            print("Adding VastDB data")
+            all_gene_ids_with_expression_values = set(
+                normalized_gene_expression_VastDB["gene_id"]
+            )
+
+            # iterate over each row in the data and populate the flattened data and event information
+            for i, row in tqdm(
+                inclusion_levels_full_VastDB.iterrows(),
+                total=inclusion_levels_full_VastDB.shape[0],
+            ):
+                # VAST-DB event ID. Formed by:
+                # - Species identifier: Hsa (Human), Mmu (Mouse), or Gga (Chicken);
+                # - Type of alternative splicing event:
+                #    alternative exon skipping (EX),
+                #    retained intron (INT),
+                #    alternative splice site donor choice (ALTD), or alternative splice site acceptor choice (ALTA).
+                #       In the case of ALTD/ALTA, each splice site within the event is indicated (from exonic internal to external) over the
+                #       total number of alternative splice sites in the event (e.g. HsaALTA0000011-1/2).
+                # - Numerical identifier.
+                event_info["EVENT"].append(row["EVENT"])
+                event_type = None
+                if "EX" in row["EVENT"]:
+                    event_type = "EX"
+                elif "INT" in row["EVENT"]:
+                    event_type = "INT"
+                elif "ALTD" in row["EVENT"]:
+                    event_type = "ALTD"
+                elif "ALTA" in row["EVENT"]:
+                    event_type = "ALTA"
+                else:
+                    raise Exception(
+                        f"Unknown event type for event with ID: {row['EVENT']}"
+                    )
+                event_info["EVENT_TYPE"].append(event_type)
+
+                for psi_col in vastdb_psi_vals_columns:
+                    if not np.isnan(row[psi_col]):
+                        flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
+                        flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
+                        flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
+                        flattened_inclusion_levels_full["PSI"].append(row[psi_col])
+                        flattened_inclusion_levels_full["DATA_SOURCE"].append("VastDB")
+
+                event_info["GENE"].append(row["GENE"])
+                event_info["GENE_ID"].append(row["GENE_ID"])
+                event_info["HAS_GENE_EXP_VALUES"].append(
+                    (not pd.isna(row["GENE_ID"]))
+                    and row["GENE_ID"] in all_gene_ids_with_expression_values
+                )
+
+                # stats about the PSI values
+                psi_vals = (
+                    row[knockdown_samples_psi_vals_columns + vastdb_psi_vals_columns]
                     .values.reshape(-1)
                     .astype(float)
                 )
@@ -1965,16 +2849,23 @@ class KnockdownData(LightningDataModule):
             flattened_inclusion_levels_full = pd.DataFrame(
                 flattened_inclusion_levels_full
             ).drop_duplicates()
-            event_info = pd.DataFrame(event_info).drop_duplicates()
+            event_info = pd.DataFrame(event_info).drop_duplicates(
+                "EVENT", keep="first"
+            )  # keep the knockdown event data since that has a valid controls PSI value
 
             flattened_inclusion_levels_full.to_parquet(
                 os.path.join(
-                    self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+                    self.cache_dir,
+                    "flattened_inclusion_levels_full_filtered_VastDB_and_knockdown_data.parquet",
                 ),
                 index=False,
             )
             event_info.to_parquet(
-                os.path.join(self.cache_dir, "event_info_filtered.parquet"), index=False
+                os.path.join(
+                    self.cache_dir,
+                    "event_info_filtered_VastDB_and_knockdown_data.parquet",
+                ),
+                index=False,
             )
 
             print("Total number of PSI values:", len(flattened_inclusion_levels_full))
@@ -1995,12 +2886,12 @@ class KnockdownData(LightningDataModule):
             if not os.path.exists(
                 os.path.join(
                     self.cache_dir,
-                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                 )
             ) or not os.path.exists(
                 os.path.join(
                     self.cache_dir,
-                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                 )
             ):
                 # filter out events that are not observed in the minimum number of samples
@@ -2010,11 +2901,14 @@ class KnockdownData(LightningDataModule):
                 flattened_inclusion_levels_full = pd.read_parquet(
                     os.path.join(
                         self.cache_dir,
-                        "flattened_inclusion_levels_full_filtered.parquet",
+                        "flattened_inclusion_levels_full_filtered_VastDB_and_knockdown_data.parquet",
                     )
                 )
                 event_info = pd.read_parquet(
-                    os.path.join(self.cache_dir, "event_info_filtered.parquet")
+                    os.path.join(
+                        self.cache_dir,
+                        "event_info_filtered_VastDB_and_knockdown_data.parquet",
+                    )
                 )
 
                 print("Number of events of each type before filtering:")
@@ -2040,14 +2934,14 @@ class KnockdownData(LightningDataModule):
                 flattened_inclusion_levels_full.to_parquet(
                     os.path.join(
                         self.cache_dir,
-                        f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                        f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                     ),
                     index=False,
                 )
                 event_info.to_parquet(
                     os.path.join(
                         self.cache_dir,
-                        f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                        f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                     ),
                     index=False,
                 )
@@ -2654,7 +3548,7 @@ class KnockdownData(LightningDataModule):
                 print(
                     f"Creating uniform distribution of control PSI values in epoch {self.trainer.current_epoch}"
                 )
-                dataset = KnockdownDataset(
+                dataset = VastDBDataset(
                     self, split="train", return_control_data_only=True
                 )
                 return DataLoader(
@@ -2672,7 +3566,7 @@ class KnockdownData(LightningDataModule):
                 print(
                     f"Upsampling significant control events in epoch {self.trainer.current_epoch} - this upsamples events with intermediate PSI values"
                 )
-                dataset = KnockdownDataset(
+                dataset = VastDBDataset(
                     self, split="train", return_control_data_only=True
                 )
                 return DataLoader(
@@ -2686,9 +3580,7 @@ class KnockdownData(LightningDataModule):
                 )
             else:
                 return DataLoader(
-                    KnockdownDataset(
-                        self, split="train", return_control_data_only=True
-                    ),
+                    VastDBDataset(self, split="train", return_control_data_only=True),
                     batch_size=self.config["train_config"]["batch_size"],
                     shuffle=True,
                     pin_memory=True,
@@ -2702,7 +3594,7 @@ class KnockdownData(LightningDataModule):
                 f"Not using ranking loss in epoch {self.trainer.current_epoch} as it is before the specified epoch {self.num_epochs_after_which_to_use_ranking_loss}, a random sampler will be used"
             )
             return DataLoader(
-                KnockdownDataset(self, split="train"),
+                VastDBDataset(self, split="train"),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=True,
                 pin_memory=True,
@@ -2717,7 +3609,7 @@ class KnockdownData(LightningDataModule):
                 print(
                     f"Creating uniform distribution of PSI values in epoch {self.trainer.current_epoch}"
                 )
-                dataset = KnockdownDataset(self, split="train")
+                dataset = VastDBDataset(self, split="train")
                 return DataLoader(
                     dataset,
                     batch_size=self.config["train_config"]["batch_size"],
@@ -2731,7 +3623,7 @@ class KnockdownData(LightningDataModule):
                 )
             else:
                 return DataLoader(
-                    KnockdownDataset(self, split="train"),
+                    VastDBDataset(self, split="train"),
                     batch_size=self.config["train_config"]["batch_size"],
                     shuffle=None
                     if ("N_events_per_batch" in self.config["train_config"])
@@ -2754,7 +3646,7 @@ class KnockdownData(LightningDataModule):
                 f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs, using control data for validation. Current epoch: {self.trainer.current_epoch}"
             )
             return DataLoader(
-                KnockdownDataset(self, split="val", return_control_data_only=True),
+                VastDBDataset(self, split="val", return_control_data_only=True),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=False,
                 pin_memory=True,
@@ -2766,7 +3658,7 @@ class KnockdownData(LightningDataModule):
                 f"In epoch {self.trainer.current_epoch}, using all data for validation"
             )
             return DataLoader(
-                KnockdownDataset(self, split="val"),
+                VastDBDataset(self, split="val"),
                 batch_size=self.config["train_config"]["batch_size"],
                 shuffle=False,
                 pin_memory=True,
@@ -2776,7 +3668,7 @@ class KnockdownData(LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(
-            KnockdownDataset(self, split="test"),
+            VastDBDataset(self, split="test"),
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
