@@ -2402,10 +2402,9 @@ class VastDBData(LightningDataModule):
                 )
                 psi_vals = psi_vals[~np.isnan(psi_vals)]
                 event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
-                assert (
-                    len(psi_vals)
-                    == num_samples_knockdown_experiments + num_samples_vastdb
-                )
+                assert len(psi_vals) == (
+                    num_samples_knockdown_experiments + num_samples_vastdb - 1
+                )  # -1 because the control sample is excluded from the count
                 event_info["NUM_SAMPLES_OBSERVED_KNOCKDOWN_EXPERIMENTS"].append(
                     num_samples_knockdown_experiments
                 )
