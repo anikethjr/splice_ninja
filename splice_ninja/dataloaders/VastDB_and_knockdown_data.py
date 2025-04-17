@@ -2228,6 +2228,7 @@ class VastDBData(LightningDataModule):
                 on=[
                     "GENE",
                     "GENE_ID",
+                    "CHR",
                     "EVENT",
                     "COORD",
                     "LENGTH",
