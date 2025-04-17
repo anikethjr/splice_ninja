@@ -1809,6 +1809,7 @@ class VastDBData(LightningDataModule):
             for col in gene_counts.columns[2:]:
                 if col.endswith("-Counts"):
                     drop_columns.append(col)
+                    drop_columns.append(col[:-7] + "-cRPKM")
                     drop_columns.append(col[:-7] + "_TPM")
                     drop_columns.append(col[:-7] + "_RPKM")
             normalized_gene_expression = normalized_gene_expression.drop(
@@ -1835,6 +1836,11 @@ class VastDBData(LightningDataModule):
                 assert (
                     sample in psi_vals_columns
                 ), f"Sample {sample} does not have PSI values"
+
+            # minor renaming for consistency
+            normalized_gene_expression = normalized_gene_expression.rename(
+                columns={"NAME": "alias"}
+            )
 
             normalized_gene_expression.to_parquet(
                 os.path.join(
@@ -2280,6 +2286,15 @@ class VastDBData(LightningDataModule):
             event_info[
                 "NUM_SAMPLES_OBSERVED"
             ] = []  # number of samples in which the event was observed
+            event_info[
+                "NUM_SAMPLES_OBSERVED_KNOCKDOWN_EXPERIMENTS"
+            ] = (
+                []
+            )  # number of samples in which the event was observed in knockdown experiments
+            event_info[
+                "NUM_SAMPLES_OBSERVED_VASTDB"
+            ] = []  # number of samples in which the event was observed in VastDB
+
             event_info["MEAN_PSI"] = []  # mean of the PSI values across samples
             event_info[
                 "STD_PSI"
@@ -2350,6 +2365,7 @@ class VastDBData(LightningDataModule):
                     )
                 event_info["EVENT_TYPE"].append(event_type)
 
+                num_samples_knockdown_experiments = 0
                 for psi_col in knockdown_samples_psi_vals_columns + ["AV_Controls"]:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
@@ -2359,6 +2375,9 @@ class VastDBData(LightningDataModule):
                         flattened_inclusion_levels_full["DATA_SOURCE"].append(
                             "Knockdown_Experiments"
                         )
+                        num_samples_knockdown_experiments += 1
+
+                num_samples_vastdb = 0
                 for psi_col in vastdb_psi_vals_columns:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
@@ -2366,6 +2385,7 @@ class VastDBData(LightningDataModule):
                         flattened_inclusion_levels_full["SAMPLE"].append(psi_col)
                         flattened_inclusion_levels_full["PSI"].append(row[psi_col])
                         flattened_inclusion_levels_full["DATA_SOURCE"].append("VastDB")
+                        num_samples_vastdb += 1
 
                 event_info["GENE"].append(row["GENE"])
                 event_info["GENE_ID"].append(row["GENE_ID"])
@@ -2382,6 +2402,14 @@ class VastDBData(LightningDataModule):
                 )
                 psi_vals = psi_vals[~np.isnan(psi_vals)]
                 event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
+                assert (
+                    len(psi_vals)
+                    == num_samples_knockdown_experiments + num_samples_vastdb
+                )
+                event_info["NUM_SAMPLES_OBSERVED_KNOCKDOWN_EXPERIMENTS"].append(
+                    num_samples_knockdown_experiments
+                )
+                event_info["NUM_SAMPLES_OBSERVED_VASTDB"].append(num_samples_vastdb)
                 event_info["MEAN_PSI"].append(psi_vals.mean())
                 event_info["STD_PSI"].append(psi_vals.std())
                 event_info["MIN_PSI"].append(psi_vals.min())
@@ -2722,9 +2750,23 @@ class VastDBData(LightningDataModule):
 
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
-        self.normalized_gene_expression = pd.read_parquet(
+        self.normalized_gene_expression_knockdown = pd.read_parquet(
             os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
         )
+        self.normalized_gene_expression_VastDB = pd.read_parquet(
+            os.path.join(
+                self.cache_dir, "VastDB", "hg38", "normalized_gene_expression.parquet"
+            )
+        )
+        self.normalized_gene_expression = (
+            self.normalized_gene_expression_knockdown.merge(
+                self.normalized_gene_expression_VastDB,
+                on=["gene_id", "alias", "length"],
+                how="outer",
+            )
+        )
+        # fill missing values with 0
+        self.normalized_gene_expression = self.normalized_gene_expression.fillna(0)
 
         if "min_samples_for_event_to_be_considered" in self.config["data_config"]:
             min_samples_for_event_to_be_considered = self.config["data_config"][
@@ -2733,23 +2775,27 @@ class VastDBData(LightningDataModule):
             self.flattened_inclusion_levels_full = pd.read_parquet(
                 os.path.join(
                     self.cache_dir,
-                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    f"flattened_inclusion_levels_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                 )
             )
             self.event_info = pd.read_parquet(
                 os.path.join(
                     self.cache_dir,
-                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples.parquet",
+                    f"event_info_events_observed_in_min_{min_samples_for_event_to_be_considered}_samples_VastDB_and_knockdown_data.parquet",
                 )
             )
         else:
             self.flattened_inclusion_levels_full = pd.read_parquet(
                 os.path.join(
-                    self.cache_dir, "flattened_inclusion_levels_full_filtered.parquet"
+                    self.cache_dir,
+                    "flattened_inclusion_levels_full_filtered_VastDB_and_knockdown_data.parquet",
                 )
             )
             self.event_info = pd.read_parquet(
-                os.path.join(self.cache_dir, "event_info_filtered.parquet")
+                os.path.join(
+                    self.cache_dir,
+                    "event_info_filtered_VastDB_and_knockdown_data.parquet",
+                )
             )
 
         # filter out events that are not in the event types to model
