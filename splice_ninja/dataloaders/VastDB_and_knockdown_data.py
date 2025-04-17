@@ -1713,10 +1713,6 @@ class VastDBData(LightningDataModule):
                 columns=[i for i in inclusion_levels_full.columns if i.endswith("-Q")]
             )
 
-            # create dummy columns related to controls to maintain the same structure as the knockdown data
-            inclusion_levels_full["AV_Controls"] = -1.0
-            inclusion_levels_full["num_controls"] = 0
-
             # print number of events of each type
             print(
                 f"Final number of events of each type:\n{inclusion_levels_full['COMPLEX'].value_counts()}"
@@ -1820,7 +1816,7 @@ class VastDBData(LightningDataModule):
             )
 
             # now just verify that every sample has both expression and PSI values
-            psi_vals_columns = [i for i in inclusion_levels_full.columns[6:-2]]
+            psi_vals_columns = [i for i in inclusion_levels_full.columns[6:]]
             for sample in psi_vals_columns:
                 assert (sample + "_log2TPM" in normalized_gene_expression.columns) and (
                     sample + "_log2RPKM" in normalized_gene_expression.columns
@@ -2139,10 +2135,8 @@ class VastDBData(LightningDataModule):
 
             # define samples
             vastdb_psi_vals_columns = [
-                i for i in inclusion_levels_full_VastDB.columns[6:-2]
+                i for i in inclusion_levels_full_VastDB.columns[6:]
             ]
-            assert inclusion_levels_full_VastDB.columns[-1] == "num_controls"
-            assert inclusion_levels_full_VastDB.columns[-2] == "AV_Controls"
 
             # create a column for the chromosome
             inclusion_levels_full_VastDB["CHR"] = inclusion_levels_full_VastDB[
