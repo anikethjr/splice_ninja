@@ -1801,6 +1801,8 @@ class VastDBData(LightningDataModule):
                     normalized_gene_expression[sample + "_RPKM"] + 1
                 )
 
+                normalized_gene_expression = normalized_gene_expression.copy()
+
             # drop all count, TPM, and RPKM columns, we don't support using them downstream
             drop_columns = []
             for col in gene_counts.columns[2:]:
@@ -1880,7 +1882,10 @@ class VastDBData(LightningDataModule):
             assert (
                 splicing_factor_expression_levels.shape[0]
                 == splicing_factor_expression_levels_knockdown.shape[0]
-            ), "Number of splicing factors in the knockdown data and VastDB data do not match"
+            ), "Number of splicing factors in the knockdown data and VastDB data do not match, {} vs {}".format(
+                splicing_factor_expression_levels.shape[0],
+                splicing_factor_expression_levels_knockdown.shape[0],
+            )
 
             # compute normalized splicing factor expression levels so that they sum to 1 across all splicing factors in each sample
             for sample in splicing_factor_expression_levels.columns:
