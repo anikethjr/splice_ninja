@@ -2844,7 +2844,11 @@ class VastDBData(LightningDataModule):
             self.splicing_factor_expression_levels.shape[0]
             == self.splicing_factor_expression_levels_knockdown.shape[0]
             == self.splicing_factor_expression_levels_VastDB.shape[0]
-        ), "Mismatch in the number of splicing factors in the expression levels data"
+        ), "Mismatch in the number of splicing factors in the expression levels data, shapes: {}, {}, {}".format(
+            self.splicing_factor_expression_levels.shape,
+            self.splicing_factor_expression_levels_knockdown.shape,
+            self.splicing_factor_expression_levels_VastDB.shape,
+        )
         self.num_splicing_factors = self.splicing_factor_expression_levels.shape[0]
         self.has_gene_exp_values = True
 
