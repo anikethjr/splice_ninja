@@ -1773,7 +1773,7 @@ class VastDBData(LightningDataModule):
 
                 # calculate the TPM values
                 normalized_gene_expression[sample + "_TPM"] = (
-                    normalized_gene_expression[sample]
+                    normalized_gene_expression[sample + "-Counts"]
                     / normalized_gene_expression["length"]
                 )  # reads per base pair
                 rpk_sum = normalized_gene_expression[sample + "_TPM"].sum()
@@ -1789,7 +1789,7 @@ class VastDBData(LightningDataModule):
                 # calculate the RPKM values
                 normalized_gene_expression[
                     sample + "_RPKM"
-                ] = normalized_gene_expression[sample] / (
+                ] = normalized_gene_expression[sample + "-Counts"] / (
                     normalized_gene_expression["length"] / 1e3
                 )  # reads per kilobase pair
                 normalized_gene_expression[sample + "_RPKM"] = (
