@@ -2243,7 +2243,9 @@ class VastDBData(LightningDataModule):
             # assert that there are no duplicate columns
             assert (
                 len([i for i in inclusion_levels_full.columns if i.endswith("_x")])
-            ) == 0
+            ) == 0, "Duplicate columns found in inclusion_levels_full after merge, all columns: {}".format(
+                inclusion_levels_full.columns.to_list()
+            )
 
             print(
                 "Merged inclusion levels dataframes - shape: ",
