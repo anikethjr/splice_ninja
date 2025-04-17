@@ -1771,6 +1771,11 @@ class VastDBData(LightningDataModule):
 
                 sample = sample[: -len("-Counts")]
 
+                # there are some NaN values in the gene counts data, we need to fill them with 0
+                normalized_gene_expression[
+                    sample + "-Counts"
+                ] = normalized_gene_expression[sample + "-Counts"].fillna(0)
+
                 # calculate the TPM values
                 normalized_gene_expression[sample + "_TPM"] = (
                     normalized_gene_expression[sample + "-Counts"]
@@ -1884,8 +1889,9 @@ class VastDBData(LightningDataModule):
                 row = splicing_factor_expression_levels.iloc[i]
                 expr_values = row[splicing_factor_expression_levels.columns[2:]]
                 if expr_values.isna().any():
+                    num_nans = expr_values.isna().sum()
                     print(
-                        f"Warning: Splicing factor {row['gene_id']} has no expression data in VastDB, will be set to 0 log2TPM and 0 log2RPKM"
+                        f"Warning: Splicing factor {row['gene_id']} has {num_nans} NaNs in the expression data from VastDB, will be set to 0 log2TPM and 0 log2RPKM"
                     )
 
             # set the expression values to 0 for splicing factors with no expression data in VastDB
@@ -1907,6 +1913,10 @@ class VastDBData(LightningDataModule):
                 splicing_factor_expression_levels[sample + "_log2TPM_rel_norm"] = (
                     splicing_factor_expression_levels[sample + "_log2TPM"]
                     / splicing_factor_expression_levels[sample + "_log2TPM"].sum()
+                )
+
+                splicing_factor_expression_levels = (
+                    splicing_factor_expression_levels.copy()
                 )
 
             splicing_factor_expression_levels.to_parquet(
@@ -2212,6 +2222,17 @@ class VastDBData(LightningDataModule):
             print("Some genes for which gene ID was not found in VastDB:")
             print(temp[temp["GENE_ID"].isnull()].head())
 
+            # merge the two inclusion levels dataframes
+            inclusion_levels_full = inclusion_levels_full.merge(
+                inclusion_levels_full_VastDB,
+                on=["GENE, EVENT, COORD, LENGTH, FullCO, COMPLEX"],
+                how="outer",
+            ).reset_index(drop=True)
+            print(
+                "Merged inclusion levels dataframes - shape: ",
+                inclusion_levels_full.shape,
+            )
+
             print("Creating flattened data for VastDB and knockdown data")
             # create schemas for the flattened data and the event information
             flattened_inclusion_levels_full = {}
@@ -2278,7 +2299,9 @@ class VastDBData(LightningDataModule):
             print("Adding knockdown data")
             all_gene_ids_with_expression_values = set(
                 normalized_gene_expression["gene_id"]
-            )
+            ).union(
+                set(normalized_gene_expression_VastDB["gene_id"])
+            )  # all gene IDs with expression values
 
             # iterate over each row in the data and populate the flattened data and event information
             for i, row in tqdm(
@@ -2318,294 +2341,6 @@ class VastDBData(LightningDataModule):
                         flattened_inclusion_levels_full["DATA_SOURCE"].append(
                             "Knockdown_Experiments"
                         )
-
-                event_info["GENE"].append(row["GENE"])
-                event_info["GENE_ID"].append(row["GENE_ID"])
-                event_info["HAS_GENE_EXP_VALUES"].append(
-                    (not pd.isna(row["GENE_ID"]))
-                    and row["GENE_ID"] in all_gene_ids_with_expression_values
-                )
-
-                # stats about the PSI values
-                psi_vals = (
-                    row[knockdown_samples_psi_vals_columns + vastdb_psi_vals_columns]
-                    .values.reshape(-1)
-                    .astype(float)
-                )
-                psi_vals = psi_vals[~np.isnan(psi_vals)]
-                event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
-                event_info["MEAN_PSI"].append(psi_vals.mean())
-                event_info["STD_PSI"].append(psi_vals.std())
-                event_info["MIN_PSI"].append(psi_vals.min())
-                event_info["MAX_PSI"].append(psi_vals.max())
-                event_info["CONTROLS_AVG_PSI"].append(row["AV_Controls"])
-                event_info["NUM_CONTROLS"].append(row["num_controls"])
-
-                event_info["FullCO"].append(row["FullCO"])
-                event_info["COMPLEX"].append(row["COMPLEX"])
-
-                # the FullCO format is as follows:
-                # - For EX: chromosome:C1donor,Aexon,C2acceptor. Where C1donor is the "reference" upstream exon's donor, C2acceptor the "reference" downstream exon's acceptor, and A the alternative exon.
-                # Strand is "+" if C1donor < C2acceptor. If multiple acceptor/donors exist in any of the exons, they are shown separated by "+".
-                # NOTE: The "reference" upstream and downstream C1/C2 coordinates are not necessarily the closest upstream and downstream C1/C2 exons, but the most external ones with sufficient support (to facilitate primer design, etc).                #
-                # - For ALTD: chromosome:Aexon,C2acceptor. Multiple donors of the event are separated by "+".
-                # - For ALTA: chromosome:C1donor,Aexon. Multiple acceptors of the event are separated by "+".
-                # - For INT: chromosome:C1exon=C2exon:strand.
-                event_info["CHR"].append(row["FullCO"].split(":")[0])
-                # REF_CO column contains reference exon coordinates + the strand
-                strand = row["REF_CO"].split(":")[-1]
-                strand = (
-                    "." if strand == "+" else "-"
-                )  # convert "+" to "." for consistency
-                event_info["STRAND"].append(strand)
-
-                # extract the genomic segments for the spliced in and spliced out events
-                spliced_in_event_segments = []
-                spliced_out_event_segments = []
-                if event_type == "EX":
-                    if strand == ".":
-                        upstream_exon_coordinates = row["CO_C1"]
-                        alternate_exon_coordinates = row["CO_A"]
-                        downstream_exon_coordinates = row["CO_C2"]
-
-                        spliced_in_event_segments = [
-                            upstream_exon_coordinates,
-                            alternate_exon_coordinates,
-                            downstream_exon_coordinates,
-                        ]
-                        spliced_out_event_segments = [
-                            upstream_exon_coordinates,
-                            downstream_exon_coordinates,
-                        ]
-                    else:
-                        upstream_exon_coordinates = row["CO_C1"]
-                        alternate_exon_coordinates = row["CO_A"]
-                        downstream_exon_coordinates = row["CO_C2"]
-
-                        # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
-                        spliced_in_event_segments = [
-                            downstream_exon_coordinates,
-                            alternate_exon_coordinates,
-                            upstream_exon_coordinates,
-                        ]
-                        spliced_out_event_segments = [
-                            downstream_exon_coordinates,
-                            upstream_exon_coordinates,
-                        ]
-
-                elif event_type == "INT":
-                    if strand == ".":
-                        upstream_exon_coordinates = row["CO_C1"]
-                        retained_intron_coordinates = row["CO_A"]
-                        downstream_exon_coordinates = row["CO_C2"]
-
-                        spliced_in_event_segments = [
-                            upstream_exon_coordinates,
-                            retained_intron_coordinates,
-                            downstream_exon_coordinates,
-                        ]
-                        spliced_out_event_segments = [
-                            upstream_exon_coordinates,
-                            downstream_exon_coordinates,
-                        ]
-                    else:
-                        upstream_exon_coordinates = row["CO_C1"]
-                        retained_intron_coordinates = row["CO_A"]
-                        downstream_exon_coordinates = row["CO_C2"]
-
-                        # the order of the exons is reversed for the "-" strand to maintain the 5' to 3' direction
-                        spliced_in_event_segments = [
-                            downstream_exon_coordinates,
-                            retained_intron_coordinates,
-                            upstream_exon_coordinates,
-                        ]
-                        spliced_out_event_segments = [
-                            downstream_exon_coordinates,
-                            upstream_exon_coordinates,
-                        ]
-
-                elif event_type == "ALTD":
-                    # for ALTD events, the CO_C1 is the reference exon, CO_A is the extra segment added in the event, and CO_C2 is the downstream exon
-                    if strand == ".":
-                        reference_exon_coordinates = row["CO_C1"]
-                        alternate_exon_added_segment_coordinates = row["CO_A"]
-                        downstream_exon_coordinates = row["CO_C2"]
-
-                        if pd.isna(alternate_exon_added_segment_coordinates):
-                            assert (
-                                "-1/" in row["EVENT"]
-                            ), "Only the first event in an ALTD event should have a missing CO_A"
-
-                            spliced_in_event_segments = [
-                                reference_exon_coordinates,
-                                downstream_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                reference_exon_coordinates,
-                                downstream_exon_coordinates,
-                            ]
-                        else:
-                            spliced_in_event_segments = [
-                                reference_exon_coordinates,
-                                alternate_exon_added_segment_coordinates,
-                                downstream_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                reference_exon_coordinates,
-                                downstream_exon_coordinates,
-                            ]
-                    else:
-                        reference_exon_coordinates = row["CO_C1"]
-                        alternate_exon_added_segment_coordinates = row["CO_A"]
-                        downstream_exon_coordinates = row["CO_C2"]
-
-                        if pd.isna(alternate_exon_added_segment_coordinates):
-                            assert (
-                                "-1/" in row["EVENT"]
-                            ), "Only the first event in an ALTD event should have a missing CO_A"
-
-                            spliced_in_event_segments = [
-                                downstream_exon_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                downstream_exon_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                        else:
-                            spliced_in_event_segments = [
-                                downstream_exon_coordinates,
-                                alternate_exon_added_segment_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                downstream_exon_coordinates,
-                                reference_exon_coordinates,
-                            ]
-
-                elif event_type == "ALTA":
-                    # for ALTA events, the CO_C1 is the upstream exon, CO_A is the extra segment added in the event, and CO_C2 is the reference exon
-                    if strand == ".":
-                        upstream_exon_coordinates = row["CO_C1"]
-                        alternate_exon_added_segment_coordinates = row["CO_A"]
-                        reference_exon_coordinates = row["CO_C2"]
-
-                        if pd.isna(alternate_exon_added_segment_coordinates):
-                            assert (
-                                "-1/" in row["EVENT"]
-                            ), "Only the first event in an ALTA event should have a missing CO_A"
-
-                            spliced_in_event_segments = [
-                                upstream_exon_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                upstream_exon_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                        else:
-                            spliced_in_event_segments = [
-                                upstream_exon_coordinates,
-                                alternate_exon_added_segment_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                upstream_exon_coordinates,
-                                reference_exon_coordinates,
-                            ]
-                    else:
-                        upstream_exon_coordinates = row["CO_C1"]
-                        alternate_exon_added_segment_coordinates = row["CO_A"]
-                        reference_exon_coordinates = row["CO_C2"]
-
-                        if pd.isna(alternate_exon_added_segment_coordinates):
-                            assert (
-                                "-1/" in row["EVENT"]
-                            ), "Only the first event in an ALTA event should have a missing CO_A"
-
-                            spliced_in_event_segments = [
-                                reference_exon_coordinates,
-                                upstream_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                reference_exon_coordinates,
-                                upstream_exon_coordinates,
-                            ]
-                        else:
-                            spliced_in_event_segments = [
-                                reference_exon_coordinates,
-                                alternate_exon_added_segment_coordinates,
-                                upstream_exon_coordinates,
-                            ]
-                            spliced_out_event_segments = [
-                                reference_exon_coordinates,
-                                upstream_exon_coordinates,
-                            ]
-
-                event_info["SPLICED_IN_EVENT_SEGMENTS"].append(
-                    ",".join(spliced_in_event_segments)
-                )
-                spliced_in_event_segments_min_coord = min(
-                    [
-                        int(x.strip().split(":")[1].split("-")[0])
-                        for x in spliced_in_event_segments
-                    ]
-                )
-                spliced_in_event_segments_max_coord = max(
-                    [
-                        int(x.strip().split(":")[1].split("-")[1])
-                        for x in spliced_in_event_segments
-                    ]
-                )
-                full_event_length = (
-                    spliced_in_event_segments_max_coord
-                    - spliced_in_event_segments_min_coord
-                    + 1
-                )
-                full_event_coord = f"{row['CHR']}:{spliced_in_event_segments_min_coord}-{spliced_in_event_segments_max_coord}"
-                event_info["FULL_EVENT_LENGTH"].append(full_event_length)
-                event_info["FULL_EVENT_COORD"].append(full_event_coord)
-
-                event_info["SPLICED_OUT_EVENT_SEGMENTS"].append(
-                    ",".join(spliced_out_event_segments)
-                )
-
-            # add the VastDB data
-            print("Adding VastDB data")
-            all_gene_ids_with_expression_values = set(
-                normalized_gene_expression_VastDB["gene_id"]
-            )
-
-            # iterate over each row in the data and populate the flattened data and event information
-            for i, row in tqdm(
-                inclusion_levels_full_VastDB.iterrows(),
-                total=inclusion_levels_full_VastDB.shape[0],
-            ):
-                # VAST-DB event ID. Formed by:
-                # - Species identifier: Hsa (Human), Mmu (Mouse), or Gga (Chicken);
-                # - Type of alternative splicing event:
-                #    alternative exon skipping (EX),
-                #    retained intron (INT),
-                #    alternative splice site donor choice (ALTD), or alternative splice site acceptor choice (ALTA).
-                #       In the case of ALTD/ALTA, each splice site within the event is indicated (from exonic internal to external) over the
-                #       total number of alternative splice sites in the event (e.g. HsaALTA0000011-1/2).
-                # - Numerical identifier.
-                event_info["EVENT"].append(row["EVENT"])
-                event_type = None
-                if "EX" in row["EVENT"]:
-                    event_type = "EX"
-                elif "INT" in row["EVENT"]:
-                    event_type = "INT"
-                elif "ALTD" in row["EVENT"]:
-                    event_type = "ALTD"
-                elif "ALTA" in row["EVENT"]:
-                    event_type = "ALTA"
-                else:
-                    raise Exception(
-                        f"Unknown event type for event with ID: {row['EVENT']}"
-                    )
-                event_info["EVENT_TYPE"].append(event_type)
-
                 for psi_col in vastdb_psi_vals_columns:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
