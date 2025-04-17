@@ -2831,11 +2831,11 @@ class VastDBData(LightningDataModule):
                 "hg38",
                 "splicing_factor_expression_levels.parquet",
             )
-        )
+        ).drop(columns=["alias", "length"])
         self.splicing_factor_expression_levels = (
             self.splicing_factor_expression_levels_knockdown.merge(
                 self.splicing_factor_expression_levels_VastDB,
-                on=["gene_id", "alias", "length"],
+                on=["gene_id"],
                 how="inner",
                 validate="1:1",
             )
