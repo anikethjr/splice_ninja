@@ -1486,6 +1486,10 @@ class VastDBData(LightningDataModule):
                 ),
                 sep="\t",
             )
+            gene_counts = gene_counts.rename(
+                columns={"ID": "gene_id"}
+            )  # rename the ID column to gene_id
+
             # load PSI data
             inclusion_levels_full = pd.read_csv(
                 os.path.join(self.cache_dir, "VastDB", "hg38", "PSI_TABLE-hg38.tab.gz"),
