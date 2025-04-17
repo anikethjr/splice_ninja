@@ -2761,9 +2761,13 @@ class VastDBData(LightningDataModule):
         self.normalized_gene_expression = (
             self.normalized_gene_expression_knockdown.merge(
                 self.normalized_gene_expression_VastDB,
-                on=["gene_id", "alias", "length"],
+                on=["gene_id", "length"],
                 how="outer",
             )
+        )
+        assert (
+            self.normalized_gene_expression.shape[0]
+            == self.normalized_gene_expression["gene_id"].nunique()
         )
         # fill missing values with 0
         self.normalized_gene_expression = self.normalized_gene_expression.fillna(0)
@@ -2908,7 +2912,7 @@ class VastDBData(LightningDataModule):
         )
         self.normalized_gene_expression_flattened = (
             self.normalized_gene_expression.melt(
-                id_vars=["gene_id", "alias"], var_name="sample", value_name="expression"
+                id_vars=["gene_id"], var_name="sample", value_name="expression"
             )
         )
 
@@ -2953,9 +2957,7 @@ class VastDBData(LightningDataModule):
             right_on=["gene_id", "sample"],
             how="left",
         )
-        self.unified_data = self.unified_data.drop(
-            columns=["gene_id", "sample", "alias"]
-        )
+        self.unified_data = self.unified_data.drop(columns=["gene_id", "sample"])
         if self.remove_events_without_gene_expression_data:
             assert (
                 self.unified_data["expression"].notnull().all()
