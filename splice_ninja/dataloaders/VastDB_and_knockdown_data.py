@@ -2225,9 +2225,26 @@ class VastDBData(LightningDataModule):
             )
             inclusion_levels_full = inclusion_levels_full.merge(
                 inclusion_levels_full_VastDB,
-                on=["GENE", "EVENT", "COORD", "LENGTH", "FullCO", "COMPLEX"],
+                on=[
+                    "GENE",
+                    "GENE_ID",
+                    "EVENT",
+                    "COORD",
+                    "LENGTH",
+                    "FullCO",
+                    "COMPLEX",
+                    "REF_CO",
+                    "CO_C1",
+                    "CO_A",
+                    "CO_C2",
+                ],
                 how="outer",
             ).reset_index(drop=True)
+            # assert that there are no duplicate columns
+            assert (
+                len([i for i in inclusion_levels_full.columns if i.endswith("_x")])
+            ) == 0
+
             print(
                 "Merged inclusion levels dataframes - shape: ",
                 inclusion_levels_full.shape,
@@ -2295,8 +2312,6 @@ class VastDBData(LightningDataModule):
                 []
             )  # genomic segments for the spliced out the event: for exon skipping, this is the upstream exon and the downstream exon; for intron retention, this is the upstream exon and the downstream exon; for alternative splice site choice, this is the reference exon and the upstream/downstream exon
 
-            # first add the knockdown data
-            print("Adding knockdown data")
             all_gene_ids_with_expression_values = set(
                 normalized_gene_expression["gene_id"]
             ).union(
