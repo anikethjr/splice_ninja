@@ -17,8 +17,6 @@ import lightning as L
 from lightning.pytorch import LightningDataModule
 
 from splice_ninja.utils import get_ensembl_gene_id_hgnc_with_alias, one_hot_encode_dna
-from splice_ninja.dataloaders.knockdown_data import KnockdownData
-from splice_ninja.dataloaders.VastDB_and_knockdown_data import VastDBData
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -216,9 +214,11 @@ class NEventsPerBatchDistributedSampler(
         split="train",
     ):
         self.data_module = data_module
-        if isinstance(data_module, KnockdownData):
+        if "dataset_name" not in self.data_module.config["data_config"]:
             self.reliant_on_controls = True
-        elif isinstance(data_module, VastDBData):
+        elif self.data_module.config["data_config"]["dataset_name"] == "KD":
+            self.reliant_on_controls = True
+        elif self.data_module.config["data_config"]["dataset_name"] == "VastDB+KD":
             self.reliant_on_controls = False
         else:
             raise ValueError(
