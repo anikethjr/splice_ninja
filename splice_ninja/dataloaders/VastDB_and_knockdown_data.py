@@ -1875,16 +1875,26 @@ class VastDBData(LightningDataModule):
                 splicing_factor_expression_levels_knockdown[["gene_id"]].merge(
                     normalized_gene_expression,
                     on="gene_id",
-                    how="inner",
-                    validate="1:1",
+                    how="left",
                 )
             )
-            assert (
-                splicing_factor_expression_levels.shape[0]
-                == splicing_factor_expression_levels_knockdown.shape[0]
-            ), "Number of splicing factors in the knockdown data and VastDB data do not match, {} vs {}".format(
-                splicing_factor_expression_levels.shape[0],
-                splicing_factor_expression_levels_knockdown.shape[0],
+
+            # count number of splicing factors for which there is no expression data in VastDB
+            for i in range(len(splicing_factor_expression_levels)):
+                row = splicing_factor_expression_levels.iloc[i]
+                expr_values = row[splicing_factor_expression_levels.columns[2:]]
+                if expr_values.isna().any():
+                    print(
+                        f"Warning: Splicing factor {row['gene_id']} has no expression data in VastDB, will be set to 0 log2TPM and 0 log2RPKM"
+                    )
+
+            # set the expression values to 0 for splicing factors with no expression data in VastDB
+            splicing_factor_expression_levels[
+                splicing_factor_expression_levels.columns[2:]
+            ] = splicing_factor_expression_levels[
+                splicing_factor_expression_levels.columns[2:]
+            ].fillna(
+                0
             )
 
             # compute normalized splicing factor expression levels so that they sum to 1 across all splicing factors in each sample
