@@ -705,6 +705,14 @@ class PSIPredictor(LightningModule):
         # create a directory to save the model metrics
         self.current_val_metrics = {}
 
+        # needed to control metric computation
+        if "dataset_name" not in self.data_module.config["data_config"]:
+            self.reliant_on_controls = True
+        elif self.data_module.config["data_config"]["dataset_name"] == "KD":
+            self.reliant_on_controls = True
+        elif self.data_module.config["data_config"]["dataset_name"] == "VastDB+KD":
+            self.reliant_on_controls = False
+
     def configure_optimizers(self):
         optimizer = self.name_to_optimizer[self.optimizer_name](
             filter(lambda p: p.requires_grad, self.parameters()),
@@ -1052,48 +1060,64 @@ class PSIPredictor(LightningModule):
 
             # drop duplicates that might have been created to have the same number of samples across all processes
             preds_df = preds_df.drop_duplicates().reset_index(drop=True)
-            # add the predicted control PSI values - the control sample is always sample 0
-            control_preds = preds_df[preds_df["sample"] == 0].reset_index(drop=True)
-            control_preds = control_preds.rename(
-                columns={"pred_psi_val": "pred_event_controls_avg_psi"}
-            )
-            assert np.all(
-                control_preds["psi_val"] == control_preds["event_controls_avg_psi"]
-            ), "Control PSI values do not match the average control PSI values."
-            ori_num_examples = preds_df.shape[0]
-            preds_df = preds_df.merge(
-                control_preds[["event_id", "pred_event_controls_avg_psi"]],
-                on="event_id",
-                how="inner",
-            ).reset_index(drop=True)
-            preds_df = preds_df.sort_values(
-                by=["event_id", "event_type", "example_type", "sample"]
-            ).reset_index(drop=True)
-
-            if preds_df.shape[0] != ori_num_examples:
-                print(
-                    "Likely that this is a sanity check, not saving predictions and skipping metrics computation."
+            if self.reliant_on_controls:
+                # add the predicted control PSI values - the control sample is always sample 0
+                control_preds = preds_df[preds_df["sample"] == 0].reset_index(drop=True)
+                control_preds = control_preds.rename(
+                    columns={"pred_psi_val": "pred_event_controls_avg_psi"}
                 )
-                # clear the stored predictions
-                self.val_event_ids.clear()
-                self.val_event_types.clear()
-                self.val_example_types.clear()
-                self.val_samples.clear()
-                self.val_psi_vals.clear()
-                self.val_pred_psi_vals.clear()
-                self.val_controls_avg_psi.clear()
-                self.val_num_controls.clear()
-                self.val_event_ids = []
-                self.val_event_types = []
-                self.val_example_types = []
-                self.val_samples = []
-                self.val_psi_vals = []
-                self.val_pred_psi_vals = []
-                self.val_controls_avg_psi = []
-                self.val_num_controls = []
-                return
+                assert np.all(
+                    control_preds["psi_val"] == control_preds["event_controls_avg_psi"]
+                ), "Control PSI values do not match the average control PSI values."
+                ori_num_examples = preds_df.shape[0]
+                preds_df = preds_df.merge(
+                    control_preds[["event_id", "pred_event_controls_avg_psi"]],
+                    on="event_id",
+                    how="inner",
+                ).reset_index(drop=True)
+                preds_df = preds_df.sort_values(
+                    by=["event_id", "event_type", "example_type", "sample"]
+                ).reset_index(drop=True)
 
+                if preds_df.shape[0] != ori_num_examples:
+                    print(
+                        "Likely that this is a sanity check, not saving predictions and skipping metrics computation."
+                    )
+                    # clear the stored predictions
+                    self.val_event_ids.clear()
+                    self.val_event_types.clear()
+                    self.val_example_types.clear()
+                    self.val_samples.clear()
+                    self.val_psi_vals.clear()
+                    self.val_pred_psi_vals.clear()
+                    self.val_controls_avg_psi.clear()
+                    self.val_num_controls.clear()
+                    self.val_event_ids = []
+                    self.val_event_types = []
+                    self.val_example_types = []
+                    self.val_samples = []
+                    self.val_psi_vals = []
+                    self.val_pred_psi_vals = []
+                    self.val_controls_avg_psi = []
+                    self.val_num_controls = []
+                    return
+
+                else:
+                    # save the predictions to a csv file
+                    preds_df.to_csv(
+                        os.path.join(
+                            self.config["train_config"]["saved_models_dir"],
+                            "psi_predictor_test"
+                            if "run_name" not in self.config["train_config"]
+                            else self.config["train_config"]["run_name"],
+                            "latest_val_preds.csv",
+                        ),
+                        index=False,
+                    )
             else:
+                preds_df = preds_df.sort_values(
+                    by=["event_id", "event_type", "example_type", "sample"]
+                ).reset_index(drop=True)
                 # save the predictions to a csv file
                 preds_df.to_csv(
                     os.path.join(
@@ -1139,45 +1163,46 @@ class PSIPredictor(LightningModule):
                         ].reset_index(drop=True)
                         example_type_name = self.example_ind_to_type[example_type]
 
-                    # first compute the correlation between predicted and ground truth PSI values in the average control
-                    # sample 0 is the control sample
-                    control_df = subset_df[subset_df["sample"] == 0].reset_index(
-                        drop=True
-                    )
-                    control_spearmanR = spearmanr(
-                        control_df["psi_val"], control_df["pred_psi_val"]
-                    )[0]
-                    control_pearsonR = pearsonr(
-                        control_df["psi_val"], control_df["pred_psi_val"]
-                    )[0]
-                    control_r2 = r2_score(
-                        control_df["psi_val"], control_df["pred_psi_val"]
-                    )
-                    self.log(
-                        f"val/control_{event_type_name}_{example_type_name}_examples_spearmanR",
-                        control_spearmanR,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    self.log(
-                        f"val/control_{event_type_name}_{example_type_name}_examples_pearsonR",
-                        control_pearsonR,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-                    self.log(
-                        f"val/control_{event_type_name}_{example_type_name}_examples_r2",
-                        control_r2,
-                        on_step=False,
-                        on_epoch=True,
-                    )
-
-                    # if we only have control samples, we skip the rest of the metrics
-                    if (subset_df["sample"] != 0).sum() == 0:
-                        print(
-                            f"Only control samples for event type: {event_type}, example type: {example_type}. Skipping rest of the metrics."
+                    if self.reliant_on_controls:
+                        # first compute the correlation between predicted and ground truth PSI values in the average control
+                        # sample 0 is the control sample
+                        control_df = subset_df[subset_df["sample"] == 0].reset_index(
+                            drop=True
                         )
-                        continue
+                        control_spearmanR = spearmanr(
+                            control_df["psi_val"], control_df["pred_psi_val"]
+                        )[0]
+                        control_pearsonR = pearsonr(
+                            control_df["psi_val"], control_df["pred_psi_val"]
+                        )[0]
+                        control_r2 = r2_score(
+                            control_df["psi_val"], control_df["pred_psi_val"]
+                        )
+                        self.log(
+                            f"val/control_{event_type_name}_{example_type_name}_examples_spearmanR",
+                            control_spearmanR,
+                            on_step=False,
+                            on_epoch=True,
+                        )
+                        self.log(
+                            f"val/control_{event_type_name}_{example_type_name}_examples_pearsonR",
+                            control_pearsonR,
+                            on_step=False,
+                            on_epoch=True,
+                        )
+                        self.log(
+                            f"val/control_{event_type_name}_{example_type_name}_examples_r2",
+                            control_r2,
+                            on_step=False,
+                            on_epoch=True,
+                        )
+
+                        # if we only have control samples, we skip the rest of the metrics
+                        if (subset_df["sample"] != 0).sum() == 0:
+                            print(
+                                f"Only control samples for event type: {event_type}, example type: {example_type}. Skipping rest of the metrics."
+                            )
+                            continue
 
                     # now for every event that is observed in at least 10 samples, compute the correlation metrics across samples
                     # if an event is observed in less than 10 samples, we skip it
@@ -1243,12 +1268,9 @@ class PSIPredictor(LightningModule):
                         f"Average R2 score across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_r2}"
                     )
 
-                    if "dataset_name" not in self.config["data_config"]:
-                        if self.config["data_config"]["dataset_name"] == "VastDB+KD":
-                            print(
-                                "Skipping the rest of the metrics for VastDB+KD dataset"
-                            )
-                            continue
+                    if not self.reliant_on_controls:
+                        print("Skipping the rest of the metrics for VastDB+KD dataset")
+                        continue
 
                     # next, we compute a similar correlation as above but only using samples that deviate from the control sample by at least 0.15
                     # we want at least 10 samples to compute the correlation
