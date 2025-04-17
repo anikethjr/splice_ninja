@@ -2223,9 +2223,15 @@ class VastDBData(LightningDataModule):
             print(temp[temp["GENE_ID"].isnull()].head())
 
             # merge the two inclusion levels dataframes
+            print("Merging the two inclusion levels dataframes")
+            print("Shape of inclusion_levels_full: ", inclusion_levels_full.shape)
+            print(
+                "Shape of inclusion_levels_full_VastDB: ",
+                inclusion_levels_full_VastDB.shape,
+            )
             inclusion_levels_full = inclusion_levels_full.merge(
                 inclusion_levels_full_VastDB,
-                on=["GENE, EVENT, COORD, LENGTH, FullCO, COMPLEX"],
+                on=["GENE", "EVENT", "COORD", "LENGTH", "FullCO", "COMPLEX"],
                 how="outer",
             ).reset_index(drop=True)
             print(
