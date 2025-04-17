@@ -706,11 +706,11 @@ class PSIPredictor(LightningModule):
         self.current_val_metrics = {}
 
         # needed to control metric computation
-        if "dataset_name" not in self.data_module.config["data_config"]:
+        if "dataset_name" not in self.config["data_config"]:
             self.reliant_on_controls = True
-        elif self.data_module.config["data_config"]["dataset_name"] == "KD":
+        elif self.config["data_config"]["dataset_name"] == "KD":
             self.reliant_on_controls = True
-        elif self.data_module.config["data_config"]["dataset_name"] == "VastDB+KD":
+        elif self.config["data_config"]["dataset_name"] == "VastDB+KD":
             self.reliant_on_controls = False
 
     def configure_optimizers(self):
