@@ -17,6 +17,8 @@ import lightning as L
 from lightning.pytorch import LightningDataModule
 
 from splice_ninja.utils import get_ensembl_gene_id_hgnc_with_alias, one_hot_encode_dna
+from splice_ninja.dataloaders.knockdown_data import KnockdownData
+from splice_ninja.dataloaders.VastDB_and_knockdown_data import VastDBData
 
 np.random.seed(0)
 torch.manual_seed(0)
@@ -154,7 +156,7 @@ class UniformPSIDistributionDistributedSampler(
 
 
 # DistributedSampler if we want to have N events per batch
-# Note that the corresponding control data will always be included in the batch as the first sample from an event.
+# Note that the corresponding control data will always be included in the batch as the first sample from an event if using the Knockdown dataset exclusively.
 # This is important for the model to learn the difference between control and non-control data.
 class NEventsPerBatchDistributedSampler(
     torch.utils.data.distributed.DistributedSampler
@@ -214,6 +216,14 @@ class NEventsPerBatchDistributedSampler(
         split="train",
     ):
         self.data_module = data_module
+        if isinstance(data_module, KnockdownData):
+            self.reliant_on_controls = True
+        elif isinstance(data_module, VastDBData):
+            self.reliant_on_controls = False
+        else:
+            raise ValueError(
+                f"Data module {data_module} not recognized, should be either KnockdownData or VastDBData"
+            )
         self.dataset = dataset
         self.split = split
         self.epoch = self.data_module.trainer.current_epoch
@@ -412,67 +422,116 @@ class NEventsPerBatchDistributedSampler(
                     break
 
                 # sample examples for the event
-                # first example is always the control data
-                current_batch_idxs[
-                    self.examples_per_event[cur_event_idx][0]
-                ] = event_data[event_data["SAMPLE"] == "AV_Controls"].index[0]
-                examples_needed_from_event = (
-                    len(self.examples_per_event[cur_event_idx]) - 1
-                )
+                if self.reliant_on_controls:
+                    # first example is always the control data
+                    current_batch_idxs[
+                        self.examples_per_event[cur_event_idx][0]
+                    ] = event_data[event_data["SAMPLE"] == "AV_Controls"].index[0]
+                    examples_needed_from_event = (
+                        len(self.examples_per_event[cur_event_idx]) - 1
+                    )
+                else:
+                    examples_needed_from_event = len(
+                        self.examples_per_event[cur_event_idx]
+                    )
+
                 if examples_needed_from_event > 0:
-                    non_control_indices = event_data[
-                        event_data["SAMPLE"] != "AV_Controls"
-                    ].index
+                    if self.reliant_on_controls:
+                        non_control_indices = event_data[
+                            event_data["SAMPLE"] != "AV_Controls"
+                        ].index
+                    else:
+                        non_control_indices = event_data.index
                     # if we are upsampling significant events, we sample 2/3 of the examples from significant events and 1/3 from non-significant events
                     if self.upsample_significant_events:
-                        significant_event_indices = event_data[
-                            (
+                        if self.reliant_on_controls:
+                            significant_event_indices = event_data[
                                 (
-                                    np.abs(
-                                        event_data["PSI"]
-                                        - event_data["CONTROLS_AVG_PSI"]
+                                    (
+                                        np.abs(
+                                            event_data["PSI"]
+                                            - event_data["CONTROLS_AVG_PSI"]
+                                        )
+                                        / 100.0
                                     )
-                                    / 100.0
+                                    >= self.dPSI_threshold_for_significance
                                 )
-                                >= self.dPSI_threshold_for_significance
-                            )
-                            & (event_data["SAMPLE"] != "AV_Controls")
-                        ].index
+                                & (event_data["SAMPLE"] != "AV_Controls")
+                            ].index
+                        else:
+                            significant_event_indices = event_data[
+                                (
+                                    (
+                                        np.abs(
+                                            event_data["PSI"] - event_data["MEAN_PSI"]
+                                        )
+                                        / 100.0
+                                        >= self.dPSI_threshold_for_significance
+                                    )
+                                )
+                            ].index
                         num_significant_events = len(significant_event_indices)
                         if num_significant_events > 0:
                             num_significant_events_to_sample = int(
                                 (examples_needed_from_event * 2.0) / 3.0
                             )
-                            current_batch_idxs[
-                                self.examples_per_event[cur_event_idx][
-                                    1 : (1 + num_significant_events_to_sample)
-                                ]
-                            ] = np.random.choice(
-                                significant_event_indices,
-                                size=num_significant_events_to_sample,
-                                replace=False
-                                if len(significant_event_indices)
-                                >= num_significant_events_to_sample
-                                else True,
-                            )
+                            if self.reliant_on_controls:
+                                current_batch_idxs[
+                                    self.examples_per_event[cur_event_idx][
+                                        1 : (1 + num_significant_events_to_sample)
+                                    ]
+                                ] = np.random.choice(
+                                    significant_event_indices,
+                                    size=num_significant_events_to_sample,
+                                    replace=False
+                                    if len(significant_event_indices)
+                                    >= num_significant_events_to_sample
+                                    else True,
+                                )
+                            else:
+                                current_batch_idxs[
+                                    self.examples_per_event[cur_event_idx][
+                                        :num_significant_events_to_sample
+                                    ]
+                                ] = np.random.choice(
+                                    significant_event_indices,
+                                    size=num_significant_events_to_sample,
+                                    replace=False
+                                    if len(significant_event_indices)
+                                    >= num_significant_events_to_sample
+                                    else True,
+                                )
                             examples_needed_from_event -= (
                                 num_significant_events_to_sample
                             )
 
                         # sample the rest of the examples from non-significant events
-                        nonsignificant_event_indices = event_data[
-                            (
+                        if self.reliant_on_controls:
+                            nonsignificant_event_indices = event_data[
                                 (
-                                    np.abs(
-                                        event_data["PSI"]
-                                        - event_data["CONTROLS_AVG_PSI"]
+                                    (
+                                        np.abs(
+                                            event_data["PSI"]
+                                            - event_data["CONTROLS_AVG_PSI"]
+                                        )
+                                        / 100.0
                                     )
-                                    / 100.0
+                                    < self.dPSI_threshold_for_significance
                                 )
-                                < self.dPSI_threshold_for_significance
-                            )
-                            & (event_data["SAMPLE"] != "AV_Controls")
-                        ].index
+                                & (event_data["SAMPLE"] != "AV_Controls")
+                            ].index
+                        else:
+                            nonsignificant_event_indices = event_data[
+                                (
+                                    (
+                                        np.abs(
+                                            event_data["PSI"] - event_data["MEAN_PSI"]
+                                        )
+                                        / 100.0
+                                    )
+                                    < self.dPSI_threshold_for_significance
+                                )
+                            ].index
                         if examples_needed_from_event > 0:
                             if len(nonsignificant_event_indices) > 0:
                                 current_batch_idxs[
@@ -500,15 +559,26 @@ class NEventsPerBatchDistributedSampler(
                                     else True,
                                 )
                     else:
-                        current_batch_idxs[
-                            self.examples_per_event[cur_event_idx][1:]
-                        ] = np.random.choice(
-                            non_control_indices,
-                            size=examples_needed_from_event,
-                            replace=False
-                            if len(event_data) >= examples_needed_from_event
-                            else True,
-                        )
+                        if self.reliant_on_controls:
+                            current_batch_idxs[
+                                self.examples_per_event[cur_event_idx][1:]
+                            ] = np.random.choice(
+                                non_control_indices,
+                                size=examples_needed_from_event,
+                                replace=False
+                                if len(event_data) >= examples_needed_from_event
+                                else True,
+                            )
+                        else:
+                            current_batch_idxs[
+                                self.examples_per_event[cur_event_idx]
+                            ] = np.random.choice(
+                                non_control_indices,
+                                size=examples_needed_from_event,
+                                replace=False
+                                if len(event_data) >= examples_needed_from_event
+                                else True,
+                            )
 
                 cur_event_idx += 1
 

@@ -37,10 +37,9 @@ def worker_init_fn(worker_id):
 
 # Datast for the combined data
 class VastDBDataset(Dataset):
-    def __init__(self, data_module, split="train", return_control_data_only=False):
+    def __init__(self, data_module, split="train"):
         self.data_module = data_module
         self.split = split
-        self.return_control_data_only = return_control_data_only
         self.input_size = self.data_module.config["train_config"]["input_size"]
         self.genome_name = "GRCh38.p14"
         self.genomes_dir = os.path.join(self.data_module.cache_dir, "genomes")
@@ -2851,18 +2850,19 @@ class VastDBData(LightningDataModule):
 
         print("Total number of PSI values:", len(self.flattened_inclusion_levels_full))
         print(
-            "Total number of PSI values from control samples:",
+            "Total number of PSI values from knockdown experiments:",
             len(
                 self.flattened_inclusion_levels_full[
-                    self.flattened_inclusion_levels_full["SAMPLE"] == "AV_Controls"
+                    self.flattened_inclusion_levels_full["DATA_SOURCE"]
+                    == "Knockdown_Experiments"
                 ]
             ),
         )
         print(
-            "Total number of PSI values from knockdown samples:",
+            "Total number of PSI values from VastDB:",
             len(
                 self.flattened_inclusion_levels_full[
-                    self.flattened_inclusion_levels_full["SAMPLE"] != "AV_Controls"
+                    self.flattened_inclusion_levels_full["DATA_SOURCE"] == "VastDB"
                 ]
             ),
         )
@@ -2882,7 +2882,7 @@ class VastDBData(LightningDataModule):
         # create a flattened version of the gene expression data to make it easier to merge with the PSI values
         control_samples = ["AA3", "AA4", "AA5", "AA6", "AA7", "AA8", "AA9"]
         gene_expression_metric_cols = []
-        for sample in self.normalized_gene_expression.columns[2:]:
+        for sample in self.normalized_gene_expression.columns:
             if sample.endswith(f"_{self.gene_expression_metric}"):
                 if not sample.startswith(tuple(control_samples)):
                     gene_expression_metric_cols.append(sample)
@@ -3272,7 +3272,7 @@ class VastDBData(LightningDataModule):
             "ALTA": 3,
         }
 
-        # identify split type prepare parameters accordingly
+        # identify split type to prepare parameters accordingly
         if "split_type" in self.config["train_config"]:
             self.split_type = self.config["train_config"]["split_type"]
         else:
@@ -3341,16 +3341,7 @@ class VastDBData(LightningDataModule):
         else:
             self.num_epochs_after_which_to_use_ranking_loss = 0
 
-        # hyperparams that affect how we use the controls data + how we define significant events
-        if (
-            "num_epochs_for_training_on_control_data_only"
-            in self.config["train_config"]
-        ):
-            self.num_epochs_for_training_on_control_data_only = self.config[
-                "train_config"
-            ]["num_epochs_for_training_on_control_data_only"]
-        else:
-            self.num_epochs_for_training_on_control_data_only = 0
+        # hyperparams that affect how we define significant events
         if "dPSI_threshold_for_significance" in self.config["train_config"]:
             self.dPSI_threshold_for_significance = self.config["train_config"][
                 "dPSI_threshold_for_significance"
@@ -3378,59 +3369,7 @@ class VastDBData(LightningDataModule):
             self.create_uniform_train_PSI_distribution = False
 
     def train_dataloader(self):
-        if (
-            self.trainer.current_epoch
-            < self.num_epochs_for_training_on_control_data_only
-        ):
-            print(
-                f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs. Current epoch: {self.trainer.current_epoch}"
-            )
-            if self.create_uniform_train_PSI_distribution:
-                print(
-                    f"Creating uniform distribution of control PSI values in epoch {self.trainer.current_epoch}"
-                )
-                dataset = VastDBDataset(
-                    self, split="train", return_control_data_only=True
-                )
-                return DataLoader(
-                    dataset,
-                    batch_size=self.config["train_config"]["batch_size"],
-                    shuffle=None,
-                    pin_memory=True,
-                    num_workers=self.config["train_config"]["num_workers"],
-                    worker_init_fn=worker_init_fn,
-                    sampler=UniformPSIDistributionDistributedSampler(
-                        self, dataset=dataset
-                    ),
-                )
-            elif self.upsample_significant_events:
-                print(
-                    f"Upsampling significant control events in epoch {self.trainer.current_epoch} - this upsamples events with intermediate PSI values"
-                )
-                dataset = VastDBDataset(
-                    self, split="train", return_control_data_only=True
-                )
-                return DataLoader(
-                    dataset,
-                    batch_size=self.config["train_config"]["batch_size"],
-                    shuffle=None,
-                    pin_memory=True,
-                    num_workers=self.config["train_config"]["num_workers"],
-                    worker_init_fn=worker_init_fn,
-                    sampler=NEventsPerBatchDistributedSampler(self, dataset=dataset),
-                )
-            else:
-                return DataLoader(
-                    VastDBDataset(self, split="train", return_control_data_only=True),
-                    batch_size=self.config["train_config"]["batch_size"],
-                    shuffle=True,
-                    pin_memory=True,
-                    num_workers=self.config["train_config"]["num_workers"],
-                    worker_init_fn=worker_init_fn,
-                )
-        elif (
-            self.trainer.current_epoch < self.num_epochs_after_which_to_use_ranking_loss
-        ):
+        if self.trainer.current_epoch < self.num_epochs_after_which_to_use_ranking_loss:
             print(
                 f"Not using ranking loss in epoch {self.trainer.current_epoch} as it is before the specified epoch {self.num_epochs_after_which_to_use_ranking_loss}, a random sampler will be used"
             )
@@ -3478,34 +3417,14 @@ class VastDBData(LightningDataModule):
                 )
 
     def val_dataloader(self):
-        # if we are training on control data only, we only use the control data for validation
-        if (
-            self.trainer.current_epoch
-            < self.num_epochs_for_training_on_control_data_only
-        ):
-            print(
-                f"Training on control data only for {self.num_epochs_for_training_on_control_data_only} epochs, using control data for validation. Current epoch: {self.trainer.current_epoch}"
-            )
-            return DataLoader(
-                VastDBDataset(self, split="val", return_control_data_only=True),
-                batch_size=self.config["train_config"]["batch_size"],
-                shuffle=False,
-                pin_memory=True,
-                num_workers=self.config["train_config"]["num_workers"],
-                worker_init_fn=worker_init_fn,
-            )
-        else:
-            print(
-                f"In epoch {self.trainer.current_epoch}, using all data for validation"
-            )
-            return DataLoader(
-                VastDBDataset(self, split="val"),
-                batch_size=self.config["train_config"]["batch_size"],
-                shuffle=False,
-                pin_memory=True,
-                num_workers=self.config["train_config"]["num_workers"],
-                worker_init_fn=worker_init_fn,
-            )
+        return DataLoader(
+            VastDBDataset(self, split="val"),
+            batch_size=self.config["train_config"]["batch_size"],
+            shuffle=False,
+            pin_memory=True,
+            num_workers=self.config["train_config"]["num_workers"],
+            worker_init_fn=worker_init_fn,
+        )
 
     def test_dataloader(self):
         return DataLoader(

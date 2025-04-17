@@ -18,6 +18,7 @@ from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from splice_ninja.dataloaders.knockdown_data import KnockdownData
+from splice_ninja.dataloaders.VastDB_and_knockdown_data import VastDBData
 from splice_ninja.models.psi_predictor import PSIPredictor
 
 np.random.seed(0)
@@ -63,7 +64,17 @@ def main():
         config = json.load(f)
 
     # setup data module
-    data_module = KnockdownData(config)
+    if "dataset_name" not in config["data_config"]:
+        config["data_config"]["dataset_name"] = "KD"
+
+    if config["data_config"]["dataset_name"] == "VastDB+KD":
+        data_module = VastDBData(config)
+    elif config["data_config"]["dataset_name"] == "KD":
+        data_module = KnockdownData(config)
+    else:
+        raise ValueError(
+            f"Dataset name {config['data_config']['dataset_name']} not recognized."
+        )
     data_module.prepare_data()
     data_module.setup()
 

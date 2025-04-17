@@ -1197,6 +1197,13 @@ class PSIPredictor(LightningModule):
                         f"Average R2 score across events between predicted PSI and ground truth in different conditions (min 10 conditions): {avg_sample_wise_r2}"
                     )
 
+                    if "dataset_name" not in self.config["data_config"]:
+                        if self.config["data_config"]["dataset_name"] == "VastDB+KD":
+                            print(
+                                "Skipping the rest of the metrics for VastDB+KD dataset"
+                            )
+                            continue
+
                     # next, we compute a similar correlation as above but only using samples that deviate from the control sample by at least 0.15
                     # we want at least 10 samples to compute the correlation
                     sample_wise_spearmanR = []
