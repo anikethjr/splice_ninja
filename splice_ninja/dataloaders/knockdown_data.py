@@ -1535,6 +1535,7 @@ class KnockdownData(LightningDataModule):
                 for i in inclusion_levels_full.columns[6:-1]
                 if (i not in control_samples_psi_vals_columns)
             ]
+            assert "AV_Controls" in knockdown_samples_psi_vals_columns
 
             # create a column for the chromosome
             inclusion_levels_full["CHR"] = inclusion_levels_full["COORD"].apply(
@@ -1704,7 +1705,7 @@ class KnockdownData(LightningDataModule):
                     )
                 event_info["EVENT_TYPE"].append(event_type)
 
-                for psi_col in knockdown_samples_psi_vals_columns + ["AV_Controls"]:
+                for psi_col in knockdown_samples_psi_vals_columns:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
                         flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)

@@ -2058,6 +2058,7 @@ class VastDBData(LightningDataModule):
                 for i in inclusion_levels_full.columns[6:-1]
                 if (i not in control_samples_psi_vals_columns)
             ]
+            assert "AV_Controls" in knockdown_samples_psi_vals_columns
 
             # create a column for the chromosome
             inclusion_levels_full["CHR"] = inclusion_levels_full["COORD"].apply(
@@ -2366,7 +2367,7 @@ class VastDBData(LightningDataModule):
                 event_info["EVENT_TYPE"].append(event_type)
 
                 num_samples_knockdown_experiments = 0
-                for psi_col in knockdown_samples_psi_vals_columns + ["AV_Controls"]:
+                for psi_col in knockdown_samples_psi_vals_columns:
                     if not np.isnan(row[psi_col]):
                         flattened_inclusion_levels_full["EVENT"].append(row["EVENT"])
                         flattened_inclusion_levels_full["EVENT_TYPE"].append(event_type)
@@ -2403,8 +2404,8 @@ class VastDBData(LightningDataModule):
                 psi_vals = psi_vals[~np.isnan(psi_vals)]
                 event_info["NUM_SAMPLES_OBSERVED"].append(len(psi_vals))
                 assert len(psi_vals) == (
-                    num_samples_knockdown_experiments + num_samples_vastdb - 1
-                )  # -1 because the control sample is excluded from the count
+                    num_samples_knockdown_experiments + num_samples_vastdb
+                )
                 event_info["NUM_SAMPLES_OBSERVED_KNOCKDOWN_EXPERIMENTS"].append(
                     num_samples_knockdown_experiments
                 )
@@ -2749,6 +2750,7 @@ class VastDBData(LightningDataModule):
 
     def setup(self, stage: str = None):
         print("Loading filtered and flattened data from cache")
+        # load the normalized gene expression data and merge
         self.normalized_gene_expression_knockdown = pd.read_parquet(
             os.path.join(self.cache_dir, "normalized_gene_expression.parquet")
         )
@@ -2819,9 +2821,31 @@ class VastDBData(LightningDataModule):
                 f"Filtered event info data to only include event types {self.event_types_to_model} ({100 * len(self.event_info) / original_event_info_len:.2f}% of the original data)"
             )
 
-        self.splicing_factor_expression_levels = pd.read_parquet(
+        # load the splicing factor expression levels and merge
+        self.splicing_factor_expression_levels_knockdown = pd.read_parquet(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.parquet")
         )
+        self.splicing_factor_expression_levels_VastDB = pd.read_parquet(
+            os.path.join(
+                self.cache_dir,
+                "VastDB",
+                "hg38",
+                "splicing_factor_expression_levels.parquet",
+            )
+        )
+        self.splicing_factor_expression_levels = (
+            self.splicing_factor_expression_levels_knockdown.merge(
+                self.splicing_factor_expression_levels_VastDB,
+                on=["gene_id", "alias", "length"],
+                how="inner",
+                validate="1:1",
+            )
+        )
+        assert (
+            self.splicing_factor_expression_levels.shape[0]
+            == self.splicing_factor_expression_levels_knockdown.shape[0]
+            == self.splicing_factor_expression_levels_VastDB.shape[0]
+        ), "Mismatch in the number of splicing factors in the expression levels data"
         self.num_splicing_factors = self.splicing_factor_expression_levels.shape[0]
         self.has_gene_exp_values = True
 
