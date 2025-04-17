@@ -910,6 +910,10 @@ class PSIPredictor(LightningModule):
         )
         val_num_controls = torch.tensor(self.val_num_controls, dtype=torch.float32)
 
+        # convert all nans to -1
+        val_controls_avg_psi[val_controls_avg_psi.isnan()] = -1
+        val_num_controls[val_num_controls.isnan()] = -1
+
         # determine the max length across all processes
         local_size = val_pred_psi_vals.shape[0]
         all_sizes = self.all_gather(torch.tensor([local_size], device=self.device))
