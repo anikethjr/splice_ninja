@@ -1163,6 +1163,45 @@ class PSIPredictor(LightningModule):
                         ].reset_index(drop=True)
                         example_type_name = self.example_ind_to_type[example_type]
 
+                    # compute overall correlation metrics
+                    this_spearmanR = spearmanr(
+                        subset_df["psi_val"], subset_df["pred_psi_val"]
+                    )[0]
+                    this_pearsonR = pearsonr(
+                        subset_df["psi_val"], subset_df["pred_psi_val"]
+                    )[0]
+                    this_r2 = r2_score(subset_df["psi_val"], subset_df["pred_psi_val"])
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_spearmanR",
+                        this_spearmanR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_pearsonR",
+                        this_pearsonR,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    self.log(
+                        f"val/{event_type_name}_{example_type_name}_examples_r2",
+                        this_r2,
+                        on_step=False,
+                        on_epoch=True,
+                    )
+                    print(
+                        f"Overall SpearmanR between predicted PSI and ground truth: {this_spearmanR}"
+                    )
+                    print(
+                        f"Overall PearsonR between predicted PSI and ground truth: {this_pearsonR}"
+                    )
+                    print(
+                        f"Overall R2 score between predicted PSI and ground truth: {this_r2}"
+                    )
+                    print(
+                        f"Number of examples: {subset_df.shape[0]}, Number of events: {subset_df['event_id'].nunique()}"
+                    )
+
                     if self.reliant_on_controls:
                         # first compute the correlation between predicted and ground truth PSI values in the average control
                         # sample 0 is the control sample
