@@ -252,10 +252,28 @@ class KnockdownDataset(Dataset):
                         else:
                             # remove the middle portion of the intron
                             updated_genome_segments.append(
-                                (start, start + 500 - 1, "intron")
+                                (
+                                    start,
+                                    start
+                                    + (
+                                        self.data_module.segment_length_to_crop_to_if_needed
+                                        // 2
+                                    )
+                                    - 1,
+                                    "intron",
+                                )
                             )
                             updated_genome_segments.append(
-                                (end - 500 + 1, end, "intron")
+                                (
+                                    end
+                                    - (
+                                        self.data_module.segment_length_to_crop_to_if_needed
+                                        // 2
+                                    )
+                                    + 1,
+                                    end,
+                                    "intron",
+                                )
                             )
                     else:
                         updated_genome_segments.append(segment)
@@ -279,9 +297,29 @@ class KnockdownDataset(Dataset):
                         else:
                             # remove the middle portion of the exon
                             updated_genome_segments.append(
-                                (start, start + 500 - 1, "exon")
+                                (
+                                    start,
+                                    start
+                                    + (
+                                        self.data_module.segment_length_to_crop_to_if_needed
+                                        // 2
+                                    )
+                                    - 1,
+                                    "exon",
+                                )
                             )
-                            updated_genome_segments.append((end - 500 + 1, end, "exon"))
+                            updated_genome_segments.append(
+                                (
+                                    end
+                                    - (
+                                        self.data_module.segment_length_to_crop_to_if_needed
+                                        // 2
+                                    )
+                                    + 1,
+                                    end,
+                                    "exon",
+                                )
+                            )
                     else:
                         updated_genome_segments.append(segment)
                 cur_genome_segments = updated_genome_segments
@@ -304,10 +342,28 @@ class KnockdownDataset(Dataset):
                         else:
                             # remove the middle portion of the alternative exon
                             updated_genome_segments.append(
-                                (start, start + 500 - 1, "alt_exon")
+                                (
+                                    start,
+                                    start
+                                    + (
+                                        self.data_module.segment_length_to_crop_to_if_needed
+                                        // 2
+                                    )
+                                    - 1,
+                                    "alt_exon",
+                                )
                             )
                             updated_genome_segments.append(
-                                (end - 500 + 1, end, "alt_exon")
+                                (
+                                    end
+                                    - (
+                                        self.data_module.segment_length_to_crop_to_if_needed
+                                        // 2
+                                    )
+                                    + 1,
+                                    end,
+                                    "alt_exon",
+                                )
                             )
                     else:
                         updated_genome_segments.append(segment)
