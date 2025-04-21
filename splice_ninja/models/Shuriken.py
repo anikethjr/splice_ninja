@@ -221,7 +221,6 @@ class Shuriken(nn.Module):
             out_channels=256,
             kernel_size=1,
             stride=1,
-            padding="same",
             bias=True,
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
@@ -232,14 +231,14 @@ class Shuriken(nn.Module):
                 ResidualBlock(
                     in_channels=256,
                     out_channels=256,
-                    kernel_size=24,
+                    kernel_size=25,
                     dilation=1,
                 )
             )
         self.strided_conv1 = nn.Conv1d(
             in_channels=256,
             out_channels=512,
-            kernel_size=24,
+            kernel_size=25,
             stride=6,
             bias=True,
             dilation=1,
@@ -251,14 +250,14 @@ class Shuriken(nn.Module):
                 ResidualBlock(
                     in_channels=512,
                     out_channels=512,
-                    kernel_size=48,
+                    kernel_size=49,
                     dilation=1,
                 )
             )
         self.strided_conv2 = nn.Conv1d(
             in_channels=512,
             out_channels=1022,  # 1024 - 2 for the two masks
-            kernel_size=48,
+            kernel_size=49,
             stride=12,
             bias=True,
             dilation=1,
@@ -322,11 +321,11 @@ class Shuriken(nn.Module):
         x = self.conv1(x)  # (B, 256, 10000)
         for resblock in self.resblocks1:
             x = resblock(x)  # (B, 256, 10000)
-        x = self.strided_conv1(x)  # (B, 512, ~1667)
+        x = self.strided_conv1(x)  # (B, 512, 1663)
         for resblock in self.resblocks2:
             x = resblock(x)
-        x = self.strided_conv2(x)  # (B, 1022, ~139)
-        x = einops.rearrange(x, "b c t -> b t c")  # (B, 139, 1022)
+        x = self.strided_conv2(x)  # (B, 1022, 135)
+        x = einops.rearrange(x, "b c t -> b t c")  # (B, 135, 1022)
 
         # we also want to add the spliced_in and spliced_out masks to the input after pooling to match the length of the sequence
         spliced_in_mask = spliced_in_mask.permute(0, 2, 1)  # (B, 1, 10000)
@@ -334,17 +333,17 @@ class Shuriken(nn.Module):
         both_masks = torch.cat(
             [spliced_in_mask, spliced_out_mask], dim=1
         )  # (B, 2, 10000)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=24, stride=6)  # (B, 2, ~1667)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=48, stride=12)  # (B, 2, ~139)
-        both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 139, 2)
-        x = torch.cat([x, both_masks], dim=2)  # (B, 139, 1024)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=25, stride=6)  # (B, 2, 1663)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=49, stride=12)  # (B, 2, 135)
+        both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
+        x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
 
         # expand conditioning to match the input size to the transformer
         conditioning = self.condition_expansion(conditioning)  # (B, 1024)
         conditioning = conditioning.unsqueeze(1)  # (B, 1, 1024)
 
         # add condition as first token to the sequence
-        x = torch.cat([conditioning, x], dim=1)  # (B, 140, 1024)
+        x = torch.cat([conditioning, x], dim=1)  # (B, 136, 1024)
 
         for transformer_block in self.transformer_blocks:
             x = transformer_block(x)
