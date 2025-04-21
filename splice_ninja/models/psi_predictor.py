@@ -487,7 +487,7 @@ class AllExamplesPairwiseMSELossEventLevelRankingLossAndBCEWithLogitsLoss(nn.Mod
     def __init__(
         self,
         dPSI_threshold,
-        mse_loss_weight_multiplier=0.01,
+        mse_loss_weight_multiplier=1,
         margin=0,
         ranking_loss_weight_multiplier=1,
     ):
