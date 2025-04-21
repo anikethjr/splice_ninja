@@ -373,13 +373,17 @@ class PairwiseMSELossAndBiasedBCEWithLogitsLoss(nn.Module):
         # Compute pairwise MSE loss efficiently
         # first, the ground truth PSI values need to be converted to logits
         # as the model outputs logits
+        ori_psi_val = psi_val
         psi_val = torch.special.logit(psi_val, eps=1e-7)
         # Compute pairwise differences for samples from the same event
         pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
         true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
-        pred_diff = pred_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
-        true_diff = true_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
-        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+        ori_true_diff = ori_psi_val.unsqueeze(1) - ori_psi_val.unsqueeze(0)
+        mask = event_id.unsqueeze(1) == event_id.unsqueeze(0)
+        pred_diff = pred_diff[mask]
+        true_diff = true_diff[mask]
+        ori_true_diff = ori_true_diff[mask]
+        valid_pairs = torch.abs(ori_true_diff) >= self.dPSI_threshold
 
         pred_diff = pred_diff[valid_pairs]
         true_diff = true_diff[valid_pairs]
@@ -413,13 +417,17 @@ class PairwiseMSELossAndBCEWithLogitsLoss(nn.Module):
         # Compute pairwise MSE loss efficiently
         # first, the ground truth PSI values need to be converted to logits
         # as the model outputs logits
+        ori_psi_val = psi_val
         psi_val = torch.special.logit(psi_val, eps=1e-7)
         # Compute pairwise differences for samples from the same event
         pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
         true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
-        pred_diff = pred_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
-        true_diff = true_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
-        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+        ori_true_diff = ori_psi_val.unsqueeze(1) - ori_psi_val.unsqueeze(0)
+        mask = event_id.unsqueeze(1) == event_id.unsqueeze(0)
+        pred_diff = pred_diff[mask]
+        true_diff = true_diff[mask]
+        ori_true_diff = ori_true_diff[mask]
+        valid_pairs = torch.abs(ori_true_diff) >= self.dPSI_threshold
 
         pred_diff = pred_diff[valid_pairs]
         true_diff = true_diff[valid_pairs]
@@ -451,14 +459,17 @@ class AllExamplesPairwiseMSELossAndBCEWithLogitsLoss(nn.Module):
         # Compute pairwise MSE loss efficiently
         # first, the ground truth PSI values need to be converted to logits
         # as the model outputs logits
+        ori_psi_val = psi_val
         psi_val = torch.special.logit(psi_val, eps=1e-7)
         pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
         true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+        ori_true_diff = ori_psi_val.unsqueeze(1) - ori_psi_val.unsqueeze(0)
 
         # Keep significant pairs
         pred_diff = pred_diff.flatten()
         true_diff = true_diff.flatten()
-        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+        ori_true_diff = ori_true_diff.flatten()
+        valid_pairs = torch.abs(ori_true_diff) >= self.dPSI_threshold
         pred_diff = pred_diff[valid_pairs]
         true_diff = true_diff[valid_pairs]
 
@@ -476,7 +487,7 @@ class AllExamplesPairwiseMSELossEventLevelRankingLossAndBCEWithLogitsLoss(nn.Mod
     def __init__(
         self,
         dPSI_threshold,
-        mse_loss_weight_multiplier=1,
+        mse_loss_weight_multiplier=0.01,
         margin=0,
         ranking_loss_weight_multiplier=1,
     ):
@@ -504,29 +515,27 @@ class AllExamplesPairwiseMSELossEventLevelRankingLossAndBCEWithLogitsLoss(nn.Mod
         psi_val = torch.special.logit(psi_val, eps=1e-7)
         pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
         true_diff = psi_val.unsqueeze(1) - psi_val.unsqueeze(0)
+        ori_true_diff = ori_psi_val.unsqueeze(1) - ori_psi_val.unsqueeze(0)
 
         # Keep significant pairs
-        pred_diff = pred_diff.flatten()
-        true_diff = true_diff.flatten()
-        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
-        pred_diff = pred_diff[valid_pairs]
-        true_diff = true_diff[valid_pairs]
+        valid_pairs = torch.abs(ori_true_diff) >= self.dPSI_threshold
 
         # Apply MSE loss
         if valid_pairs.any():
             pairwise_mse_loss = (
-                F.mse_loss(pred_diff, true_diff) * self.mse_loss_weight_multiplier
+                F.mse_loss(pred_diff[valid_pairs], true_diff[valid_pairs])
+                * self.mse_loss_weight_multiplier
             )
             loss += pairwise_mse_loss
 
         # Compute ranking loss efficiently
         # Compute pairwise differences for samples from the same event
-        pred_diff = pred_psi_val.unsqueeze(1) - pred_psi_val.unsqueeze(0)
-        true_diff = ori_psi_val.unsqueeze(1) - ori_psi_val.unsqueeze(0)
-        pred_diff = pred_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
-        true_diff = true_diff[event_id.unsqueeze(1) == event_id.unsqueeze(0)]
-        ranking_labels = torch.sign(true_diff)
-        valid_pairs = torch.abs(true_diff) >= self.dPSI_threshold
+        mask = event_id.unsqueeze(1) == event_id.unsqueeze(0)
+        pred_diff = pred_diff[mask]
+        true_diff = true_diff[mask]
+        ori_true_diff = ori_true_diff[mask]
+        ranking_labels = torch.sign(ori_true_diff)
+        valid_pairs = torch.abs(ori_true_diff) >= self.dPSI_threshold
         pred_diff = pred_diff[valid_pairs]
         ranking_labels = ranking_labels[valid_pairs]
 
@@ -541,7 +550,7 @@ class AllExamplesPairwiseMSELossEventLevelRankingLossAndBCEWithLogitsLoss(nn.Mod
             )
             loss += (
                 event_ranking_loss
-                * torch.abs(true_diff[valid_pairs])
+                * torch.abs(ori_true_diff[valid_pairs])
                 * self.ranking_loss_weight_multiplier
             ).mean()
 
