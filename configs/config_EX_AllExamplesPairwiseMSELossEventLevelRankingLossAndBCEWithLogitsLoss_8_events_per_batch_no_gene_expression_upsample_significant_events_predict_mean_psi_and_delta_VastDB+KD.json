@@ -469,14 +469,14 @@
         "val_chromosomes": ["chr8", "chr10", "chr17", "chr22"],
         "test_chromosomes": ["chr1", "chr3", "chr5", "chr7", "chr9"],
         "model_name": "SpliceAI10k",
-        "loss_fn": "RankingAndBCEWithLogitsLossEventLevelRankingOnly",
-        "upsample_significant_events": false,
+        "loss_fn": "AllExamplesPairwiseMSELossEventLevelRankingLossAndBCEWithLogitsLoss",
+        "upsample_significant_events": true,
         "N_events_per_batch": 8,
         "optimizer": "AdamW",
         "use_shifts_during_training": false,
         "shift_max": 100,
-        "learning_rate": 0.0001,
-        "weight_decay": 0.0001,
+        "learning_rate": 0.001,
+        "weight_decay": 0.00001,
         "num_epochs_for_training_on_control_data_only": 0,
         "dPSI_threshold_for_significance": 0.15,
         "max_epochs": 100,
@@ -493,6 +493,6 @@
         "wandb_team": "promoter_design",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
-        "run_name": "SpliceAI10k_EX_bs=192x8_lr=0.0001_wd=0.0001_RankingAndBCEWithLogitsLossEventLevelRankingOnly_8_events_per_batch_no_gene_expression_predict_mean_psi_and_delta_VastDB+KD"
+        "run_name": "SpliceAI10k_EX_bs=192x8_lr=0.001_wd=0.00001_AllExamplesPairwiseMSELossEventLevelRankingLossAndBCEWithLogitsLoss_8_events_per_batch_no_gene_expression_upsample_significant_events_predict_mean_psi_and_delta_VastDB+KD"
     }
 }
