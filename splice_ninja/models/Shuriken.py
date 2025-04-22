@@ -215,7 +215,7 @@ class Shuriken(nn.Module):
 
         self.condition_dropout = nn.Dropout(0.1)
 
-        self.condition_expansion1 = nn.Linear(self.conditioning_dim, 16)
+        self.condition_expansion1 = nn.Linear(self.conditioning_dim, 6)
         self.transformer_blocks1 = nn.ModuleList()
         for i in range(6):
             self.transformer_blocks1.append(
