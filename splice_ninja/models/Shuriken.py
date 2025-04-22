@@ -224,41 +224,40 @@ class Shuriken(nn.Module):
             bias=True,
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
-
         self.resblocks1 = nn.ModuleList()
-        for i in range(2):
+        for i in range(4):
             self.resblocks1.append(
                 ResidualBlock(
                     in_channels=32,
                     out_channels=32,
-                    kernel_size=12,
-                    dilation=2,
+                    kernel_size=15,
+                    dilation=1,
                 )
             )
         self.strided_conv1 = nn.Conv1d(
             in_channels=32,
             out_channels=64,
-            kernel_size=12,
-            stride=6,
+            kernel_size=15,
+            stride=3,
             bias=True,
             dilation=1,
         )
 
         self.resblocks2 = nn.ModuleList()
-        for i in range(2):
+        for i in range(4):
             self.resblocks2.append(
                 ResidualBlock(
                     in_channels=64,
                     out_channels=64,
-                    kernel_size=24,
+                    kernel_size=25,
                     dilation=4,
                 )
             )
         self.strided_conv2 = nn.Conv1d(
             in_channels=64,
             out_channels=126,  # 126 - 2 for the two masks
-            kernel_size=24,
-            stride=12,
+            kernel_size=25,
+            stride=3,
             bias=True,
             dilation=1,
         )
@@ -322,9 +321,11 @@ class Shuriken(nn.Module):
         for resblock in self.resblocks1:
             x = resblock(x)  # (B, 256, 10000)
         x = self.strided_conv1(x)  # (B, 512, 1663)
+
         for resblock in self.resblocks2:
             x = resblock(x)
         x = self.strided_conv2(x)  # (B, 1022, 135)
+
         x = einops.rearrange(x, "b c t -> b t c")  # (B, 135, 1022)
 
         # we also want to add the spliced_in and spliced_out masks to the input after pooling to match the length of the sequence
@@ -333,8 +334,8 @@ class Shuriken(nn.Module):
         both_masks = torch.cat(
             [spliced_in_mask, spliced_out_mask], dim=1
         )  # (B, 2, 10000)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=12, stride=6)  # (B, 2, 1663)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=24, stride=12)  # (B, 2, 135)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=15, stride=3)  # (B, 2, 1663)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=25, stride=3)  # (B, 2, 135)
         both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
         x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
 

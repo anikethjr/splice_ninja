@@ -1350,9 +1350,10 @@ class PSIPredictor(LightningModule):
                     sample_wise_r2 = []
                     for event_id in tqdm(sample_counts):
                         event_df = subset_df[subset_df["event_id"] == event_id]
-                        std_across_samples.append(
-                            np.std(event_df["psi_val"].values, ddof=1)
-                        )
+                        std = np.std(event_df["psi_val"].values, ddof=1)
+                        if std == 0:
+                            continue
+                        std_across_samples.append(std)
                         spearmanR = np.nan_to_num(
                             spearmanr(event_df["psi_val"], event_df["pred_psi_val"])[0]
                         )
