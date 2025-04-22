@@ -220,16 +220,16 @@ class Shuriken(nn.Module):
         for i in range(6):
             self.transformer_blocks1.append(
                 TransformerBlock(
-                    d_model=16,
-                    nhead=8,
-                    mlp_dim=64,
+                    d_model=6,
+                    nhead=2,
+                    mlp_dim=12,
                     dropout=0.1,
                     use_position_embedding=True,
                 )
             )
 
         self.strided_conv1 = nn.Conv1d(
-            in_channels=16,
+            in_channels=8,
             out_channels=128,
             kernel_size=128,
             stride=128,
@@ -288,8 +288,8 @@ class Shuriken(nn.Module):
             conditioning = conditioning[0].float()
 
         # expand conditioning to match the input size to the transformer
-        conditioning = self.condition_expansion1(conditioning)  # (B, 16)
-        conditioning = conditioning.unsqueeze(1)  # (B, 1, 16)
+        conditioning = self.condition_expansion1(conditioning)  # (B, 6)
+        conditioning = conditioning.unsqueeze(1)  # (B, 1, 6)
 
         # add condition as first token to the sequence
         x = torch.cat([conditioning, x], dim=1)  # (B, 10001, 6)
@@ -298,8 +298,17 @@ class Shuriken(nn.Module):
             x = transformer_block(x)
 
         # strided conv
-        x = x[:, 1:, :]  # (B, 10000, 16) - remove the condition token
-        x = einops.rearrange(x, "b s d -> b d s")  # (B, 16, 10000)
+        x = x[:, 1:, :]  # (B, 10000, 6) - remove the condition token
+        # add back the spliced_in and spliced_out masks
+        x = torch.cat(
+            [
+                x,
+                spliced_in_mask,
+                spliced_out_mask,
+            ],
+            dim=2,
+        )  # (B, 10000, 8)
+        x = einops.rearrange(x, "b s d -> b d s")  # (B, 8, 10000)
         x = self.strided_conv1(x)  # (B, 128, 78)
         x = einops.rearrange(x, "b d s -> b s d")  # (B, 128, 78)
 
