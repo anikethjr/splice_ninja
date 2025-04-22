@@ -218,25 +218,25 @@ class Shuriken(nn.Module):
         # Convolutional layers
         self.conv1 = nn.Conv1d(
             in_channels=6,
-            out_channels=32,
+            out_channels=128,
             kernel_size=1,
             stride=1,
             bias=True,
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
         self.resblocks1 = nn.ModuleList()
-        for i in range(4):
+        for i in range(2):
             self.resblocks1.append(
                 ResidualBlock(
-                    in_channels=32,
-                    out_channels=32,
+                    in_channels=128,
+                    out_channels=128,
                     kernel_size=15,
                     dilation=1,
                 )
             )
         self.strided_conv1 = nn.Conv1d(
-            in_channels=32,
-            out_channels=64,
+            in_channels=128,
+            out_channels=256,
             kernel_size=15,
             stride=3,
             bias=True,
@@ -244,18 +244,18 @@ class Shuriken(nn.Module):
         )
 
         self.resblocks2 = nn.ModuleList()
-        for i in range(4):
+        for i in range(2):
             self.resblocks2.append(
                 ResidualBlock(
-                    in_channels=64,
-                    out_channels=64,
+                    in_channels=256,
+                    out_channels=256,
                     kernel_size=25,
                     dilation=4,
                 )
             )
         self.strided_conv2 = nn.Conv1d(
-            in_channels=64,
-            out_channels=126,  # 126 - 2 for the two masks
+            in_channels=256,
+            out_channels=510,  # 126 - 2 for the two masks
             kernel_size=25,
             stride=3,
             bias=True,
@@ -263,14 +263,14 @@ class Shuriken(nn.Module):
         )
 
         # Transformer layers
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 128)
+        self.condition_expansion = nn.Linear(self.conditioning_dim, 512)
         self.transformer_blocks = nn.ModuleList()
         for i in range(4):
             self.transformer_blocks.append(
                 TransformerBlock(
-                    d_model=128,
+                    d_model=512,
                     nhead=8,
-                    mlp_dim=512,
+                    mlp_dim=2048,
                     dropout=0.1,
                     use_position_embedding=True,
                 )
@@ -278,12 +278,12 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(128, 2)
+            self.mean_std_output_layer = nn.Linear(512, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(128, 1)
+            self.mean_output_layer = nn.Linear(512, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(128, 1)
-        self.output_layer = nn.Linear(128, 1)
+            self.controls_avg_output_layer = nn.Linear(512, 1)
+        self.output_layer = nn.Linear(512, 1)
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
