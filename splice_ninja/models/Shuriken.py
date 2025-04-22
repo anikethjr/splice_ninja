@@ -289,7 +289,8 @@ class Shuriken(nn.Module):
             conditioning = conditioning[0].float()
 
         # expand conditioning to match the input size to the transformer
-        conditioning = self.condition_expansion1(conditioning)  # (B, 6)
+        ori_conditioning = conditioning
+        conditioning = self.condition_expansion1(ori_conditioning)  # (B, 6)
         conditioning = conditioning.unsqueeze(1)  # (B, 1, 6)
 
         # add condition as first token to the sequence
@@ -314,7 +315,7 @@ class Shuriken(nn.Module):
         x = einops.rearrange(x, "b d s -> b s d")  # (B, 128, 78)
 
         # add condition as first token to the sequence
-        conditioning = self.condition_expansion2(conditioning)  # (B, 128)
+        conditioning = self.condition_expansion2(ori_conditioning)  # (B, 128)
         conditioning = conditioning.unsqueeze(1)  # (B, 1, 128)
         x = torch.cat([conditioning, x], dim=1)  # (B, 79, 128)
 
