@@ -7,6 +7,7 @@ import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.attention.flex_attention import flex_attention
 
 import einops
 from rotary_embedding_torch import RotaryEmbedding
