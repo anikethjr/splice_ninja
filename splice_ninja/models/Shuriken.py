@@ -218,7 +218,7 @@ class Shuriken(nn.Module):
         # Convolutional layers
         self.conv1 = nn.Conv1d(
             in_channels=6,
-            out_channels=256,
+            out_channels=32,
             kernel_size=1,
             stride=1,
             bias=True,
@@ -226,52 +226,52 @@ class Shuriken(nn.Module):
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
 
         self.resblocks1 = nn.ModuleList()
-        for i in range(4):
+        for i in range(2):
             self.resblocks1.append(
                 ResidualBlock(
-                    in_channels=256,
-                    out_channels=256,
-                    kernel_size=25,
-                    dilation=1,
+                    in_channels=32,
+                    out_channels=32,
+                    kernel_size=12,
+                    dilation=2,
                 )
             )
         self.strided_conv1 = nn.Conv1d(
-            in_channels=256,
-            out_channels=512,
-            kernel_size=25,
+            in_channels=32,
+            out_channels=64,
+            kernel_size=12,
             stride=6,
             bias=True,
             dilation=1,
         )
 
         self.resblocks2 = nn.ModuleList()
-        for i in range(4):
+        for i in range(2):
             self.resblocks2.append(
                 ResidualBlock(
-                    in_channels=512,
-                    out_channels=512,
-                    kernel_size=49,
-                    dilation=1,
+                    in_channels=64,
+                    out_channels=64,
+                    kernel_size=24,
+                    dilation=4,
                 )
             )
         self.strided_conv2 = nn.Conv1d(
-            in_channels=512,
-            out_channels=1022,  # 1024 - 2 for the two masks
-            kernel_size=49,
+            in_channels=64,
+            out_channels=126,  # 126 - 2 for the two masks
+            kernel_size=24,
             stride=12,
             bias=True,
             dilation=1,
         )
 
         # Transformer layers
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 1024)
+        self.condition_expansion = nn.Linear(self.conditioning_dim, 128)
         self.transformer_blocks = nn.ModuleList()
         for i in range(4):
             self.transformer_blocks.append(
                 TransformerBlock(
-                    d_model=1024,
+                    d_model=128,
                     nhead=8,
-                    mlp_dim=4096,
+                    mlp_dim=512,
                     dropout=0.1,
                     use_position_embedding=True,
                 )
@@ -279,12 +279,12 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(1024, 2)
+            self.mean_std_output_layer = nn.Linear(128, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(1024, 1)
+            self.mean_output_layer = nn.Linear(128, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(1024, 1)
-        self.output_layer = nn.Linear(1024, 1)
+            self.controls_avg_output_layer = nn.Linear(128, 1)
+        self.output_layer = nn.Linear(128, 1)
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
@@ -333,8 +333,8 @@ class Shuriken(nn.Module):
         both_masks = torch.cat(
             [spliced_in_mask, spliced_out_mask], dim=1
         )  # (B, 2, 10000)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=25, stride=6)  # (B, 2, 1663)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=49, stride=12)  # (B, 2, 135)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=12, stride=6)  # (B, 2, 1663)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=24, stride=12)  # (B, 2, 135)
         both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
         x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
 
