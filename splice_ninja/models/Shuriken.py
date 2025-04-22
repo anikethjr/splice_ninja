@@ -215,62 +215,34 @@ class Shuriken(nn.Module):
 
         self.condition_dropout = nn.Dropout(0.1)
 
-        # Convolutional layers
-        self.conv1 = nn.Conv1d(
-            in_channels=6,
-            out_channels=128,
-            kernel_size=1,
-            stride=1,
-            bias=True,
-            dilation=1,
-        )  # 4 for one-hot encoding of DNA sequence, 2 for masks
-        self.resblocks1 = nn.ModuleList()
-        for i in range(2):
-            self.resblocks1.append(
-                ResidualBlock(
-                    in_channels=128,
-                    out_channels=128,
-                    kernel_size=15,
-                    dilation=1,
-                )
-            )
-        self.strided_conv1 = nn.Conv1d(
-            in_channels=128,
-            out_channels=256,
-            kernel_size=15,
-            stride=3,
-            bias=True,
-            dilation=1,
-        )
-
-        self.resblocks2 = nn.ModuleList()
-        for i in range(2):
-            self.resblocks2.append(
-                ResidualBlock(
-                    in_channels=256,
-                    out_channels=256,
-                    kernel_size=25,
-                    dilation=4,
-                )
-            )
-        self.strided_conv2 = nn.Conv1d(
-            in_channels=256,
-            out_channels=510,  # 126 - 2 for the two masks
-            kernel_size=25,
-            stride=3,
-            bias=True,
-            dilation=1,
-        )
-
-        # Transformer layers
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 512)
-        self.transformer_blocks = nn.ModuleList()
-        for i in range(4):
-            self.transformer_blocks.append(
+        self.condition_expansion1 = nn.Linear(self.conditioning_dim, 16)
+        self.transformer_blocks1 = nn.ModuleList()
+        for i in range(6):
+            self.transformer_blocks1.append(
                 TransformerBlock(
-                    d_model=512,
+                    d_model=16,
                     nhead=8,
-                    mlp_dim=2048,
+                    mlp_dim=64,
+                    dropout=0.1,
+                    use_position_embedding=True,
+                )
+            )
+
+        self.strided_conv1 = nn.Conv1d(
+            in_channels=16,
+            out_channels=128,
+            kernel_size=128,
+            stride=128,
+        )
+
+        self.condition_expansion2 = nn.Linear(self.conditioning_dim, 128)
+        self.transformer_blocks2 = nn.ModuleList()
+        for i in range(6):
+            self.transformer_blocks2.append(
+                TransformerBlock(
+                    d_model=128,
+                    nhead=8,
+                    mlp_dim=512,
                     dropout=0.1,
                     use_position_embedding=True,
                 )
@@ -278,12 +250,12 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(512, 2)
+            self.mean_std_output_layer = nn.Linear(128, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(512, 1)
+            self.mean_output_layer = nn.Linear(128, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(512, 1)
-        self.output_layer = nn.Linear(512, 1)
+            self.controls_avg_output_layer = nn.Linear(128, 1)
+        self.output_layer = nn.Linear(128, 1)
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
@@ -302,7 +274,6 @@ class Shuriken(nn.Module):
         x = torch.cat(
             [sequence, spliced_in_mask, spliced_out_mask], dim=2
         )  # (B, 10000, 6)
-        x = x.permute(0, 2, 1)  # (B, 6, 10000)
 
         gene_exp = gene_exp.unsqueeze(-1)  # (B, 1)
         conditioning = []
@@ -316,41 +287,31 @@ class Shuriken(nn.Module):
         else:
             conditioning = conditioning[0].float()
 
-        # put sequence through the convolutional layers
-        x = self.conv1(x)  # (B, 256, 10000)
-        for resblock in self.resblocks1:
-            x = resblock(x)  # (B, 256, 10000)
-        x = self.strided_conv1(x)  # (B, 512, 1663)
-
-        for resblock in self.resblocks2:
-            x = resblock(x)
-        x = self.strided_conv2(x)  # (B, 1022, 135)
-
-        x = einops.rearrange(x, "b c t -> b t c")  # (B, 135, 1022)
-
-        # we also want to add the spliced_in and spliced_out masks to the input after pooling to match the length of the sequence
-        spliced_in_mask = spliced_in_mask.permute(0, 2, 1)  # (B, 1, 10000)
-        spliced_out_mask = spliced_out_mask.permute(0, 2, 1)  # (B, 1, 10000)
-        both_masks = torch.cat(
-            [spliced_in_mask, spliced_out_mask], dim=1
-        )  # (B, 2, 10000)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=15, stride=3)  # (B, 2, 1663)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=25, stride=3)  # (B, 2, 135)
-        both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
-        x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
-
         # expand conditioning to match the input size to the transformer
-        conditioning = self.condition_expansion(conditioning)  # (B, 1024)
-        conditioning = conditioning.unsqueeze(1)  # (B, 1, 1024)
+        conditioning = self.condition_expansion1(conditioning)  # (B, 16)
+        conditioning = conditioning.unsqueeze(1)  # (B, 1, 16)
 
         # add condition as first token to the sequence
-        x = torch.cat([conditioning, x], dim=1)  # (B, 136, 1024)
+        x = torch.cat([conditioning, x], dim=1)  # (B, 10001, 6)
 
-        for transformer_block in self.transformer_blocks:
+        for transformer_block in self.transformer_blocks1:
             x = transformer_block(x)
-        x = x[
-            :, 0, :
-        ]  # (B, 1024) - take the first token as the output of the transformer
+
+        # strided conv
+        x = x[:, 1:, :]  # (B, 10000, 16) - remove the condition token
+        x = einops.rearrange(x, "b s d -> b d s")  # (B, 16, 10000)
+        x = self.strided_conv1(x)  # (B, 128, 78)
+        x = einops.rearrange(x, "b d s -> b s d")  # (B, 128, 78)
+
+        # add condition as first token to the sequence
+        conditioning = self.condition_expansion2(conditioning)  # (B, 128)
+        conditioning = conditioning.unsqueeze(1)  # (B, 1, 128)
+        x = torch.cat([conditioning, x], dim=1)  # (B, 79, 128)
+
+        for transformer_block in self.transformer_blocks2:
+            x = transformer_block(x)
+
+        x = x[:, 0]  # (B, 128) - take the first token as the output
 
         # make the final prediction
         if self.predict_mean_std_psi_and_delta:
