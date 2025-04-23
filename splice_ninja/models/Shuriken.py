@@ -311,8 +311,7 @@ class Shuriken(nn.Module):
         both_masks = torch.cat(
             [spliced_in_mask, spliced_out_mask], dim=1
         )  # (B, 2, 10000)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=15, stride=3)  # (B, 2, 1663)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=25, stride=3)  # (B, 2, 135)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=15, stride=8)  # (B, 2, 1663)
         both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
         x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
 
