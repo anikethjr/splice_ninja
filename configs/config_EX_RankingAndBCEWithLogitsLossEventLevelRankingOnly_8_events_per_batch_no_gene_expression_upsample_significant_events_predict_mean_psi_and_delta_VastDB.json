@@ -2,7 +2,7 @@
     "data_config": {
         "data_dir": "/clusterfs/nilah/aniketh/splice_ninja/input_data/",
         "cache_dir": "/clusterfs/nilah/aniketh/splice_ninja/cache/",
-        "min_VastDB_samples_for_event_to_be_considered": 10,
+        "min_samples_for_event_to_be_considered": 10,
         "dataset_name": "VastDB"
     },
     "train_config": {
