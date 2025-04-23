@@ -324,6 +324,9 @@ class NEventsPerBatchDistributedSampler(
         num_batches_so_far = 0
         total_num_batches = self.length // self.batch_size
 
+        # shuffle the events
+        self.this_rank_data = self.this_rank_data.sample(frac=1)
+
         # resample events uniformly in the [0, 1]
         if (self.epoch < self.num_epochs_for_training_on_control_data_only) or (
             self.epoch < self.num_epochs_after_which_to_use_ranking_loss
@@ -409,6 +412,7 @@ class NEventsPerBatchDistributedSampler(
 
             return iter(resampled_value_indices)
 
+        # then group by event
         self.grouped_rank_data = self.this_rank_data.groupby("EVENT", sort=False)
         assert len(self.grouped_rank_data) == len(
             self.event_ids
