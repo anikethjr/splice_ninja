@@ -1244,7 +1244,8 @@ class VastDBData(LightningDataModule):
 
             # iterate over each row in the data and populate the flattened data and event information
             for i, row in tqdm(
-                inclusion_levels_full.iterrows(), total=inclusion_levels_full.shape[0]
+                inclusion_levels_full_VastDB.iterrows(),
+                total=inclusion_levels_full_VastDB.shape[0],
             ):
                 # VAST-DB event ID. Formed by:
                 # - Species identifier: Hsa (Human), Mmu (Mouse), or Gga (Chicken);
