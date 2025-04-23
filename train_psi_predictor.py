@@ -18,7 +18,8 @@ from lightning.pytorch.callbacks.model_checkpoint import ModelCheckpoint
 from lightning.pytorch.loggers import WandbLogger
 
 from splice_ninja.dataloaders.knockdown_data import KnockdownData
-from splice_ninja.dataloaders.VastDB_and_knockdown_data import VastDBData
+from splice_ninja.dataloaders.VastDB_data import VastDBData
+from splice_ninja.dataloaders.VastDB_and_knockdown_data import VastDBAndKnockdownData
 from splice_ninja.models.psi_predictor import PSIPredictor
 
 np.random.seed(0)
@@ -68,6 +69,8 @@ def main():
         config["data_config"]["dataset_name"] = "KD"
 
     if config["data_config"]["dataset_name"] == "VastDB+KD":
+        data_module = VastDBAndKnockdownData(config)
+    elif config["data_config"]["dataset_name"] == "VastDB":
         data_module = VastDBData(config)
     elif config["data_config"]["dataset_name"] == "KD":
         data_module = KnockdownData(config)
@@ -181,7 +184,7 @@ def main():
             # checkpointing_cb,
             # early_stopping_cb,
         ],
-        precision="16-mixed",
+        precision="32-true",
         strategy="ddp",
         reload_dataloaders_every_n_epochs=1,
     )

@@ -220,9 +220,11 @@ class NEventsPerBatchDistributedSampler(
             self.reliant_on_controls = True
         elif self.data_module.config["data_config"]["dataset_name"] == "VastDB+KD":
             self.reliant_on_controls = False
+        elif self.data_module.config["data_config"]["dataset_name"] == "VastDB":
+            self.reliant_on_controls = False
         else:
             raise ValueError(
-                f"Data module {data_module} not recognized, should be either KnockdownData or VastDBData"
+                f"Data module {data_module} not recognized, should be either KnockdownData, VastDBData, or VastDBAndKnockdownData"
             )
         self.dataset = dataset
         self.split = split

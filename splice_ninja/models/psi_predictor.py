@@ -807,6 +807,8 @@ class PSIPredictor(LightningModule):
             self.reliant_on_controls = True
         elif self.config["data_config"]["dataset_name"] == "VastDB+KD":
             self.reliant_on_controls = False
+        elif self.config["data_config"]["dataset_name"] == "VastDB":
+            self.reliant_on_controls = False
 
     def configure_optimizers(self):
         optimizer = self.name_to_optimizer[self.optimizer_name](
@@ -1404,7 +1406,9 @@ class PSIPredictor(LightningModule):
                     )
 
                     if not self.reliant_on_controls:
-                        print("Skipping the rest of the metrics for VastDB+KD dataset")
+                        print(
+                            "Skipping the rest of the metrics for VastDB/VastDB+KD dataset"
+                        )
                         continue
 
                     # next, we compute a similar correlation as above but only using samples that deviate from the control sample by at least 0.15
