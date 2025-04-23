@@ -2,8 +2,8 @@
     "data_config": {
         "data_dir": "/clusterfs/nilah/aniketh/splice_ninja/input_data/",
         "cache_dir": "/clusterfs/nilah/aniketh/splice_ninja/cache/",
-        "min_samples_for_event_to_be_considered": 100,
-        "dataset_name": "VastDB+KD"
+        "min_samples_for_event_to_be_considered": 10,
+        "dataset_name": "VastDB"
     },
     "train_config": {
         "seed": 97,
@@ -493,6 +493,6 @@
         "wandb_team": "promoter_design",
         "wandb_project": "splice_ninja",
         "saved_models_dir": "/global/scratch/users/aniketh/splice_ninja/saved_models/",
-        "run_name": "ShurikenV4_EX_bs=48x6_lr=0.0001_wd=0.0001_RankingAndBCEWithLogitsLossEventLevelRankingOnly_8_events_per_batch_no_gene_expression_upsample_significant_events_predict_mean_psi_and_delta_VastDB+KD"
+        "run_name": "ShurikenV4_EX_bs=48x6_lr=0.0001_wd=0.0001_RankingAndBCEWithLogitsLossEventLevelRankingOnly_8_events_per_batch_no_gene_expression_upsample_significant_events_predict_mean_psi_and_delta_VastDB"
     }
 }

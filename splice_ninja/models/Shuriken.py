@@ -236,41 +236,22 @@ class Shuriken(nn.Module):
             )
         self.strided_conv1 = nn.Conv1d(
             in_channels=128,
-            out_channels=256,
+            out_channels=126,
             kernel_size=15,
-            stride=3,
-            bias=True,
-            dilation=1,
-        )
-
-        self.resblocks2 = nn.ModuleList()
-        for i in range(2):
-            self.resblocks2.append(
-                ResidualBlock(
-                    in_channels=256,
-                    out_channels=256,
-                    kernel_size=25,
-                    dilation=4,
-                )
-            )
-        self.strided_conv2 = nn.Conv1d(
-            in_channels=256,
-            out_channels=510,  # 126 - 2 for the two masks
-            kernel_size=25,
-            stride=3,
+            stride=8,
             bias=True,
             dilation=1,
         )
 
         # Transformer layers
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 512)
+        self.condition_expansion = nn.Linear(self.conditioning_dim, 128)
         self.transformer_blocks = nn.ModuleList()
         for i in range(4):
             self.transformer_blocks.append(
                 TransformerBlock(
-                    d_model=512,
+                    d_model=128,
                     nhead=8,
-                    mlp_dim=2048,
+                    mlp_dim=512,
                     dropout=0.1,
                     use_position_embedding=True,
                 )
@@ -278,12 +259,12 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(512, 2)
+            self.mean_std_output_layer = nn.Linear(128, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(512, 1)
+            self.mean_output_layer = nn.Linear(128, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(512, 1)
-        self.output_layer = nn.Linear(512, 1)
+            self.controls_avg_output_layer = nn.Linear(128, 1)
+        self.output_layer = nn.Linear(128, 1)
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
@@ -317,14 +298,10 @@ class Shuriken(nn.Module):
             conditioning = conditioning[0].float()
 
         # put sequence through the convolutional layers
-        x = self.conv1(x)  # (B, 256, 10000)
+        x = self.conv1(x)  # (B, 128, 10000)
         for resblock in self.resblocks1:
             x = resblock(x)  # (B, 256, 10000)
-        x = self.strided_conv1(x)  # (B, 512, 1663)
-
-        for resblock in self.resblocks2:
-            x = resblock(x)
-        x = self.strided_conv2(x)  # (B, 1022, 135)
+        x = self.strided_conv1(x)  # (B, 512, 1111)
 
         x = einops.rearrange(x, "b c t -> b t c")  # (B, 135, 1022)
 
