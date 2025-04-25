@@ -218,24 +218,24 @@ class Shuriken(nn.Module):
         # Convolutional layers
         self.conv1 = nn.Conv1d(
             in_channels=6,
-            out_channels=128,
+            out_channels=256,
             kernel_size=1,
             stride=1,
             bias=True,
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
         self.resblocks1 = nn.ModuleList()
-        for i in range(2):
+        for i in range(4):
             self.resblocks1.append(
                 ResidualBlock(
-                    in_channels=128,
-                    out_channels=128,
+                    in_channels=256,
+                    out_channels=256,
                     kernel_size=15,
                     dilation=1,
                 )
             )
         self.strided_conv1 = nn.Conv1d(
-            in_channels=128,
+            in_channels=256,
             out_channels=126,
             kernel_size=15,
             stride=8,
@@ -246,7 +246,7 @@ class Shuriken(nn.Module):
         # Transformer layers
         self.condition_expansion = nn.Linear(self.conditioning_dim, 128)
         self.transformer_blocks = nn.ModuleList()
-        for i in range(4):
+        for i in range(8):
             self.transformer_blocks.append(
                 TransformerBlock(
                     d_model=128,
