@@ -23,7 +23,7 @@ from lightning.pytorch import LightningModule
 import torchmetrics
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
-from splice_ninja.models.SpliceAICNN import SpliceAI10k
+from splice_ninja.models.SpliceAICNN import SpliceAI10k, LargeSpliceAI10k
 from splice_ninja.models.Shuriken import Shuriken
 
 np.random.seed(0)
@@ -632,7 +632,11 @@ class PSIPredictor(LightningModule):
             self.dPSI_threshold_for_significance = 0.0
 
         # define model
-        self.name_to_model = {"SpliceAI10k": SpliceAI10k, "Shuriken": Shuriken}
+        self.name_to_model = {
+            "SpliceAI10k": SpliceAI10k,
+            "LargeSpliceAI10k": LargeSpliceAI10k,
+            "Shuriken": Shuriken,
+        }
         assert (
             self.config["train_config"]["model_name"] in self.name_to_model
         ), f"Model {self.config['train_config']['model_name']} not found. Available models: {self.name_to_model.keys()}"

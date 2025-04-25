@@ -371,3 +371,245 @@ class SpliceAI10k(nn.Module):
             x = torch.cat([x.unsqueeze(1), x_controls_avg], dim=1)
             # (B, 2) - first value is delta psi, second value is controls avg psi
         return x
+
+
+class LargeSpliceAI10k(nn.Module):
+    """
+    Takes in a one-hot encoded DNA sequence, two masks denoting the exons, introns and background regions of the spliced-in (alternate segment retained) and spliced-out (alternate segment removed) events,
+    a splicing factor expression levels vector, a host gene expression value. The model predicts the percent spliced-in (PSI) value of the event.
+
+    The model architecture is based on SpliceAI-10k and uses a stack of dilated convolutional layers with residual connections. The final prediction is made using a linear layer.
+    """
+
+    def __init__(self, config: dict | str, num_splicing_factors, has_gene_exp_values):
+        super().__init__()
+        if isinstance(config, str):
+            with open(config, "r") as f:
+                config = json.load(f)
+        self.config = config
+        self.input_size = config["train_config"]["input_size"]
+        assert (
+            self.input_size == 10000
+        ), "The input size should be 10000 for SpliceAI-10k model."
+        self.predict_mean_std_psi_and_delta = self.config["train_config"][
+            "predict_mean_std_psi_and_delta"
+        ]
+        self.predict_mean_psi_and_delta = self.config["train_config"][
+            "predict_mean_psi_and_delta"
+        ]
+        self.predict_controls_avg_psi_and_delta = self.config["train_config"][
+            "predict_controls_avg_psi_and_delta"
+        ]
+        self.predict_logits = "Logits" in self.config["train_config"]["loss_fn"]
+
+        self.num_splicing_factors = num_splicing_factors
+        self.has_gene_exp_values = has_gene_exp_values
+        self.conditioning_dim = (
+            num_splicing_factors + (1 if has_gene_exp_values else 0) + 4
+        )  # +4 for event type one-hot encoding
+
+        self.condition_dropout = nn.Dropout(0.1)
+        self.conv1 = nn.Conv1d(
+            in_channels=6,
+            out_channels=256,
+            kernel_size=1,
+            stride=1,
+            padding="same",
+            bias=True,
+            dilation=1,
+        )  # 4 for one-hot encoding of DNA sequence, 2 for masks
+        self.film1 = FiLM(self.conditioning_dim, 256)
+        self.side_conv1 = nn.Conv1d(
+            in_channels=256,
+            out_channels=256,
+            kernel_size=1,
+            stride=1,
+            padding="same",
+            bias=True,
+            dilation=1,
+        )
+        self.resblocks1 = nn.ModuleList()
+        for i in range(4):
+            self.resblocks1.append(
+                ResidualBlock(
+                    in_channels=256,
+                    out_channels=256,
+                    kernel_size=11,
+                    dilation=1,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.side_conv2 = nn.Conv1d(
+            in_channels=256,
+            out_channels=256,
+            kernel_size=1,
+            stride=1,
+            padding="same",
+            bias=True,
+            dilation=1,
+        )
+        self.resblocks2 = nn.ModuleList()
+        for i in range(4):
+            self.resblocks2.append(
+                ResidualBlock(
+                    in_channels=256,
+                    out_channels=256,
+                    kernel_size=11,
+                    dilation=4,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.side_conv3 = nn.Conv1d(
+            in_channels=256,
+            out_channels=256,
+            kernel_size=1,
+            stride=1,
+            padding="same",
+            bias=True,
+            dilation=1,
+        )
+        self.resblocks3 = nn.ModuleList()
+        for i in range(4):
+            self.resblocks3.append(
+                ResidualBlock(
+                    in_channels=256,
+                    out_channels=256,
+                    kernel_size=21,
+                    dilation=10,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.side_conv4 = nn.Conv1d(
+            in_channels=256,
+            out_channels=256,
+            kernel_size=1,
+            stride=1,
+            padding="same",
+            bias=True,
+            dilation=1,
+        )
+        self.resblocks4 = nn.ModuleList()
+        for i in range(4):
+            self.resblocks4.append(
+                ResidualBlock(
+                    in_channels=256,
+                    out_channels=256,
+                    kernel_size=41,
+                    dilation=25,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.conv2 = nn.Conv1d(
+            in_channels=256,
+            out_channels=256,
+            kernel_size=1,
+            stride=1,
+            padding="same",
+            bias=True,
+            dilation=1,
+        )
+
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        if self.predict_mean_std_psi_and_delta:
+            self.mean_std_output_layer = nn.Linear(256, 2)
+        if self.predict_mean_psi_and_delta:
+            self.mean_output_layer = nn.Linear(256, 1)
+        if self.predict_controls_avg_psi_and_delta:
+            self.controls_avg_output_layer = nn.Linear(256, 1)
+        self.output_layer = nn.Linear(256 + self.conditioning_dim, 1)
+
+    def forward(self, batch):
+        sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
+        sequence = sequence[:, :, :4].float()  # (B, 10000, 4) - remove N
+        spliced_in_mask = batch["spliced_in_mask"].float()  # (B, 10000)
+        spliced_out_mask = batch["spliced_out_mask"].float()  # (B, 10000)
+        gene_exp = batch["gene_exp"]  # (B,)
+        splicing_factor_exp_values = batch[
+            "splicing_factor_exp_values"
+        ]  # (B, num_splicing_factors)
+        event_type = batch["event_type"]
+        event_type_one_hot = F.one_hot(event_type.long(), 4)  # (B, 4)
+
+        spliced_in_mask = spliced_in_mask.unsqueeze(-1)  # (B, 10000, 1)
+        spliced_out_mask = spliced_out_mask.unsqueeze(-1)  # (B, 10000, 1)
+        x = torch.cat(
+            [sequence, spliced_in_mask, spliced_out_mask], dim=2
+        )  # (B, 10000, 6)
+        x = x.permute(0, 2, 1)  # (B, 6, 10000)
+
+        gene_exp = gene_exp.unsqueeze(-1)  # (B, 1)
+        conditioning = []
+        if self.num_splicing_factors > 0:
+            conditioning.append(self.condition_dropout(splicing_factor_exp_values))
+        if self.has_gene_exp_values:
+            conditioning.append(self.condition_dropout(gene_exp))
+        conditioning.append(event_type_one_hot)
+        if len(conditioning) > 1:  # (B, conditioning_dim)
+            conditioning = torch.cat(conditioning, dim=1)
+        else:
+            conditioning = conditioning[0].float()
+
+        x = self.conv1(x)
+        x = self.film1(x, conditioning)
+        side = self.side_conv1(x)
+
+        for resblock in self.resblocks1:
+            x = resblock(x, conditioning)
+        side = side + self.side_conv2(x)
+
+        for resblock in self.resblocks2:
+            x = resblock(x, conditioning)
+        side = side + self.side_conv3(x)
+
+        for resblock in self.resblocks3:
+            x = resblock(x, conditioning)
+        side = side + self.side_conv4(x)
+
+        for resblock in self.resblocks4:
+            x = resblock(x, conditioning)
+
+        x = self.conv2(x)
+        x = x + side
+        x = self.global_avg_pool(x).reshape(x.shape[0], -1)
+
+        if self.predict_mean_std_psi_and_delta:
+            x_mean_std = self.mean_std_output_layer(x)
+            if not self.predict_logits:
+                x_mean_std = F.sigmoid(
+                    x_mean_std
+                )  # (B, 2) - first value is mean, second value is std
+        if self.predict_mean_psi_and_delta:
+            x_mean = self.mean_output_layer(x)
+            if not self.predict_logits:
+                x_mean = F.sigmoid(x_mean)
+        if self.predict_controls_avg_psi_and_delta:
+            x_controls_avg = self.controls_avg_output_layer(x)
+            if not self.predict_logits:
+                x_controls_avg = F.sigmoid(x_controls_avg)
+        x = torch.cat([x, conditioning], dim=1)
+        x = self.output_layer(x)
+        if not self.predict_logits:
+            x = F.sigmoid(x).reshape(-1)
+        else:
+            x = x.reshape(-1)
+
+        if self.predict_mean_std_psi_and_delta:
+            x = torch.cat(
+                [x.unsqueeze(1), x_mean_std], dim=1
+            )  # (B, 3) - first value is delta psi, second value is mean, third value is std
+        if self.predict_mean_psi_and_delta:
+            x = torch.cat(
+                [x.unsqueeze(1), x_mean], dim=1
+            )  # (B, 2) - first value is delta psi, second value is mean
+        if self.predict_controls_avg_psi_and_delta:
+            x = torch.cat([x.unsqueeze(1), x_controls_avg], dim=1)
+            # (B, 2) - first value is delta psi, second value is controls avg psi
+        return x
