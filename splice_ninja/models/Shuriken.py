@@ -205,15 +205,21 @@ class Shuriken(nn.Module):
         self.has_gene_exp_values = has_gene_exp_values
         self.conditioning_dim = (
             num_splicing_factors + (1 if has_gene_exp_values else 0) + 4
-        )  # +4 for event type one-hot encoding
+        )  # +4 for event type embedding
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
         self.conditioning_dim = (
             num_splicing_factors + (1 if has_gene_exp_values else 0) + 4
-        )  # +4 for event type one-hot encoding
+        )  # +4 for event type embedding
 
         self.condition_dropout = nn.Dropout(0.1)
+
+        # Embedding layers
+        self.nucleotide_embedding = nn.Embedding(
+            5, 4
+        )  # there are 5 nucleotides (A, C, G, T, N)
+        self.event_type_embedding = nn.Embedding(4, 4)  # there are 4 event types
 
         # Convolutional layers
         self.conv1 = nn.Conv1d(
@@ -267,8 +273,7 @@ class Shuriken(nn.Module):
         self.output_layer = nn.Linear(128, 1)
 
     def forward(self, batch):
-        sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
-        sequence = sequence[:, :, :4].float()  # (B, 10000, 4) - remove N
+        sequence = self.nucleotide_embedding(batch["sequence"].long())  # (B, 10000, 4)
         spliced_in_mask = batch["spliced_in_mask"].float()  # (B, 10000)
         spliced_out_mask = batch["spliced_out_mask"].float()  # (B, 10000)
         gene_exp = batch["gene_exp"]  # (B,)
@@ -276,7 +281,7 @@ class Shuriken(nn.Module):
             "splicing_factor_exp_values"
         ]  # (B, num_splicing_factors)
         event_type = batch["event_type"]
-        event_type_one_hot = F.one_hot(event_type.long(), 4)  # (B, 4)
+        event_type_embedding = self.event_type_embedding(event_type)  # (B, 4)
 
         spliced_in_mask = spliced_in_mask.unsqueeze(-1)  # (B, 10000, 1)
         spliced_out_mask = spliced_out_mask.unsqueeze(-1)  # (B, 10000, 1)
@@ -291,7 +296,7 @@ class Shuriken(nn.Module):
             conditioning.append(self.condition_dropout(splicing_factor_exp_values))
         if self.has_gene_exp_values:
             conditioning.append(self.condition_dropout(gene_exp))
-        conditioning.append(event_type_one_hot)
+        conditioning.append(event_type_embedding)
         if len(conditioning) > 1:  # (B, conditioning_dim)
             conditioning = torch.cat(conditioning, dim=1)
         else:
