@@ -2206,6 +2206,7 @@ class VastDBData(LightningDataModule):
                 pin_memory=True,
                 num_workers=self.config["train_config"]["num_workers"],
                 worker_init_fn=worker_init_fn,
+                persistent_workers=True,
             )
         else:
             print(
@@ -2226,6 +2227,7 @@ class VastDBData(LightningDataModule):
                     sampler=UniformPSIDistributionDistributedSampler(
                         self, dataset=dataset
                     ),
+                    persistent_workers=True,
                 )
             else:
                 return DataLoader(
@@ -2240,6 +2242,7 @@ class VastDBData(LightningDataModule):
                     sampler=NEventsPerBatchDistributedSampler(self)
                     if ("N_events_per_batch" in self.config["train_config"])
                     else None,
+                    persistent_workers=True,
                 )
 
     def val_dataloader(self):
@@ -2250,6 +2253,7 @@ class VastDBData(LightningDataModule):
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
             worker_init_fn=worker_init_fn,
+            persistent_workers=True,
         )
 
     def test_dataloader(self):
@@ -2260,4 +2264,5 @@ class VastDBData(LightningDataModule):
             pin_memory=True,
             num_workers=self.config["train_config"]["num_workers"],
             worker_init_fn=worker_init_fn,
+            persistent_workers=True,
         )
