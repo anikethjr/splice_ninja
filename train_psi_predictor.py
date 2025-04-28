@@ -184,9 +184,7 @@ def main():
             # checkpointing_cb,
             # early_stopping_cb,
         ],
-        precision="32-true"
-        if config["train_config"]["model_name"] == "SpliceAI10k"
-        else "16-mixed",
+        precision="16-mixed",
         strategy="ddp",
         reload_dataloaders_every_n_epochs=1,
     )
