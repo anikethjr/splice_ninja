@@ -159,9 +159,15 @@ class SpliceAI10k(nn.Module):
             "predict_controls_avg_psi_and_delta"
         ]
         self.predict_logits = "Logits" in self.config["train_config"]["loss_fn"]
-        self.use_features_from_alt_sequence = self.config["train_config"][
-            "use_features_from_alt_sequence"
-        ]
+        if "use_features_from_alt_sequence" not in self.config["train_config"]:
+            self.use_features_from_alt_sequence = False
+        else:
+            self.use_features_from_alt_sequence = self.config["train_config"][
+                "use_features_from_alt_sequence"
+            ]
+            print(
+                f"Using features from alternate sequence: {self.use_features_from_alt_sequence}"
+            )
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
