@@ -159,6 +159,9 @@ class SpliceAI10k(nn.Module):
             "predict_controls_avg_psi_and_delta"
         ]
         self.predict_logits = "Logits" in self.config["train_config"]["loss_fn"]
+        self.use_features_from_alt_sequence = self.config["train_config"][
+            "use_features_from_alt_sequence"
+        ]
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
@@ -335,8 +338,22 @@ class SpliceAI10k(nn.Module):
             x = resblock(x, conditioning)
 
         x = self.conv2(x)
-        x = x + side
-        x = self.global_avg_pool(x).reshape(x.shape[0], -1)
+        x = x + side # (B, 32, 10000)
+
+        # if self.use_features_from_alt_sequence is True, we only keep the features from the alternate sequence positions and average over those positions
+        # the alternate sequence is where the spliced-in mask is 1 and the spliced-out mask is -1
+        if self.use_features_from_alt_sequence:
+            alt_sequence_mask = (
+                spliced_in_mask - spliced_out_mask
+            ).float() # (B, 10000, 1)
+            alt_sequence_mask = alt_sequence_mask.permute(0, 2, 1) # (B, 1, 10000)
+            x = x * alt_sequence_mask # (B, 32, 10000)
+            x = x.sum(dim=2) # (B, 32)
+            counts = alt_sequence_mask.sum(dim=2) # (B, 1)
+            counts = counts + 1 # to avoid division by zero
+            x = x / counts # (B, 32) - average over the alternate sequence positions
+        else:
+            x = self.global_avg_pool(x).reshape(x.shape[0], -1)
 
         if self.predict_mean_std_psi_and_delta:
             x_mean_std = self.mean_std_output_layer(x)
