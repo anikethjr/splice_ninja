@@ -390,7 +390,7 @@ class Shuriken(nn.Module):
         self.resblocks5.append(
             ResidualBlock(
                 in_channels=256,
-                out_channels=510,
+                out_channels=512,
                 kernel_size=41,
                 dilation=25,
                 use_film=self.conditioning_dim > 0,
@@ -400,8 +400,8 @@ class Shuriken(nn.Module):
         for i in range(1):
             self.resblocks5.append(
                 ResidualBlock(
-                    in_channels=510,
-                    out_channels=510,
+                    in_channels=512,
+                    out_channels=512,
                     kernel_size=41,
                     dilation=25,
                     use_film=self.conditioning_dim > 0,
@@ -409,12 +409,12 @@ class Shuriken(nn.Module):
                 )
             )
 
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 512)
+        self.condition_expansion = nn.Linear(self.conditioning_dim, 514)
         self.transformer_blocks = nn.ModuleList()
         for i in range(3):
             self.transformer_blocks.append(
                 TransformerBlock(
-                    d_model=512,
+                    d_model=514,
                     nhead=8,
                     mlp_dim=2048,
                     dropout=0.1,
@@ -424,12 +424,12 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(512, 2)
+            self.mean_std_output_layer = nn.Linear(514, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(512, 1)
+            self.mean_output_layer = nn.Linear(514, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(512, 1)
-        self.output_layer = nn.Linear(512, 1)
+            self.controls_avg_output_layer = nn.Linear(514, 1)
+        self.output_layer = nn.Linear(514, 1)
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
