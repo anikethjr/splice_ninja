@@ -80,7 +80,6 @@ class ResidualBlock(nn.Module):
             out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride_for_conv1_and_shortcut,
-            padding="same",
             bias=False,
             dilation=dilation,
         )
