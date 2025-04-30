@@ -344,20 +344,20 @@ class SpliceAI10k(nn.Module):
             x = resblock(x, conditioning)
 
         x = self.conv2(x)
-        x = x + side # (B, 32, 10000)
+        x = x + side  # (B, 32, 10000)
 
         # if self.use_features_from_alt_sequence is True, we only keep the features from the alternate sequence positions and average over those positions
         # the alternate sequence is where the spliced-in mask is 1 and the spliced-out mask is -1
         if self.use_features_from_alt_sequence:
             alt_sequence_mask = (
                 spliced_in_mask - spliced_out_mask
-            ).float() # (B, 10000, 1)
-            alt_sequence_mask = alt_sequence_mask.permute(0, 2, 1) # (B, 1, 10000)
-            x = x * alt_sequence_mask # (B, 32, 10000)
-            x = x.sum(dim=2) # (B, 32)
-            counts = alt_sequence_mask.sum(dim=2) # (B, 1)
-            counts = counts + 1 # to avoid division by zero
-            x = x / counts # (B, 32) - average over the alternate sequence positions
+            ).float()  # (B, 10000, 1)
+            alt_sequence_mask = alt_sequence_mask.permute(0, 2, 1)  # (B, 1, 10000)
+            x = x * alt_sequence_mask  # (B, 32, 10000)
+            x = x.sum(dim=2)  # (B, 32)
+            counts = alt_sequence_mask.sum(dim=2)  # (B, 1)
+            counts = counts + 1  # to avoid division by zero
+            x = x / counts  # (B, 32) - average over the alternate sequence positions
         else:
             x = self.global_avg_pool(x).reshape(x.shape[0], -1)
 
@@ -424,6 +424,15 @@ class LargeSpliceAI10k(nn.Module):
             "predict_controls_avg_psi_and_delta"
         ]
         self.predict_logits = "Logits" in self.config["train_config"]["loss_fn"]
+        if "use_features_from_alt_sequence" not in self.config["train_config"]:
+            self.use_features_from_alt_sequence = False
+        else:
+            self.use_features_from_alt_sequence = self.config["train_config"][
+                "use_features_from_alt_sequence"
+            ]
+            print(
+                f"Using features from alternate sequence: {self.use_features_from_alt_sequence}"
+            )
 
         self.num_splicing_factors = num_splicing_factors
         self.has_gene_exp_values = has_gene_exp_values
@@ -434,17 +443,17 @@ class LargeSpliceAI10k(nn.Module):
         self.condition_dropout = nn.Dropout(0.1)
         self.conv1 = nn.Conv1d(
             in_channels=6,
-            out_channels=256,
+            out_channels=32,
             kernel_size=1,
             stride=1,
             padding="same",
             bias=True,
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
-        self.film1 = FiLM(self.conditioning_dim, 256)
+        self.film1 = FiLM(self.conditioning_dim, 32)
         self.side_conv1 = nn.Conv1d(
-            in_channels=256,
-            out_channels=256,
+            in_channels=32,
+            out_channels=32,
             kernel_size=1,
             stride=1,
             padding="same",
@@ -455,8 +464,8 @@ class LargeSpliceAI10k(nn.Module):
         for i in range(4):
             self.resblocks1.append(
                 ResidualBlock(
-                    in_channels=256,
-                    out_channels=256,
+                    in_channels=32,
+                    out_channels=32,
                     kernel_size=11,
                     dilation=1,
                     use_film=self.conditioning_dim > 0,
@@ -465,8 +474,8 @@ class LargeSpliceAI10k(nn.Module):
             )
 
         self.side_conv2 = nn.Conv1d(
-            in_channels=256,
-            out_channels=256,
+            in_channels=32,
+            out_channels=64,
             kernel_size=1,
             stride=1,
             padding="same",
@@ -477,8 +486,8 @@ class LargeSpliceAI10k(nn.Module):
         for i in range(4):
             self.resblocks2.append(
                 ResidualBlock(
-                    in_channels=256,
-                    out_channels=256,
+                    in_channels=64,
+                    out_channels=64,
                     kernel_size=11,
                     dilation=4,
                     use_film=self.conditioning_dim > 0,
@@ -487,8 +496,8 @@ class LargeSpliceAI10k(nn.Module):
             )
 
         self.side_conv3 = nn.Conv1d(
-            in_channels=256,
-            out_channels=256,
+            in_channels=64,
+            out_channels=128,
             kernel_size=1,
             stride=1,
             padding="same",
@@ -499,8 +508,8 @@ class LargeSpliceAI10k(nn.Module):
         for i in range(4):
             self.resblocks3.append(
                 ResidualBlock(
-                    in_channels=256,
-                    out_channels=256,
+                    in_channels=128,
+                    out_channels=128,
                     kernel_size=21,
                     dilation=10,
                     use_film=self.conditioning_dim > 0,
@@ -509,7 +518,7 @@ class LargeSpliceAI10k(nn.Module):
             )
 
         self.side_conv4 = nn.Conv1d(
-            in_channels=256,
+            in_channels=128,
             out_channels=256,
             kernel_size=1,
             stride=1,
@@ -542,12 +551,28 @@ class LargeSpliceAI10k(nn.Module):
 
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(256, 2)
+            self.mean_std_output_layer = nn.Sequential(
+                nn.Linear(256, 512),
+                nn.ReLU(),
+                nn.Linear(512, 2),
+            )
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(256, 1)
+            self.mean_output_layer = nn.Sequential(
+                nn.Linear(256, 512),
+                nn.ReLU(),
+                nn.Linear(512, 1),
+            )
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(256, 1)
-        self.output_layer = nn.Linear(256 + self.conditioning_dim, 1)
+            self.controls_avg_output_layer = nn.Sequential(
+                nn.Linear(256, 512),
+                nn.ReLU(),
+                nn.Linear(512, 1),
+            )
+        self.output_layer = nn.Sequential(
+            nn.Linear(256 + self.conditioning_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1),
+        )
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
@@ -601,7 +626,21 @@ class LargeSpliceAI10k(nn.Module):
 
         x = self.conv2(x)
         x = x + side
-        x = self.global_avg_pool(x).reshape(x.shape[0], -1)
+
+        # if self.use_features_from_alt_sequence is True, we only keep the features from the alternate sequence positions and average over those positions
+        # the alternate sequence is where the spliced-in mask is 1 and the spliced-out mask is -1
+        if self.use_features_from_alt_sequence:
+            alt_sequence_mask = (
+                spliced_in_mask - spliced_out_mask
+            ).float()  # (B, 10000, 1)
+            alt_sequence_mask = alt_sequence_mask.permute(0, 2, 1)  # (B, 1, 10000)
+            x = x * alt_sequence_mask  # (B, 32, 10000)
+            x = x.sum(dim=2)  # (B, 32)
+            counts = alt_sequence_mask.sum(dim=2)  # (B, 1)
+            counts = counts + 1  # to avoid division by zero
+            x = x / counts  # (B, 32) - average over the alternate sequence positions
+        else:
+            x = self.global_avg_pool(x).reshape(x.shape[0], -1)
 
         if self.predict_mean_std_psi_and_delta:
             x_mean_std = self.mean_std_output_layer(x)
