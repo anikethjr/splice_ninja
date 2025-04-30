@@ -415,7 +415,7 @@ class Shuriken(nn.Module):
         for i in range(3):
             self.transformer_blocks.append(
                 TransformerBlock(
-                    d_model=514,
+                    d_model=512,
                     nhead=8,
                     mlp_dim=2048,
                     dropout=0.1,
@@ -425,12 +425,12 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(514, 2)
+            self.mean_std_output_layer = nn.Linear(512, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(514, 1)
+            self.mean_output_layer = nn.Linear(512, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(514, 1)
-        self.output_layer = nn.Linear(514, 1)
+            self.controls_avg_output_layer = nn.Linear(512, 1)
+        self.output_layer = nn.Linear(512, 1)
 
     def forward(self, batch):
         sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
