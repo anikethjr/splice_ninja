@@ -453,7 +453,7 @@ class LargeSpliceAI10k(nn.Module):
         self.film1 = FiLM(self.conditioning_dim, 32)
         self.side_conv1 = nn.Conv1d(
             in_channels=32,
-            out_channels=32,
+            out_channels=256,
             kernel_size=1,
             stride=1,
             padding="same",
@@ -475,7 +475,7 @@ class LargeSpliceAI10k(nn.Module):
 
         self.side_conv2 = nn.Conv1d(
             in_channels=32,
-            out_channels=64,
+            out_channels=256,
             kernel_size=1,
             stride=1,
             padding="same",
@@ -497,7 +497,7 @@ class LargeSpliceAI10k(nn.Module):
 
         self.side_conv3 = nn.Conv1d(
             in_channels=64,
-            out_channels=128,
+            out_channels=256,
             kernel_size=1,
             stride=1,
             padding="same",
