@@ -451,15 +451,6 @@ class LargeSpliceAI10k(nn.Module):
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
         self.film1 = FiLM(self.conditioning_dim, 32)
-        self.side_conv1 = nn.Conv1d(
-            in_channels=32,
-            out_channels=256,
-            kernel_size=1,
-            stride=1,
-            padding="same",
-            bias=True,
-            dilation=1,
-        )
         self.resblocks1 = nn.ModuleList()
         for i in range(4):
             self.resblocks1.append(
@@ -473,24 +464,18 @@ class LargeSpliceAI10k(nn.Module):
                 )
             )
 
-        self.side_conv2 = nn.Conv1d(
-            in_channels=32,
-            out_channels=256,
-            kernel_size=1,
-            stride=1,
-            padding="same",
-            bias=True,
-            dilation=1,
-        )
         self.resblocks2 = nn.ModuleList()
         self.resblocks2.append(
-            nn.Conv1d(
+            ResidualBlock(
                 in_channels=32,
                 out_channels=64,
-                kernel_size=1,
+                kernel_size=11,
+                dilation=4,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
             )
         )
-        for i in range(4):
+        for i in range(3):
             self.resblocks2.append(
                 ResidualBlock(
                     in_channels=64,
@@ -502,24 +487,18 @@ class LargeSpliceAI10k(nn.Module):
                 )
             )
 
-        self.side_conv3 = nn.Conv1d(
-            in_channels=64,
-            out_channels=256,
-            kernel_size=1,
-            stride=1,
-            padding="same",
-            bias=True,
-            dilation=1,
-        )
         self.resblocks3 = nn.ModuleList()
         self.resblocks3.append(
-            nn.Conv1d(
+            ResidualBlock(
                 in_channels=64,
                 out_channels=128,
-                kernel_size=1,
+                kernel_size=21,
+                dilation=10,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
             )
         )
-        for i in range(4):
+        for i in range(3):
             self.resblocks3.append(
                 ResidualBlock(
                     in_channels=128,
@@ -531,24 +510,18 @@ class LargeSpliceAI10k(nn.Module):
                 )
             )
 
-        self.side_conv4 = nn.Conv1d(
-            in_channels=128,
-            out_channels=256,
-            kernel_size=1,
-            stride=1,
-            padding="same",
-            bias=True,
-            dilation=1,
-        )
         self.resblocks4 = nn.ModuleList()
         self.resblocks4.append(
-            nn.Conv1d(
+            ResidualBlock(
                 in_channels=128,
                 out_channels=256,
-                kernel_size=1,
+                kernel_size=41,
+                dilation=25,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
             )
         )
-        for i in range(4):
+        for i in range(3):
             self.resblocks4.append(
                 ResidualBlock(
                     in_channels=256,
@@ -559,16 +532,6 @@ class LargeSpliceAI10k(nn.Module):
                     conditioning_dim=self.conditioning_dim,
                 )
             )
-
-        self.conv2 = nn.Conv1d(
-            in_channels=256,
-            out_channels=256,
-            kernel_size=1,
-            stride=1,
-            padding="same",
-            bias=True,
-            dilation=1,
-        )
 
         self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
         if self.predict_mean_std_psi_and_delta:
@@ -628,25 +591,18 @@ class LargeSpliceAI10k(nn.Module):
 
         x = self.conv1(x)
         x = self.film1(x, conditioning)
-        side = self.side_conv1(x)
 
         for resblock in self.resblocks1:
             x = resblock(x, conditioning)
-        side = side + self.side_conv2(x)
 
         for resblock in self.resblocks2:
             x = resblock(x, conditioning)
-        side = side + self.side_conv3(x)
 
         for resblock in self.resblocks3:
             x = resblock(x, conditioning)
-        side = side + self.side_conv4(x)
 
         for resblock in self.resblocks4:
             x = resblock(x, conditioning)
-
-        x = self.conv2(x)
-        x = x + side
 
         # if self.use_features_from_alt_sequence is True, we only keep the features from the alternate sequence positions and average over those positions
         # the alternate sequence is where the spliced-in mask is 1 and the spliced-out mask is -1
