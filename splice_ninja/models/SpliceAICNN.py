@@ -73,7 +73,7 @@ class ResidualBlock(nn.Module):
             gn_num_groups = out_channels // gn_group_size
 
         # modules for processing the input
-        self.gn1 = nn.GroupNorm(gn_num_groups, out_channels)
+        self.gn1 = nn.GroupNorm(gn_num_groups, in_channels)
         self.relu1 = nn.ReLU()
         self.conv1 = nn.Conv1d(
             in_channels=in_channels,
