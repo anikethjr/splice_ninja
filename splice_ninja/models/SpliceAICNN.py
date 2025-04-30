@@ -611,13 +611,13 @@ class LargeSpliceAI10k(nn.Module):
             ).float()  # (B, 10000, 1)
             alt_sequence_mask = alt_sequence_mask.permute(0, 2, 1)  # (B, 1, 10000)
             alt_sequence_mask = F.avg_pool1d(
-                alt_sequence_mask, kernel_size=11, stride=2, padding="same"
+                alt_sequence_mask, kernel_size=11, stride=2
             )
             alt_sequence_mask = F.avg_pool1d(
-                alt_sequence_mask, kernel_size=21, stride=2, padding="same"
+                alt_sequence_mask, kernel_size=21, stride=2
             )
             alt_sequence_mask = F.avg_pool1d(
-                alt_sequence_mask, kernel_size=41, stride=2, padding="same"
+                alt_sequence_mask, kernel_size=41, stride=2
             )
             x = x * alt_sequence_mask  # (B, 32, 10000)
             x = x.sum(dim=2)  # (B, 32)
