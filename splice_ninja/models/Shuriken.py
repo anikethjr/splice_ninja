@@ -409,7 +409,8 @@ class Shuriken(nn.Module):
                 )
             )
 
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 514)
+        self.condition_expansion = nn.Linear(self.conditioning_dim, 512)
+        self.interim_layer = nn.Linear(514, 512)
         self.transformer_blocks = nn.ModuleList()
         for i in range(3):
             self.transformer_blocks.append(
@@ -494,6 +495,7 @@ class Shuriken(nn.Module):
         both_masks = F.avg_pool1d(both_masks, kernel_size=2, stride=2)
         both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
         x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
+        x = self.interim_layer(x)  # (B, 135, 512)
 
         # expand conditioning to match the input size to the transformer
         conditioning = self.condition_expansion(conditioning)  # (B, 1024)
