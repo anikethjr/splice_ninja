@@ -12,6 +12,24 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+def compute_same_padding(kernel_size: int, dilation: int, stride: int = 1):
+    """
+    Compute (pad_left, pad_right) so that
+      Conv1d(..., stride=stride, dilation=dilation)
+    with manual padding yields
+      L_out = ceil(L_in / stride)
+    (i.e. 'same' padding).
+    """
+    # effective receptive field length of the filter
+    k_eff = dilation * (kernel_size - 1) + 1
+    # total padding to add to the input
+    total_pad = k_eff - 1  # = dilation*(kernel_size-1)
+    # split evenly (right gets the remainder if odd)
+    pad_left = total_pad // 2
+    pad_right = total_pad - pad_left
+    return pad_left, pad_right
+
+
 class FiLM(nn.Module):
     """
     Layer that applies feature-wise linear modulation to the input tensor. Used for conditioning the network on the splicing factor expression levels and gene expression values.
@@ -65,6 +83,10 @@ class ResidualBlock(nn.Module):
         super().__init__()
 
         stride_for_conv1_and_shortcut = 1
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.dilation = dilation
 
         if in_channels != out_channels:
             stride_for_conv1_and_shortcut = 2
@@ -118,6 +140,13 @@ class ResidualBlock(nn.Module):
 
     def forward(self, xl, conditioning=None):
         input = self.shortcut(xl)
+
+        if self.in_channels != self.out_channels:
+            # pad for conv1
+            pad_left, pad_right = compute_same_padding(
+                self.kernel_size, self.dilation, stride=2
+            )
+            xl = F.pad(xl, (pad_left, pad_right), mode="constant")
 
         xl = self.conv1(self.relu1(self.gn1(xl)))
         xl = self.conv2(self.relu2(self.gn2(xl)))
