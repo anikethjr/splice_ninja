@@ -483,6 +483,13 @@ class LargeSpliceAI10k(nn.Module):
             dilation=1,
         )
         self.resblocks2 = nn.ModuleList()
+        self.resblocks2.append(
+            nn.Conv1d(
+                in_channels=32,
+                out_channels=64,
+                kernel_size=1,
+            )
+        )
         for i in range(4):
             self.resblocks2.append(
                 ResidualBlock(
@@ -505,6 +512,13 @@ class LargeSpliceAI10k(nn.Module):
             dilation=1,
         )
         self.resblocks3 = nn.ModuleList()
+        self.resblocks3.append(
+            nn.Conv1d(
+                in_channels=64,
+                out_channels=128,
+                kernel_size=1,
+            )
+        )
         for i in range(4):
             self.resblocks3.append(
                 ResidualBlock(
@@ -527,6 +541,13 @@ class LargeSpliceAI10k(nn.Module):
             dilation=1,
         )
         self.resblocks4 = nn.ModuleList()
+        self.resblocks4.append(
+            nn.Conv1d(
+                in_channels=128,
+                out_channels=256,
+                kernel_size=1,
+            )
+        )
         for i in range(4):
             self.resblocks4.append(
                 ResidualBlock(
