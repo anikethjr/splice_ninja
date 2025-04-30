@@ -15,6 +15,58 @@ np.random.seed(0)
 torch.manual_seed(0)
 
 
+def compute_same_padding(kernel_size: int, dilation: int, stride: int = 1):
+    """
+    Compute (pad_left, pad_right) so that
+      Conv1d(..., stride=stride, dilation=dilation)
+    with manual padding yields
+      L_out = ceil(L_in / stride)
+    (i.e. 'same' padding).
+    """
+    # effective receptive field length of the filter
+    k_eff = dilation * (kernel_size - 1) + 1
+    # total padding to add to the input
+    total_pad = k_eff - 1  # = dilation*(kernel_size-1)
+    # split evenly (right gets the remainder if odd)
+    pad_left = total_pad // 2
+    pad_right = total_pad - pad_left
+    return pad_left, pad_right
+
+
+class FiLM(nn.Module):
+    """
+    Layer that applies feature-wise linear modulation to the input tensor. Used for conditioning the network on the splicing factor expression levels and gene expression values.
+    """
+
+    def __init__(self, conditioning_dim, num_features, dropout=0.1):
+        """
+        conditioning_dim: Dimensionality of the conditioning vector
+        num_features: Number of channels in the feature map (C)
+        dropout: Dropout probability
+        """
+        super().__init__()
+        self.scale = nn.Sequential(
+            nn.Linear(conditioning_dim, conditioning_dim * 2),
+            nn.ReLU(),
+            nn.Linear(conditioning_dim * 2, num_features),
+        )
+        self.shift = nn.Sequential(
+            nn.Linear(conditioning_dim, conditioning_dim * 2),
+            nn.ReLU(),
+            nn.Linear(conditioning_dim * 2, num_features),
+        )
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x, conditioning):
+        """
+        x: Input feature map (B, C, L)
+        conditioning: Conditioning vector (B, conditioning_dim)
+        """
+        gamma = self.dropout(self.scale(conditioning)).unsqueeze(-1)  # (B, C, 1)
+        beta = self.dropout(self.shift(conditioning)).unsqueeze(-1)  # (B, C, 1)
+        return (x * gamma) + beta
+
+
 class ResidualBlock(nn.Module):
     """
     Residual block with two convolutional layers and a residual connection.
@@ -28,10 +80,16 @@ class ResidualBlock(nn.Module):
         dilation=1,
         gn_num_groups=None,
         gn_group_size=16,
+        use_film=False,
+        conditioning_dim=None,
     ):
         super().__init__()
 
         stride_for_conv1_and_shortcut = 1
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.kernel_size = kernel_size
+        self.dilation = dilation
 
         if in_channels != out_channels:
             stride_for_conv1_and_shortcut = 2
@@ -40,20 +98,20 @@ class ResidualBlock(nn.Module):
             gn_num_groups = out_channels // gn_group_size
 
         # modules for processing the input
-        self.gn1 = nn.GroupNorm(gn_num_groups, out_channels)
-        self.relu1 = nn.GELU()
+        self.gn1 = nn.GroupNorm(gn_num_groups, in_channels)
+        self.relu1 = nn.ReLU()
         self.conv1 = nn.Conv1d(
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=kernel_size,
             stride=stride_for_conv1_and_shortcut,
-            padding="same",
+            padding="same" if stride_for_conv1_and_shortcut == 1 else 0,
             bias=False,
             dilation=dilation,
         )
 
         self.gn2 = nn.GroupNorm(gn_num_groups, out_channels)
-        self.relu2 = nn.GELU()
+        self.relu2 = nn.ReLU()
         self.conv2 = nn.Conv1d(
             in_channels=out_channels,
             out_channels=out_channels,
@@ -75,11 +133,30 @@ class ResidualBlock(nn.Module):
                 bias=False,
             )
 
-    def forward(self, xl):
+        self.use_film = use_film
+        self.conditioning_dim = conditioning_dim
+        if use_film:
+            assert (
+                conditioning_dim is not None and conditioning_dim > 0
+            ), "Conditioning dimension must be provided when using FiLM."
+            self.film = FiLM(conditioning_dim, out_channels)
+
+    def forward(self, xl, conditioning=None):
         input = self.shortcut(xl)
+
+        if self.in_channels != self.out_channels:
+            # pad for conv1
+            pad_left, pad_right = compute_same_padding(
+                self.kernel_size, self.dilation, stride=2
+            )
+            xl = F.pad(xl, (pad_left, pad_right), mode="constant")
 
         xl = self.conv1(self.relu1(self.gn1(xl)))
         xl = self.conv2(self.relu2(self.gn2(xl)))
+
+        # Apply FiLM conditioning
+        if self.use_film:
+            xl = self.film(xl, conditioning)
 
         xlp1 = input + xl
 
@@ -215,49 +292,131 @@ class Shuriken(nn.Module):
 
         self.condition_dropout = nn.Dropout(0.1)
 
-        # Embedding layers
-        self.nucleotide_embedding = nn.Embedding(
-            5, 4
-        )  # there are 5 nucleotides (A, C, G, T, N)
-        self.event_type_embedding = nn.Embedding(4, 4)  # there are 4 event types
-
         # Convolutional layers
+        self.condition_dropout = nn.Dropout(0.1)
         self.conv1 = nn.Conv1d(
             in_channels=6,
-            out_channels=256,
+            out_channels=32,
             kernel_size=1,
             stride=1,
+            padding="same",
             bias=True,
             dilation=1,
         )  # 4 for one-hot encoding of DNA sequence, 2 for masks
+        self.film1 = FiLM(self.conditioning_dim, 32)
         self.resblocks1 = nn.ModuleList()
-        for i in range(4):
+        for i in range(2):
             self.resblocks1.append(
+                ResidualBlock(
+                    in_channels=32,
+                    out_channels=32,
+                    kernel_size=11,
+                    dilation=1,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.resblocks2 = nn.ModuleList()
+        self.resblocks2.append(
+            ResidualBlock(
+                in_channels=32,
+                out_channels=64,
+                kernel_size=11,
+                dilation=4,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
+            )
+        )
+        for i in range(1):
+            self.resblocks2.append(
+                ResidualBlock(
+                    in_channels=64,
+                    out_channels=64,
+                    kernel_size=11,
+                    dilation=4,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.resblocks3 = nn.ModuleList()
+        self.resblocks3.append(
+            ResidualBlock(
+                in_channels=64,
+                out_channels=128,
+                kernel_size=21,
+                dilation=10,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
+            )
+        )
+        for i in range(1):
+            self.resblocks3.append(
+                ResidualBlock(
+                    in_channels=128,
+                    out_channels=128,
+                    kernel_size=21,
+                    dilation=10,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.resblocks4 = nn.ModuleList()
+        self.resblocks4.append(
+            ResidualBlock(
+                in_channels=128,
+                out_channels=256,
+                kernel_size=41,
+                dilation=25,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
+            )
+        )
+        for i in range(1):
+            self.resblocks4.append(
                 ResidualBlock(
                     in_channels=256,
                     out_channels=256,
-                    kernel_size=15,
-                    dilation=1,
+                    kernel_size=41,
+                    dilation=25,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
                 )
             )
-        self.strided_conv1 = nn.Conv1d(
-            in_channels=256,
-            out_channels=126,
-            kernel_size=15,
-            stride=8,
-            bias=True,
-            dilation=1,
-        )
 
-        # Transformer layers
-        self.condition_expansion = nn.Linear(self.conditioning_dim, 128)
+        self.resblocks5 = nn.ModuleList()
+        self.resblocks5.append(
+            ResidualBlock(
+                in_channels=256,
+                out_channels=510,
+                kernel_size=41,
+                dilation=25,
+                use_film=self.conditioning_dim > 0,
+                conditioning_dim=self.conditioning_dim,
+            )
+        )
+        for i in range(1):
+            self.resblocks5.append(
+                ResidualBlock(
+                    in_channels=510,
+                    out_channels=510,
+                    kernel_size=41,
+                    dilation=25,
+                    use_film=self.conditioning_dim > 0,
+                    conditioning_dim=self.conditioning_dim,
+                )
+            )
+
+        self.condition_expansion = nn.Linear(self.conditioning_dim, 512)
         self.transformer_blocks = nn.ModuleList()
-        for i in range(8):
+        for i in range(3):
             self.transformer_blocks.append(
                 TransformerBlock(
-                    d_model=128,
+                    d_model=512,
                     nhead=8,
-                    mlp_dim=512,
+                    mlp_dim=2048,
                     dropout=0.1,
                     use_position_embedding=True,
                 )
@@ -265,15 +424,16 @@ class Shuriken(nn.Module):
 
         # Output layers
         if self.predict_mean_std_psi_and_delta:
-            self.mean_std_output_layer = nn.Linear(128, 2)
+            self.mean_std_output_layer = nn.Linear(512, 2)
         if self.predict_mean_psi_and_delta:
-            self.mean_output_layer = nn.Linear(128, 1)
+            self.mean_output_layer = nn.Linear(512, 1)
         if self.predict_controls_avg_psi_and_delta:
-            self.controls_avg_output_layer = nn.Linear(128, 1)
-        self.output_layer = nn.Linear(128, 1)
+            self.controls_avg_output_layer = nn.Linear(512, 1)
+        self.output_layer = nn.Linear(512, 1)
 
     def forward(self, batch):
-        sequence = self.nucleotide_embedding(batch["sequence"].long())  # (B, 10000, 4)
+        sequence = F.one_hot(batch["sequence"].long(), 5)  # (B, 10000, 5)
+        sequence = sequence[:, :, :4].float()  # (B, 10000, 4) - remove N
         spliced_in_mask = batch["spliced_in_mask"].float()  # (B, 10000)
         spliced_out_mask = batch["spliced_out_mask"].float()  # (B, 10000)
         gene_exp = batch["gene_exp"]  # (B,)
@@ -281,7 +441,7 @@ class Shuriken(nn.Module):
             "splicing_factor_exp_values"
         ]  # (B, num_splicing_factors)
         event_type = batch["event_type"]
-        event_type_embedding = self.event_type_embedding(event_type)  # (B, 4)
+        event_type_one_hot = F.one_hot(event_type.long(), 4)  # (B, 4)
 
         spliced_in_mask = spliced_in_mask.unsqueeze(-1)  # (B, 10000, 1)
         spliced_out_mask = spliced_out_mask.unsqueeze(-1)  # (B, 10000, 1)
@@ -296,19 +456,31 @@ class Shuriken(nn.Module):
             conditioning.append(self.condition_dropout(splicing_factor_exp_values))
         if self.has_gene_exp_values:
             conditioning.append(self.condition_dropout(gene_exp))
-        conditioning.append(event_type_embedding)
+        conditioning.append(event_type_one_hot)
         if len(conditioning) > 1:  # (B, conditioning_dim)
             conditioning = torch.cat(conditioning, dim=1)
         else:
             conditioning = conditioning[0].float()
 
-        # put sequence through the convolutional layers
-        x = self.conv1(x)  # (B, 128, 10000)
-        for resblock in self.resblocks1:
-            x = resblock(x)  # (B, 256, 10000)
-        x = self.strided_conv1(x)  # (B, 512, 1111)
+        x = self.conv1(x)
+        x = self.film1(x, conditioning)
 
-        x = einops.rearrange(x, "b c t -> b t c")  # (B, 135, 1022)
+        for resblock in self.resblocks1:
+            x = resblock(x, conditioning)
+
+        for resblock in self.resblocks2:
+            x = resblock(x, conditioning)
+
+        for resblock in self.resblocks3:
+            x = resblock(x, conditioning)
+
+        for resblock in self.resblocks4:
+            x = resblock(x, conditioning)
+
+        for resblock in self.resblocks5:
+            x = resblock(x, conditioning)
+
+        x = einops.rearrange(x, "b c t -> b t c")
 
         # we also want to add the spliced_in and spliced_out masks to the input after pooling to match the length of the sequence
         spliced_in_mask = spliced_in_mask.permute(0, 2, 1)  # (B, 1, 10000)
@@ -316,7 +488,10 @@ class Shuriken(nn.Module):
         both_masks = torch.cat(
             [spliced_in_mask, spliced_out_mask], dim=1
         )  # (B, 2, 10000)
-        both_masks = F.avg_pool1d(both_masks, kernel_size=15, stride=8)  # (B, 2, 1663)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=2, stride=2)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=2, stride=2)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=2, stride=2)
+        both_masks = F.avg_pool1d(both_masks, kernel_size=2, stride=2)
         both_masks = einops.rearrange(both_masks, "b c t -> b t c")  # (B, 135, 2)
         x = torch.cat([x, both_masks], dim=2)  # (B, 135, 1024)
 
