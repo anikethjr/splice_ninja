@@ -185,7 +185,7 @@ def main():
             # early_stopping_cb,
         ],
         precision="16-mixed",
-        strategy="ddp" if n_gpus > 1 else "auto",
+        strategy="ddp",
         reload_dataloaders_every_n_epochs=1,
     )
 
