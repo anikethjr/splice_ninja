@@ -531,7 +531,11 @@ def main():
         # the control is the sample with SAMPLE == "AV_Controls"
         control_df = df[df["SAMPLE"] == "AV_Controls"][["EVENT", "PSI_PREDS"]]
         control_df.columns = ["EVENT", "PRED_CONTROLS_AVG_PSI"]
-        df = df.merge(control_df, on="EVENT", how="inner", validate="one_to_one")
+        ori_len = len(df)
+        df = df.merge(control_df, on="EVENT", how="inner")
+        assert (
+            len(df) == ori_len
+        ), f"Length of dataframe ({len(df)}) does not match the original length ({ori_len})."
         df.to_csv(os.path.join(predictions_dir, "preds.csv"), index=False)
         print(f"Predictions saved to {predictions_dir}/preds.csv")
 
