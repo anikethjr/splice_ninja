@@ -1780,20 +1780,26 @@ class VastDBData(LightningDataModule):
         print("Merged event information with flattened inclusion levels data")
         # add gene expression values to the unified data
         original_unified_data_len = len(self.unified_data)
-        self.unified_data = self.unified_data.merge(
-            self.normalized_gene_expression_flattened,
-            left_on=["GENE_ID", "SAMPLE"],
-            right_on=["gene_id", "sample"],
-            how="left",
-        )
-        self.unified_data = self.unified_data.drop(columns=["gene_id", "sample"])
-        if self.remove_events_without_gene_expression_data:
-            assert (
-                self.unified_data["expression"].notnull().all()
-            ), "Some events without gene expression data are present in the unified data although they should have been removed"
-        print(
-            f"Merged gene expression values with unified data ({100 * (original_unified_data_len - len(self.unified_data)) / original_unified_data_len:.2f}% of events without gene expression data)"
-        )
+        if (
+            "do_not_use_gene_expression_data" in self.config["train_config"]
+            and self.config["train_config"]["do_not_use_gene_expression_data"]
+        ):
+            self.unified_data["expression"] = np.nan
+        else:
+            self.unified_data = self.unified_data.merge(
+                self.normalized_gene_expression_flattened,
+                left_on=["GENE_ID", "SAMPLE"],
+                right_on=["gene_id", "sample"],
+                how="left",
+            )
+            self.unified_data = self.unified_data.drop(columns=["gene_id", "sample"])
+            if self.remove_events_without_gene_expression_data:
+                assert (
+                    self.unified_data["expression"].notnull().all()
+                ), "Some events without gene expression data are present in the unified data although they should have been removed"
+            print(
+                f"Merged gene expression values with unified data ({100 * (original_unified_data_len - len(self.unified_data)) / original_unified_data_len:.2f}% of events without gene expression data)"
+            )
 
         # create datasets for training, validation, and testing
         if self.split_type == "chromosome":
