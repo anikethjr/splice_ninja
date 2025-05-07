@@ -57,6 +57,9 @@ class KnockdownDataset(Dataset):
         elif self.split == "test":
             self.data = self.data_module.test_data
 
+        elif self.split == "all":
+            self.data = self.data_module.unified_data
+
         if self.return_control_data_only:
             print("Returning control data only")
             # filter the data to only include control data
@@ -2168,6 +2171,67 @@ class KnockdownData(LightningDataModule):
         self.splicing_factor_expression_levels = pd.read_parquet(
             os.path.join(self.cache_dir, "splicing_factor_expression_levels.parquet")
         )
+
+        # if using in combination with a VastDB-based predictor, we removed splicing factors that are not in the VastDB data
+        if (
+            "use_VastDB_splicing_factors" in self.config["train_config"]
+            and self.config["train_config"]["use_VastDB_splicing_factors"]
+        ):
+            print("Running in VastDB mode")
+            vastdb_splicing_factors = pd.read_parquet(
+                os.path.join(
+                    self.cache_dir,
+                    "VastDB",
+                    "hg38",
+                    "splicing_factor_expression_levels.parquet",
+                )
+            ).drop(columns=["alias", "length"])
+            print(
+                "Loaded VastDB splicing factors, there are",
+                len(vastdb_splicing_factors),
+                "splicing factors",
+            )
+            self.splicing_factor_expression_levels = (
+                self.splicing_factor_expression_levels[
+                    self.splicing_factor_expression_levels["gene_id"].isin(
+                        vastdb_splicing_factors["gene_id"]
+                    )
+                ].reset_index(drop=True)
+            )
+            assert len(self.splicing_factor_expression_levels) == len(
+                vastdb_splicing_factors
+            ), "Number of splicing factors in VastDB and the data do not match"
+            print(
+                "Filtered splicing factors to only include those in VastDB, there are",
+                len(self.splicing_factor_expression_levels),
+                "splicing factors",
+            )
+
+            # we also have to make sure that the splicing factors in the VastDB data are in the same order as in the VastDB data
+            ordering_in_vastdb = {
+                i: j for j, i in enumerate(vastdb_splicing_factors["gene_id"].values)
+            }
+            self.splicing_factor_expression_levels[
+                "ordering_in_vastdb"
+            ] = self.splicing_factor_expression_levels["gene_id"].map(
+                ordering_in_vastdb
+            )
+            self.splicing_factor_expression_levels = (
+                self.splicing_factor_expression_levels.sort_values(
+                    by=["ordering_in_vastdb"]
+                ).reset_index(drop=True)
+            )
+            self.splicing_factor_expression_levels = (
+                self.splicing_factor_expression_levels.drop(
+                    columns=["ordering_in_vastdb"]
+                )
+            )
+            assert np.all(
+                self.splicing_factor_expression_levels["gene_id"].values
+                == vastdb_splicing_factors["gene_id"].values
+            ), "Splicing factors in VastDB and the data do not match"
+            print("Done matching VastDB splicing factors")
+
         self.num_splicing_factors = self.splicing_factor_expression_levels.shape[0]
         self.has_gene_exp_values = True
 
@@ -2283,6 +2347,7 @@ class KnockdownData(LightningDataModule):
         )
 
         # create datasets for training, validation, and testing
+        self.unified_data["example_type"] = "train"
         if self.split_type == "chromosome":
             self.train_data = self.unified_data[
                 self.unified_data["CHR"].isin(self.train_chromosomes)
@@ -2834,6 +2899,16 @@ class KnockdownData(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(
             KnockdownDataset(self, split="test"),
+            batch_size=self.config["train_config"]["batch_size"],
+            shuffle=False,
+            pin_memory=True,
+            num_workers=self.config["train_config"]["num_workers"],
+            worker_init_fn=worker_init_fn,
+        )
+
+    def all_data_dataloader(self):
+        return DataLoader(
+            KnockdownDataset(self, split="all"),
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
