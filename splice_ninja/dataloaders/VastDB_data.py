@@ -56,6 +56,9 @@ class VastDBDataset(Dataset):
         elif self.split == "test":
             self.data = self.data_module.test_data
 
+        elif self.split == "all":
+            self.data = self.data_module.unified_data
+
     def __len__(self):
         return len(self.data)
 
@@ -1802,6 +1805,7 @@ class VastDBData(LightningDataModule):
             )
 
         # create datasets for training, validation, and testing
+        self.unified_data["example_type"] = "train"
         if self.split_type == "chromosome":
             self.train_data = self.unified_data[
                 self.unified_data["CHR"].isin(self.train_chromosomes)
@@ -2261,6 +2265,16 @@ class VastDBData(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(
             VastDBDataset(self, split="test"),
+            batch_size=self.config["train_config"]["batch_size"],
+            shuffle=False,
+            pin_memory=True,
+            num_workers=self.config["train_config"]["num_workers"],
+            worker_init_fn=worker_init_fn,
+        )
+
+    def all_data_dataloader(self):
+        return DataLoader(
+            VastDBDataset(self, split="all"),
             batch_size=self.config["train_config"]["batch_size"],
             shuffle=False,
             pin_memory=True,
