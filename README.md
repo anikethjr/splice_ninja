@@ -12,6 +12,5 @@ Our best pretrained model and its predictions are available here - https://huggi
 git clone https://github.com/anikethjr/splice_ninja.git
 cd splice_ninja
 mamba env create -f environment.yaml
-mamba install -c conda-forge -c bioconda 'genomepy>=0.15'
 pip install -e .
 ```
