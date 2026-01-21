@@ -1,4 +1,4 @@
-name: /clusterfs/nilah/aniketh/mamba_envs/promoter_models
+name: splice_ninja
 channels:
   - pytorch
   - nvidia
